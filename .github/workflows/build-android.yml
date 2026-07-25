@@ -101,23 +101,23 @@ jobs:
 
       - name: Generate Signing Keystore
         run: |
-          # أنشئ keystore مؤقت للتوقيع (debug signing للـ release)
+          # أنشئ keystore في مجلد android/app/
           keytool -genkeypair \
             -alias aquacore-key \
             -keyalg RSA \
             -keysize 2048 \
             -validity 10000 \
-            -keystore android/aquacore.keystore \
+            -keystore android/app/aquacore.keystore \
             -storepass aquacore123 \
             -keypass aquacore123 \
             -dname "CN=AquaCore Club Manager, OU=Mobile, O=AquaCore, L=Algiers, ST=Algiers, C=DZ"
 
-          # اضبط gradle للتوقيع
+          # اضبط gradle للتوقيع — storeFile نسبة لمجلد app/
           cat >> android/app/build.gradle << 'GRADLE'
 
           android.signingConfigs {
             release {
-              storeFile file('../../aquacore.keystore')
+              storeFile file('aquacore.keystore')
               storePassword 'aquacore123'
               keyAlias 'aquacore-key'
               keyPassword 'aquacore123'
