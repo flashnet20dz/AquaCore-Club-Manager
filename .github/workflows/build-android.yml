@@ -1,0 +1,117 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'capacitor.config.ts'
+      - '.github/workflows/build-android.yml'
+      - 'android-resources/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools build-tools;34.0.0 platforms;android-34'
+
+      - name: Install Capacitor
+        run: |
+          npm init -y
+          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/app @capacitor/splash-screen
+          npm install @capacitor/camera @capacitor/preferences
+
+      - name: Add Android Platform
+        run: |
+          npx cap add android || true
+          npx cap copy android
+
+      - name: Generate App Icons
+        run: |
+          # أنشئ أيقونات Android من شعار AquaCore
+          mkdir -p android-resources
+          # إذا وُجدت أيقونة، استخدمها؛ وإلا استخدم أيقونة افتراضية
+          if [ -f "public/images/icon-256.png" ]; then
+            cp public/images/icon-256.png android-resources/icon.png
+          fi
+
+      - name: Configure Android App
+        run: |
+          # ضبط اسم التطبيق و package ID
+          cat > android/app/src/main/AndroidManifest.xml << 'MANIFEST'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              package="com.aquacore.clubmanager">
+              <application
+                  android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="AquaCore"
+                  android:roundIcon="@mipmap/ic_launcher_round"
+                  android:supportsRtl="true"
+                  android:usesCleartextTraffic="false"
+                  android:theme="@style/AppTheme">
+                  <activity
+                      android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
+                      android:name="com.aquacore.clubmanager.MainActivity"
+                      android:label="AquaCore Club Manager"
+                      android:theme="@style/AppTheme.NoActionBarLaunch"
+                      android:launchMode="singleTask"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+                  <uses-permission android:name="android.permission.INTERNET" />
+                  <uses-permission android:name="android.permission.CAMERA" />
+                  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              </application>
+          </manifest>
+          MANIFEST
+
+      - name: Build APK (Debug)
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon -x lintVitalRelease
+
+      - name: Rename APK
+        run: |
+          mkdir -p output
+          cp android/app/build/outputs/apk/debug/app-debug.apk output/AquaCore-Club-Manager.apk
+          ls -la output/
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AquaCore-APK
+          path: output/*.apk
+          retention-days: 90
+          compression-level: 0
+
+      - name: Get APK Info
+        run: |
+          echo "## 📱 AquaCore APK Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Download:** [GitHub Actions Artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          FILESIZE=$(stat -c%s "output/AquaCore-Club-Manager.apk" 2>/dev/null || stat -f%z "output/AquaCore-Club-Manager.apk")
+          echo "**Size:** $((FILESIZE / 1024 / 1024)) MB" >> $GITHUB_STEP_SUMMARY
+          echo "**Build:** #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY

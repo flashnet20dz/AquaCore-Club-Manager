@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>AquaCore Club Manager</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <style>
+    body { margin: 0; background: #0f766e; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+    .loader { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; color: white; }
+    .spinner { width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    p { margin-top: 16px; font-size: 14px; opacity: 0.8; }
+  </style>
+</head>
+<body>
+  <div class="loader">
+    <div class="spinner"></div>
+    <p>جاري تحميل AquaCore...</p>
+  </div>
+  <script>
+    // Redirect to live URL (fallback if Capacitor server.url doesn't work)
+    window.location.href = "https://aladine-pool-manager.vercel.app";
+  </script>
+</body>
+</html>
