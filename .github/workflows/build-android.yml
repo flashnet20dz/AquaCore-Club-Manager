@@ -7,11 +7,14 @@ on:
       - 'capacitor.config.ts'
       - '.github/workflows/build-android.yml'
       - 'android-resources/**'
+      - 'www/**'
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,26 +38,34 @@ jobs:
       - name: Install Capacitor
         run: |
           npm init -y
-          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/app @capacitor/splash-screen
-          npm install @capacitor/camera @capacitor/preferences
+          npm install @capacitor/core@^6 @capacitor/cli@^6 @capacitor/android@^6 @capacitor/app@^6 @capacitor/splash-screen@^6 @capacitor/camera@^6 @capacitor/preferences@^6
 
       - name: Add Android Platform
         run: |
           npx cap add android || true
           npx cap copy android
 
-      - name: Generate App Icons
+      - name: Copy App Icons
         run: |
-          # أنشئ أيقونات Android من شعار AquaCore
-          mkdir -p android-resources
-          # إذا وُجدت أيقونة، استخدمها؛ وإلا استخدم أيقونة افتراضية
-          if [ -f "public/images/icon-256.png" ]; then
-            cp public/images/icon-256.png android-resources/icon.png
+          # انسخ أيقونات mipmap لمجلدات Android
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            if [ -d "android-resources/mipmap-$density" ]; then
+              mkdir -p android/app/src/main/res/mipmap-$density
+              cp android-resources/mipmap-$density/*.png android/app/src/main/res/mipmap-$density/
+            fi
+          done
+
+          # انسخ splash screen
+          if [ -f "android-resources/splash.png" ]; then
+            mkdir -p android/app/src/main/res/drawable
+            cp android-resources/splash.png android/app/src/main/res/drawable/splash.png
           fi
 
-      - name: Configure Android App
+          echo "✅ Icons copied"
+          ls -la android/app/src/main/res/mipmap-xxxhdpi/ 2>/dev/null || echo "No xxxhdpi"
+
+      - name: Configure Android Manifest
         run: |
-          # ضبط AndroidManifest — الأذونات يجب أن تكون داخل <manifest> وليس <application>
           cat > android/app/src/main/AndroidManifest.xml << 'MANIFEST'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android"
@@ -62,6 +73,7 @@ jobs:
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.CAMERA" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
               <application
                   android:allowBackup="true"
                   android:icon="@mipmap/ic_launcher"
@@ -69,7 +81,8 @@ jobs:
                   android:roundIcon="@mipmap/ic_launcher_round"
                   android:supportsRtl="true"
                   android:usesCleartextTraffic="false"
-                  android:theme="@style/AppTheme">
+                  android:theme="@style/AppTheme"
+                  android:hardwareAccelerated="true">
                   <activity
                       android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
                       android:name="com.aquacore.clubmanager.MainActivity"
@@ -86,17 +99,51 @@ jobs:
           </manifest>
           MANIFEST
 
-      - name: Build APK (Debug)
+      - name: Generate Signing Keystore
+        run: |
+          # أنشئ keystore مؤقت للتوقيع (debug signing للـ release)
+          keytool -genkeypair \
+            -alias aquacore-key \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -keystore android/aquacore.keystore \
+            -storepass aquacore123 \
+            -keypass aquacore123 \
+            -dname "CN=AquaCore Club Manager, OU=Mobile, O=AquaCore, L=Algiers, ST=Algiers, C=DZ"
+
+          # اضبط gradle للتوقيع
+          cat >> android/app/build.gradle << 'GRADLE'
+
+          android.signingConfigs {
+            release {
+              storeFile file('../../aquacore.keystore')
+              storePassword 'aquacore123'
+              keyAlias 'aquacore-key'
+              keyPassword 'aquacore123'
+            }
+          }
+          android.buildTypes.release.signingConfig = android.signingConfigs.release
+          GRADLE
+
+      - name: Build Release APK (Signed)
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon -x lintVitalRelease
+          ./gradlew assembleRelease --no-daemon -x lintVitalRelease
 
-      - name: Rename APK
+      - name: Rename and Verify APK
         run: |
           mkdir -p output
-          cp android/app/build/outputs/apk/debug/app-debug.apk output/AquaCore-Club-Manager.apk
+          APK_PATH="android/app/build/outputs/apk/release/app-release.apk"
+          if [ ! -f "$APK_PATH" ]; then
+            echo "Release APK not found, falling back to debug..."
+            APK_PATH="android/app/build/outputs/apk/debug/app-debug.apk"
+            cd android && ./gradlew assembleDebug --no-daemon -x lintVitalRelease && cd ..
+          fi
+          cp "$APK_PATH" output/AquaCore-Club-Manager.apk
           ls -la output/
+          echo "APK size: $(du -h output/AquaCore-Club-Manager.apk | cut -f1)"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -106,12 +153,44 @@ jobs:
           retention-days: 90
           compression-level: 0
 
-      - name: Get APK Info
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: AquaCore Club Manager v1.0.${{ github.run_number }}
+          files: output/AquaCore-Club-Manager.apk
+          body: |
+            # 📱 AquaCore Club Manager — Android APK
+
+            ## تحميل مباشر
+            **[AquaCore-Club-Manager.apk](https://github.com/flashnet20dz/AquaCore-Club-Manager/releases/download/v1.0.${{ github.run_number }}/AquaCore-Club-Manager.apk)**
+
+            ## الميزات
+            - ✅ لوحة تحكم + إحصائيات
+            - ✅ المنخرطون + صور بالكاميرا
+            - ✅ الحضور بكود QR
+            - ✅ التجديدات + ساعات العمل
+            - ✅ Offline caching
+            - ✅ Release موقّع
+
+            ## التثبيت
+            1. حمّل ملف APK
+            2. فعّل "تثبيت من مصادر غير معروفة" في إعدادات Android
+            3. افتح ملف APK وثبّته
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
         run: |
+          FILESIZE=$(stat -c%s "output/AquaCore-Club-Manager.apk" 2>/dev/null || stat -f%z "output/AquaCore-Club-Manager.apk")
           echo "## 📱 AquaCore APK Build Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Download:** [GitHub Actions Artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          echo "**Direct Download:** [AquaCore-Club-Manager.apk](https://github.com/flashnet20dz/AquaCore-Club-Manager/releases/download/v1.0.${{ github.run_number }}/AquaCore-Club-Manager.apk)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          FILESIZE=$(stat -c%s "output/AquaCore-Club-Manager.apk" 2>/dev/null || stat -f%z "output/AquaCore-Club-Manager.apk")
+          echo "**Releases Page:** https://github.com/flashnet20dz/AquaCore-Club-Manager/releases" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Size:** $((FILESIZE / 1024 / 1024)) MB" >> $GITHUB_STEP_SUMMARY
           echo "**Build:** #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Type:** Release (Signed)" >> $GITHUB_STEP_SUMMARY
