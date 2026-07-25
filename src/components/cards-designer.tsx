@@ -728,7 +728,22 @@ function CardCanvasScaler({
             {el.type === "logo" && <img src="/images/rcs-logo-official.png" alt="logo" className="w-full h-full object-contain" onError={(e) => e.currentTarget.style.display = "none"} draggable={false} />}
             {el.type === "uploadedImage" && el.imageData && <img src={el.imageData} alt="img" className="w-full h-full object-contain" draggable={false} />}
             {el.type === "uploadedImage" && !el.imageData && <div className="w-full h-full bg-gray-200 flex items-center justify-center text-gray-400 text-xs">صورة</div>}
-            {el.type === "photo" && <div className="w-full h-full bg-gray-200 rounded flex items-center justify-center text-gray-400 text-xs">صورة عضو</div>}
+            {el.type === "photo" && (
+              <div
+                className="w-full h-full bg-gray-200 flex items-center justify-center text-gray-400 text-xs overflow-hidden"
+                style={{
+                  borderRadius: el.shapeKind === "circle" ? "50%" : (el.borderRadius || 8),
+                  border: el.borderWidth ? `${el.borderWidth}px ${el.borderStyle || "solid"} ${el.borderColor || "#000"}` : undefined,
+                  boxShadow: el.shadow ? "0 2px 8px rgba(0,0,0,0.15)" : undefined,
+                }}
+              >
+                {el.imageData ? (
+                  <img src={el.imageData} alt="عضو" className="w-full h-full object-cover" draggable={false} />
+                ) : (
+                  <User className="h-1/2 w-1/2 opacity-40" />
+                )}
+              </div>
+            )}
             {el.type === "shape" && <div className="w-full h-full" />}
             {el.type !== "qr" && el.type !== "logo" && el.type !== "photo" && el.type !== "shape" && el.type !== "uploadedImage" && (
               <span style={{ fontFamily: `${el.fontFamily}, Arial, sans-serif`, fontSize: `${el.fontSize}px`, fontWeight: el.fontWeight as React.CSSProperties["fontWeight"], color: el.color, textAlign: el.textAlign as React.CSSProperties["textAlign"], width: "100%", lineHeight: 1.3, wordBreak: "break-word" }}>

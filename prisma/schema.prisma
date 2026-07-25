@@ -189,6 +189,8 @@ model Subscriber {
   swimmingDays    String?
   timeSlot        String?
   phone           String?
+  photoPath       String?                             // مسار الصورة الشخصية (uploads/subscribers/uuid.jpg)
+  photoThumb      String?                             // مسار النسخة المصغّرة (300x300)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   deletedAt       DateTime?                             // حذف ناعم — يبقى محفوظاً للمزامنة
@@ -199,6 +201,7 @@ model Subscriber {
   payments        Payment[]
   compensations   Compensation[]
   contracts       SubscriberContract[]
+  photo           SubscriberPhoto?
 
   @@unique([clubId, fileNumber])
   @@index([clubId])
@@ -888,4 +891,22 @@ model DefaultClubConfig {
   updatedById     String?
 
   @@index([id])
+}
+
+// ═══════════════════════════════════════════════════════════
+// SUBSCRIBER PHOTOS — صور المنخرطين (base64 in DB, works everywhere)
+// ═══════════════════════════════════════════════════════════
+model SubscriberPhoto {
+  id              String   @id @default(cuid())
+  subscriberId    String   @unique
+  subscriber      Subscriber @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
+  // الصور كـ base64 (data URL) — يعمل على Vercel + Electron + Offline
+  original        String   // الصورة الأصلية (data:image/jpeg;base64,...)
+  cropped         String   // 300×300 مقصوصة
+  thumbnail       String   // 100×100 مصغّرة
+  faceDetected    Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([subscriberId])
 }

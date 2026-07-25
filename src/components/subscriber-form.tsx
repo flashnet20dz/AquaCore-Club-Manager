@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useSubscriptionTypes } from "@/hooks/use-subscription-types";
+import { PhotoUploader } from "@/components/photo-uploader";
 import {
   BLOOD_TYPES,
   SUBSCRIPTION_TYPES,
@@ -51,6 +52,7 @@ export interface SubscriberFormValues {
   swimmingDays: SwimmingDays | null;
   timeSlot: TimeSlot | null;
   phone: string;
+  photoUrl?: string;  // مسار الصورة الشخصية (data URL أو مسار نسبي)
 }
 
 interface SubscriberFormProps {
@@ -205,6 +207,15 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-6">
+          {/* الصورة الشخصية — تظهر فقط في وضع التعديل */}
+          {isEdit && initial?.id && (
+            <PhotoUploader
+              subscriberId={initial.id}
+              currentPhoto={form.photoUrl || null}
+              onPhotoChange={(url) => setForm({ ...form, photoUrl: url || "" })}
+            />
+          )}
+
           {/* Personal info */}
           <section className="space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
