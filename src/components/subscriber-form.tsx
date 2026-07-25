@@ -81,9 +81,14 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
   const { activeTypes: subTypes } = useSubscriptionTypes();
   const [saving, setSaving] = useState(false);
   const isEdit = !!initial?.id;
+  // 🔑 الصورة المؤقتة للمنخرط الجديد (قبل الحفظ)
+  const [pendingPhoto, setPendingPhoto] = useState<{
+    original: string; cropped: string; thumbnail: string; faceDetected: boolean;
+  } | null>(null);
 
   useEffect(() => {
     if (open) {
+      setPendingPhoto(null); // امسح الصورة المؤقتة عند فتح النموذج
       setForm({
         ...emptyForm,
         ...initial,
@@ -145,6 +150,21 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
       } else {
         toast.success(isEdit ? "تم تحديث بيانات المنخرط" : "تم تسجيل منخرط جديد بنجاح");
       }
+
+      // 🔑 ارفع الصورة المؤقتة بعد حفظ المنخرط الجديد
+      if (pendingPhoto && data.subscriber?.id) {
+        try {
+          await fetch(`/api/subscribers/${data.subscriber.id}/photo`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(pendingPhoto),
+          });
+          toast.success("✓ تم حفظ الصورة الشخصية");
+        } catch {
+          toast.error("تم حفظ المنخرط لكن فشل رفع الصورة — يمكنك إضافتها لاحقاً بالتعديل");
+        }
+      }
+
       onOpenChange(false);
       onSaved();
     } catch (error) {
@@ -207,14 +227,13 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-6">
-          {/* الصورة الشخصية — تظهر فقط في وضع التعديل */}
-          {isEdit && initial?.id && (
-            <PhotoUploader
-              subscriberId={initial.id}
-              currentPhoto={form.photoUrl || null}
-              onPhotoChange={(url) => setForm({ ...form, photoUrl: url || "" })}
-            />
-          )}
+          {/* الصورة الشخصية — تظهر دائماً (في وضع التعديل ترفع للـ API، في الإضافة تُخزّن مؤقتاً) */}
+          <PhotoUploader
+            subscriberId={isEdit ? initial?.id : undefined}
+            currentPhoto={form.photoUrl || (pendingPhoto?.cropped ?? null)}
+            onPhotoChange={(url) => setForm({ ...form, photoUrl: url || "" })}
+            onPhotoProcessed={(data) => setPendingPhoto(data)}
+          />
 
           {/* Personal info */}
           <section className="space-y-3">

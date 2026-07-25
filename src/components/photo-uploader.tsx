@@ -73,12 +73,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 export interface PhotoUploaderProps {
-  /** معرّف المنخرط */
-  subscriberId: string;
+  /** معرّف المنخرط (إذا undefined → temp mode: لا يرفع للـ API، فقط يُرجع البيانات) */
+  subscriberId?: string;
   /** الصورة الحالية (data URL أو null) */
   currentPhoto?: string | null;
   /** يُستدعى عند تغيّر الصورة (cropped) أو حذفها (null) */
   onPhotoChange?: (dataUrl: string | null) => void;
+  /** في temp mode: يُستدعى بالبيانات الكاملة للصورة المعالجة (original+cropped+thumbnail+faceDetected) */
+  onPhotoProcessed?: (data: { original: string; cropped: string; thumbnail: string; faceDetected: boolean } | null) => void;
   disabled?: boolean;
 }
 
@@ -92,6 +94,7 @@ export function PhotoUploader({
   subscriberId,
   currentPhoto,
   onPhotoChange,
+  onPhotoProcessed,
   disabled,
 }: PhotoUploaderProps) {
   // ─── Displayed photo state (synced from prop via "adjust during render") ───
@@ -234,6 +237,24 @@ export function PhotoUploader({
     async (processed: ProcessedImage): Promise<void> => {
       setIsUploading(true);
       try {
+        // 🔑 Temp mode (new subscriber, no id yet): لا ترفع للـ API، فقط أرجع البيانات
+        if (!subscriberId) {
+          onPhotoChange?.(processed.cropped);
+          onPhotoProcessed?.({
+            original: processed.original,
+            cropped: processed.cropped,
+            thumbnail: processed.thumbnail,
+            faceDetected: processed.faceDetected,
+          });
+          toast.success("✓ تم التقاط الصورة", {
+            description: processed.faceDetected
+              ? "تم اكتشاف الوجه تلقائياً — ستُحفظ بعد تسجيل المنخرط"
+              : "لم يتم اكتشاف وجه — ستُحفظ بعد تسجيل المنخرط",
+          });
+          return;
+        }
+
+        // Normal mode: ارفع للـ API
         const res = await fetch(photoEndpoint(subscriberId), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -270,7 +291,7 @@ export function PhotoUploader({
         setIsUploading(false);
       }
     },
-    [subscriberId, onPhotoChange]
+    [subscriberId, onPhotoChange, onPhotoProcessed]
   );
 
   // ─── Process + upload from File or dataURL ────────────────────────
@@ -384,6 +405,18 @@ export function PhotoUploader({
   const handleDelete = async () => {
     setIsDeleting(true);
     try {
+      // 🔑 Temp mode: لا حاجة لطلب API، فقط امسح الحالة
+      if (!subscriberId) {
+        setPhotoUrl(null);
+        setWarning(null);
+        setFaceDetected(false);
+        onPhotoChange?.(null);
+        onPhotoProcessed?.(null);
+        toast.success("تم حذف الصورة");
+        setDeleteOpen(false);
+        return;
+      }
+
       const res = await fetch(photoEndpoint(subscriberId), {
         method: "DELETE",
       });
