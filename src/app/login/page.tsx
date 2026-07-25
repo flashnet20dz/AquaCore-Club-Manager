@@ -68,24 +68,12 @@ function LoginForm() {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden bg-slate-950">
-      {/* ─── Animated sports-themed background ─── */}
+      {/* ─── Static background (no heavy animations for mobile performance) ─── */}
       <div className="absolute inset-0">
         <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-teal-950 to-slate-950" />
-        <motion.div
-          className="absolute top-[-10%] right-[-5%] w-96 h-96 rounded-full bg-teal-500/20 blur-3xl"
-          animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.5, 0.3] }}
-          transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
-        />
-        <motion.div
-          className="absolute bottom-[-10%] left-[-5%] w-96 h-96 rounded-full bg-sky-500/20 blur-3xl"
-          animate={{ scale: [1.2, 1, 1.2], opacity: [0.5, 0.3, 0.5] }}
-          transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
-        />
-        <motion.div
-          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-indigo-500/10 blur-3xl"
-          animate={{ rotate: 360 }}
-          transition={{ duration: 60, repeat: Infinity, ease: "linear" }}
-        />
+        {/* دوائر ثابتة بدون animation — تمنع التوهج في WebView */}
+        <div className="absolute top-[-10%] right-[-5%] w-96 h-96 rounded-full bg-teal-500/15 blur-3xl" />
+        <div className="absolute bottom-[-10%] left-[-5%] w-96 h-96 rounded-full bg-sky-500/15 blur-3xl" />
         <div
           className="absolute inset-0 opacity-[0.03]"
           style={{
@@ -93,17 +81,6 @@ function LoginForm() {
             backgroundSize: "50px 50px",
           }}
         />
-        <div className="absolute inset-0 flex items-center justify-center">
-          {[0, 1, 2, 3, 4].map((i) => (
-            <motion.div
-              key={i}
-              className="h-full w-px bg-gradient-to-b from-transparent via-teal-400/5 to-transparent"
-              style={{ marginRight: i === 4 ? 0 : `${100 / 5}%` }}
-              animate={{ opacity: [0.3, 0.8, 0.3] }}
-              transition={{ duration: 4, repeat: Infinity, delay: i * 0.3 }}
-            />
-          ))}
-        </div>
       </div>
 
       {/* ─── Login card ─── */}

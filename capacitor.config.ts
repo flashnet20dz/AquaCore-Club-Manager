@@ -12,10 +12,9 @@ const config: CapacitorConfig = {
   },
   android: {
     allowMixedContent: false,
-    captureInput: true,
+    // 🔑 تم إزالة captureInput — كان يمنع الكتابة في حقول الإدخال
     webContentsDebuggingEnabled: false,
-    // 🔑 تفعيل WebView caching للأصول الثابتة
-    backgroundColor: "#0f766e",
+    backgroundColor: "#ffffff",
   },
   plugins: {
     SplashScreen: {
@@ -32,13 +31,11 @@ const config: CapacitorConfig = {
     Camera: {
       permissions: ["camera"],
     },
-    // 🔑 Preferences لتخزين البيانات محلياً (offline)
     Preferences: {
       group: "AquaCoreCache",
     },
     App: {
-      // إعادة التحميل عند العودة من الخلفية
-      backgroundColor: "#0f766e",
+      backgroundColor: "#ffffff",
     },
   },
   cordova: {},
