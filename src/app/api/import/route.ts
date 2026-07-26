@@ -415,15 +415,12 @@ export async function POST(req: NextRequest) {
       parsed.push(r);
     });
 
-    // Filter valid rows
+    // Filter valid rows — صف صالح = لا أخطاء حرجة (التحذيرات مقبولة)
     const validRows = parsed.filter((r) =>
-      r.errors.length === 0 &&
+      r.errorDetails.filter((e) => e.type === "critical").length === 0 &&
       r.lastName &&
       r.firstName &&
-      r.birthDate &&
-      r.gender &&
-      r.subscriptionType &&
-      r.paymentStatus
+      r.birthDate
     );
 
     // Compute financial summary for valid rows (verification)
@@ -623,11 +620,11 @@ export async function POST(req: NextRequest) {
         lastName: r.lastName,
         firstName: r.firstName,
         birthDate: r.birthDate!,
-        gender: r.gender as Gender,
+        gender: (r.gender || "ذكر") as Gender,  // 🔑 افتراضي: ذكر
         bloodType: (r.bloodType as BloodType) || null,
-        subscriptionType: r.subscriptionType as SubscriptionType,
+        subscriptionType: (r.subscriptionType || "/") as SubscriptionType,  // 🔑 افتراضي: /
         lastPaymentDate: r.lastPaymentDate,
-        paymentStatus: r.paymentStatus as PaymentStatus,
+        paymentStatus: (r.paymentStatus || "لم يدفع") as PaymentStatus,  // 🔑 افتراضي: لم يدفع
         swimmingDays: (r.swimmingDays as SwimmingDays) || null,
         timeSlot: (r.timeSlot as TimeSlot) || null,
         phone: r.phone,
