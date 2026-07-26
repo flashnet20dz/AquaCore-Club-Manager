@@ -9,6 +9,7 @@ import {
   EyeOff, Trash2, Copy, Save, Printer, Search, RefreshCw,
   ChevronUp, ChevronDown, Bold, AlignRight, AlignCenter, AlignLeft,
   Palette, FileText, Settings2, X, Lock, Unlock, Clipboard, Pencil,
+  Barcode, Grid3x3, Magnet, Undo2, Redo2, FolderOpen, BringToFront, SendToBack,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +18,10 @@ import { Badge } from "@/components/ui/badge";
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
@@ -30,7 +35,7 @@ type ElementType =
   | "customText" | "shape" | "logo" | "qr" | "photo" | "uploadedImage"
   | "fullName" | "memberId" | "bloodType" | "dateOfBirth" | "paymentDate"
   | "swimmingDays" | "swimmingTime" | "subscriptionType" | "expiryDate"
-  | "clubName" | "cardTitle";
+  | "clubName" | "cardTitle" | "barcode";
 
 type ShapeKind = "rectangle" | "circle" | "line";
 
@@ -60,6 +65,7 @@ interface CardElement {
   shapeKind?: ShapeKind;
   imageData?: string;
   locked?: boolean;
+  shadow?: boolean;
 }
 
 interface CardConfig {
@@ -74,6 +80,10 @@ interface CardConfig {
   borderWidth: number;
   borderStyle: string;
   borderRadius: number;
+  gradientEnabled?: boolean;
+  gradientStart?: string;
+  gradientEnd?: string;
+  gradientDirection?: "horizontal" | "vertical" | "diagonal";
 }
 
 interface CardDesign {
@@ -88,12 +98,20 @@ interface CardDesign {
 const PRESET_COLORS = ["#000000","#ffffff","#0f766e","#0369a1","#dc2626","#ea580c","#ca8a04","#16a34a","#0891b2","#7c3aed","#c026d3","#475569","#fbbf24","#34d399","#60a5fa","#f472b6"];
 const FONTS = ["Tahoma","Arial","Times New Roman","Courier New","Verdana","Georgia","Trebuchet MS","Palatino"];
 
+const CARD_SIZE_PRESETS: { value: string; label: string; width: number; height: number }[] = [
+  { value: "CR80", label: "CR80 PVC (10×6.5سم)", width: 10, height: 6.5 },
+  { value: "A7", label: "A7 (7.4×10.5سم)", width: 7.4, height: 10.5 },
+  { value: "A6", label: "A6 (10.5×14.8سم)", width: 10.5, height: 14.8 },
+  { value: "custom", label: "مخصص", width: 0, height: 0 },
+];
+
 const ELEMENT_LIBRARY: { type: ElementType; label: string; icon: typeof Type }[] = [
   { type: "customText", label: "نص", icon: Type },
   { type: "shape", label: "مستطيل", icon: Square },
   { type: "logo", label: "شعار", icon: Building2 },
   { type: "uploadedImage", label: "صورة", icon: ImageIcon },
   { type: "qr", label: "QR", icon: QrCode },
+  { type: "barcode", label: "باركود", icon: Barcode },
   { type: "photo", label: "صورة عضو", icon: User },
   { type: "fullName", label: "الاسم", icon: User },
   { type: "memberId", label: "رقم", icon: Hash },
@@ -128,7 +146,7 @@ const DEFAULT_DESIGN: CardDesign = {
     { id: "b4", type: "subscriptionType", name: "نوع", x: 0.5, y: 2.9, width: 9, height: 0.6, rotation: 0, opacity: 100, zIndex: 4, visible: true, fontFamily: "Tahoma", fontSize: 10, fontWeight: "normal", textAlign: "right", color: "#333333", showLabel: true, labelText: "نوع الاشتراك: " },
     { id: "b5", type: "expiryDate", name: "نهاية", x: 0.5, y: 3.6, width: 9, height: 0.6, rotation: 0, opacity: 100, zIndex: 5, visible: true, fontFamily: "Tahoma", fontSize: 10, fontWeight: "normal", textAlign: "right", color: "#dc2626", showLabel: true, labelText: "تاريخ الانتهاء: " },
   ],
-  config: { width: 10, height: 7, cols: 2, rows: 4, gap: 0, offsetX: 0, offsetY: 0, bgColor: "#ffffff", bgOpacity: 100, borderColor: "#0f766e", borderWidth: 2, borderStyle: "solid", borderRadius: 12 },
+  config: { width: 10, height: 7, cols: 2, rows: 4, gap: 0, offsetX: 0, offsetY: 0, bgColor: "#ffffff", bgOpacity: 100, borderColor: "#0f766e", borderWidth: 2, borderStyle: "solid", borderRadius: 12, gradientEnabled: false, gradientStart: "#0f766e", gradientEnd: "#0369a1", gradientDirection: "diagonal" },
 };
 
 function uid() { return Math.random().toString(36).substring(2, 11); }
@@ -155,11 +173,12 @@ function createElement(type: ElementType): CardElement {
   if (type === "customText") { el.text = "نص جديد"; el.fontFamily = "Tahoma"; el.fontSize = 10; el.fontWeight = "normal"; el.textAlign = "right"; el.color = "#000000"; }
   if (type === "clubName") { el.text = "نادي RCS"; el.fontFamily = "Tahoma"; el.fontSize = 13; el.fontWeight = "bold"; el.textAlign = "right"; el.color = "#0f766e"; }
   if (type === "cardTitle") { el.text = "بطاقة الانخراط"; el.fontFamily = "Tahoma"; el.fontSize = 12; el.fontWeight = "bold"; el.textAlign = "center"; el.color = "#0f766e"; }
-  if (type !== "customText" && type !== "cardTitle" && type !== "clubName" && type !== "logo" && type !== "qr" && type !== "photo" && type !== "shape" && type !== "uploadedImage") { el.fontFamily = "Tahoma"; el.fontSize = 10; el.fontWeight = "normal"; el.textAlign = "right"; el.color = "#333333"; el.showLabel = true; el.labelText = ELEMENT_LIBRARY.find((e) => e.type === type)?.label + ": "; }
+  if (type !== "customText" && type !== "cardTitle" && type !== "clubName" && type !== "logo" && type !== "qr" && type !== "barcode" && type !== "photo" && type !== "shape" && type !== "uploadedImage") { el.fontFamily = "Tahoma"; el.fontSize = 10; el.fontWeight = "normal"; el.textAlign = "right"; el.color = "#333333"; el.showLabel = true; el.labelText = ELEMENT_LIBRARY.find((e) => e.type === type)?.label + ": "; }
   if (type === "shape") { el.shapeKind = "rectangle"; el.bgColor = "#0f766e"; el.bgOpacity = 100; el.borderColor = "#000000"; el.borderWidth = 0; el.borderStyle = "solid"; el.borderRadius = 4; el.width = 3; el.height = 1; }
   if (type === "logo") { el.width = 2; el.height = 1.5; }
   if (type === "uploadedImage") { el.width = 3; el.height = 2; }
   if (type === "qr") { el.width = 2; el.height = 2; }
+  if (type === "barcode") { el.width = 3; el.height = 1.5; }
   if (type === "photo") { el.width = 2.5; el.height = 3; el.bgColor = "#e5e7eb"; el.bgOpacity = 100; el.borderRadius = 8; }
   return el;
 }
@@ -194,8 +213,87 @@ export function CardsDesigner({ subscribers, onBack }: { subscribers: Subscriber
   // Rename dialog
   const [renameTarget, setRenameTarget] = useState<CardElement | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  // Undo/Redo history
+  const [history, setHistory] = useState<CardDesign[]>([design]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+  const skipNextHistoryPush = useRef(false);
+  const historyIndexRef = useRef(0);
+  // Grid & Snap
+  const [showGrid, setShowGrid] = useState(false);
+  const [snapToGrid, setSnapToGrid] = useState(false);
+  // Templates
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [showSaveTemplate, setShowSaveTemplate] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+  const [savingTemplate, setSavingTemplate] = useState(false);
 
   useEffect(() => { const t = setTimeout(() => localStorage.setItem("rcs-card-design-v3", JSON.stringify(design)), 500); return () => clearTimeout(t); }, [design]);
+
+  // Keep historyIndexRef in sync
+  useEffect(() => { historyIndexRef.current = historyIndex; }, [historyIndex]);
+
+  // Debounced history push (skip during undo/redo)
+  useEffect(() => {
+    if (skipNextHistoryPush.current) { skipNextHistoryPush.current = false; return; }
+    const t = setTimeout(() => {
+      setHistory((prev) => {
+        const last = prev[prev.length - 1];
+        if (last && JSON.stringify(last) === JSON.stringify(design)) return prev;
+        const idx = historyIndexRef.current;
+        const newHistory = [...prev.slice(0, idx + 1), design];
+        while (newHistory.length > 50) newHistory.shift();
+        return newHistory;
+      });
+      setHistoryIndex((prev) => Math.min(prev + 1, 49));
+    }, 600);
+    return () => clearTimeout(t);
+  }, [design]);
+
+  const undo = useCallback(() => {
+    setHistoryIndex((idx) => {
+      if (idx <= 0) return idx;
+      const newIdx = idx - 1;
+      skipNextHistoryPush.current = true;
+      setDesign(history[newIdx]);
+      return newIdx;
+    });
+  }, [history]);
+
+  const redo = useCallback(() => {
+    setHistoryIndex((idx) => {
+      if (idx >= history.length - 1) return idx;
+      const newIdx = idx + 1;
+      skipNextHistoryPush.current = true;
+      setDesign(history[newIdx]);
+      return newIdx;
+    });
+  }, [history]);
+
+  // Keyboard shortcuts for undo/redo
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      const k = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && k === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
+      else if (((e.ctrlKey || e.metaKey) && k === "y") || ((e.ctrlKey || e.metaKey) && e.shiftKey && k === "z")) { e.preventDefault(); redo(); }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [undo, redo]);
+
+  // Card size preset (computed from current dimensions)
+  const currentPreset = useMemo(() => {
+    const match = CARD_SIZE_PRESETS.find((p) => p.width === design.config.width && p.height === design.config.height);
+    return match ? match.value : "custom";
+  }, [design.config.width, design.config.height]);
+
+  const applyCardSizePreset = (preset: string) => {
+    const p = CARD_SIZE_PRESETS.find((x) => x.value === preset);
+    if (p && p.width > 0) updateConfig({ width: p.width, height: p.height });
+  };
 
   const elements = activeSide === "front" ? design.front : design.back;
   const selected = elements.find((e) => e.id === selectedId) || null;
@@ -209,6 +307,8 @@ export function CardsDesigner({ subscribers, onBack }: { subscribers: Subscriber
   const duplicateElement = (id: string) => { const el = elements.find((e) => e.id === id); if (!el) return; const copy = { ...el, id: uid(), x: el.x + 0.5, y: el.y + 0.5 }; setDesign((prev) => ({ ...prev, [activeSide]: [...prev[activeSide], copy] })); setSelectedId(copy.id); };
   const toggleVisible = (id: string) => updateEl(id, { visible: !elements.find((e) => e.id === id)?.visible });
   const moveZ = (id: string, dir: "up" | "down") => { setDesign((prev) => { const arr = [...prev[activeSide]]; const idx = arr.findIndex((e) => e.id === id); if (idx === -1) return prev; if (dir === "up" && idx < arr.length - 1) [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]]; else if (dir === "down" && idx > 0) [arr[idx], arr[idx - 1]] = [arr[idx - 1], arr[idx]]; arr.forEach((e, i) => e.zIndex = i + 1); return { ...prev, [activeSide]: arr }; }); };
+  const bringToFront = (id: string) => { setDesign((prev) => { const arr = [...prev[activeSide]]; const idx = arr.findIndex((e) => e.id === id); if (idx === -1 || idx === arr.length - 1) return prev; const [el] = arr.splice(idx, 1); arr.push(el); arr.forEach((e, i) => e.zIndex = i + 1); return { ...prev, [activeSide]: arr }; }); };
+  const sendToBack = (id: string) => { setDesign((prev) => { const arr = [...prev[activeSide]]; const idx = arr.findIndex((e) => e.id === id); if (idx <= 0) return prev; const [el] = arr.splice(idx, 1); arr.unshift(el); arr.forEach((e, i) => e.zIndex = i + 1); return { ...prev, [activeSide]: arr }; }); };
 
   const handleMouseDown = (e: React.MouseEvent, el: CardElement) => {
     // Right-click: open context menu (don't start drag)
@@ -225,7 +325,15 @@ export function CardsDesigner({ subscribers, onBack }: { subscribers: Subscriber
     const card = e.currentTarget.closest("[data-card]") as HTMLElement; if (!card) return;
     const rect = card.getBoundingClientRect(); const scale = rect.width / (design.config.width * 37.8);
     dragRef.current = { id: el.id, startX: e.clientX, startY: e.clientY, origX: el.x, origY: el.y };
-    const move = (ev: MouseEvent) => { if (!dragRef.current) return; const dx = (ev.clientX - dragRef.current.startX) / scale / 37.8; const dy = (ev.clientY - dragRef.current.startY) / scale / 37.8; updateEl(dragRef.current.id, { x: Math.max(-2, Math.min(design.config.width + 1, dragRef.current.origX + dx)), y: Math.max(-2, Math.min(design.config.height + 1, dragRef.current.origY + dy)) }); };
+    const move = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      const dx = (ev.clientX - dragRef.current.startX) / scale / 37.8;
+      const dy = (ev.clientY - dragRef.current.startY) / scale / 37.8;
+      let newX = dragRef.current.origX + dx;
+      let newY = dragRef.current.origY + dy;
+      if (snapToGrid) { newX = Math.round(newX / 0.5) * 0.5; newY = Math.round(newY / 0.5) * 0.5; }
+      updateEl(dragRef.current.id, { x: Math.max(-2, Math.min(design.config.width + 1, newX)), y: Math.max(-2, Math.min(design.config.height + 1, newY)) });
+    };
     const up = () => { dragRef.current = null; document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); };
     document.addEventListener("mousemove", move); document.addEventListener("mouseup", up);
   };
@@ -318,6 +426,123 @@ export function CardsDesigner({ subscribers, onBack }: { subscribers: Subscriber
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (ev) => { try { const data = JSON.parse(ev.target?.result as string); if (data.front && data.back && data.config) { setDesign(data); toast.success("تم استيراد القالب"); } else throw new Error(); } catch { toast.error("ملف غير صالح"); } }; reader.readAsText(file); e.target.value = ""; };
   const handleReset = () => { if (confirm("إعادة تعيين كامل؟")) { setDesign(DEFAULT_DESIGN); setSelectedId(null); toast.success("تمت إعادة التعيين"); } };
 
+  // ─── Template save/load ───
+  const handleSaveTemplateSubmit = async () => {
+    if (!templateName.trim()) return;
+    setSavingTemplate(true);
+    try {
+      const res = await fetch("/api/card-templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: templateName.trim(),
+          cardSize: currentPreset,
+          orientation: design.config.width >= design.config.height ? "landscape" : "portrait",
+          width: design.config.width,
+          height: design.config.height,
+          layout: JSON.stringify(design),
+        }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("تم حفظ القالب بنجاح");
+      setShowSaveTemplate(false);
+      setTemplateName("");
+    } catch { toast.error("فشل حفظ القالب"); }
+    finally { setSavingTemplate(false); }
+  };
+
+  const fetchTemplates = async () => {
+    setLoadingTemplates(true);
+    try {
+      const res = await fetch("/api/card-templates");
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setTemplates(data.templates || []);
+    } catch { toast.error("فشل تحميل القوالب"); }
+    finally { setLoadingTemplates(false); }
+  };
+
+  const handleApplyTemplate = async (id: string) => {
+    try {
+      const res = await fetch(`/api/card-templates/${id}`);
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      const layout = data.template?.layout;
+      if (layout && layout.front && layout.back && layout.config) {
+        setDesign(layout);
+        setShowTemplates(false);
+        toast.success("تم تحميل القالب");
+      } else { toast.error("القالب غير صالح"); }
+    } catch { toast.error("فشل تحميل القالب"); }
+  };
+
+  // ─── Export PNG ───
+  const handleExportPNG = async () => {
+    const cardEl = document.querySelector("[data-card]") as HTMLElement | null;
+    if (!cardEl) { toast.error("لم يتم العثور على البطاقة"); return; }
+    setGenerating(true);
+    try {
+      let html2canvas: ((el: HTMLElement, opts?: any) => Promise<HTMLCanvasElement>) | null = null;
+      try {
+        // @ts-ignore - optional dependency
+        const mod = await import("html2canvas");
+        html2canvas = (mod as any).default || mod;
+      } catch { /* not installed — fallback */ }
+
+      if (html2canvas) {
+        const canvas = await html2canvas(cardEl, { scale: 2, backgroundColor: null, useCORS: true, logging: false });
+        const link = document.createElement("a");
+        link.download = `card-${Date.now()}.png`;
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+        toast.success("تم تصدير PNG");
+      } else {
+        // Fallback: SVG foreignObject → Canvas
+        const w = cardEl.offsetWidth;
+        const h = cardEl.offsetHeight;
+        const clone = cardEl.cloneNode(true) as HTMLElement;
+        const serializer = new XMLSerializer();
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><foreignObject width="100%" height="100%">${serializer.serializeToString(clone)}</foreignObject></svg>`;
+        const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        await new Promise<void>((resolve, reject) => { img.onload = () => resolve(); img.onerror = () => reject(new Error("img load")); img.src = url; });
+        const canvas = document.createElement("canvas");
+        canvas.width = w * 2;
+        canvas.height = h * 2;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("no ctx");
+        ctx.scale(2, 2);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0);
+        URL.revokeObjectURL(url);
+        const link = document.createElement("a");
+        link.download = `card-${Date.now()}.png`;
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+        toast.success("تم تصدير PNG (canvas API)");
+      }
+    } catch { toast.error("فشل تصدير PNG"); }
+    finally { setGenerating(false); }
+  };
+
+  // ─── Print 8 per A4 ───
+  const handlePrint8 = () => {
+    const subs = subscribers.filter((s) => selectedSubIds.includes(s.id));
+    if (subs.length === 0) { toast.error("اختر منخرطاً واحداً على الأقل"); return; }
+    const cards: SubscriberWithComputed[] = [];
+    for (let i = 0; i < 8; i++) cards.push(subs[i % subs.length]);
+    setGenerating(true);
+    try {
+      const w = window.open("", "_blank"); if (!w) { toast.error("اسمح بالنوافذ المنبثقة"); return; }
+      w.document.write(generatePrint8HTML(cards, design)); w.document.close();
+      w.onload = () => setTimeout(() => w.print(), 800);
+      toast.success("تم إنشاء 8 بطاقات/A4");
+    } catch { toast.error("فشل"); } finally { setGenerating(false); }
+  };
+
   const handlePrint = () => {
     const subs = subscribers.filter((s) => selectedSubIds.includes(s.id));
     if (subs.length === 0) { toast.error("اختر منخرطاً واحداً على الأقل"); return; }
@@ -369,15 +594,46 @@ export function CardsDesigner({ subscribers, onBack }: { subscribers: Subscriber
       <div className="border-b bg-card px-2 sm:px-4 py-2 flex items-center justify-between gap-2 flex-wrap no-print">
         <div className="flex items-center gap-2 min-w-0 shrink-0">
           {onBack && <Button variant="ghost" size="sm" onClick={onBack}>رجوع</Button>}
-          <span className="font-bold text-sm truncate">مصمم البطاقات</span>
+          <span className="font-bold text-sm truncate hidden sm:inline">مصمم البطاقات</span>
           <Badge variant="secondary" className="shrink-0">{selectedSubIds.length} محدد</Badge>
+          <Select value={currentPreset} onValueChange={applyCardSizePreset}>
+            <SelectTrigger size="sm" className="h-8 w-36 text-xs"><CreditCard className="h-3.5 w-3.5 ml-1" /><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {CARD_SIZE_PRESETS.map((p) => <SelectItem key={p.value} value={p.value} className="text-xs">{p.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
         {/* Buttons row — wraps to next line on narrow screens */}
         <div className="flex items-center gap-1 flex-wrap justify-end">
+          {/* Undo/Redo */}
+          <Button size="sm" variant="outline" onClick={undo} disabled={historyIndex <= 0} className="h-8 w-8 p-0" title="تراجع (Ctrl+Z)">
+            <Undo2 className="h-3.5 w-3.5" />
+          </Button>
+          <Button size="sm" variant="outline" onClick={redo} disabled={historyIndex >= history.length - 1} className="h-8 w-8 p-0" title="إعادة (Ctrl+Y)">
+            <Redo2 className="h-3.5 w-3.5" />
+          </Button>
+          <div className="w-px h-6 bg-border mx-0.5 hidden sm:block" />
+          {/* Grid/Snap */}
+          <Button size="sm" variant={showGrid ? "default" : "outline"} onClick={() => setShowGrid(!showGrid)} className="h-8 w-8 p-0" title="شبكة">
+            <Grid3x3 className="h-3.5 w-3.5" />
+          </Button>
+          <Button size="sm" variant={snapToGrid ? "default" : "outline"} onClick={() => setSnapToGrid(!snapToGrid)} className="h-8 w-8 p-0" title="محاذاة للشبكة">
+            <Magnet className="h-3.5 w-3.5" />
+          </Button>
+          <div className="w-px h-6 bg-border mx-0.5 hidden sm:block" />
+          {/* Templates */}
+          <Button size="sm" variant="outline" onClick={() => setShowSaveTemplate(true)} className="h-8 px-2 sm:px-3" title="حفظ كقالب">
+            <Save className="h-3.5 w-3.5" />
+            <span className="hidden lg:inline mr-1">حفظ قالب</span>
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => { fetchTemplates(); setShowTemplates(true); }} className="h-8 w-8 p-0" title="تحميل قالب">
+            <FolderOpen className="h-3.5 w-3.5" />
+          </Button>
+          <div className="w-px h-6 bg-border mx-0.5 hidden sm:block" />
           <input ref={fileTemplateRef} type="file" accept=".json" onChange={handleImport} className="hidden" />
           <Button size="sm" variant="outline" onClick={() => fileTemplateRef.current?.click()} className="h-8 px-2 sm:px-3">
             <Upload className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline mr-1">قالب</span>
+            <span className="hidden sm:inline mr-1">استيراد</span>
           </Button>
           <Button size="sm" variant="outline" onClick={handleExport} className="h-8 px-2 sm:px-3">
             <Download className="h-3.5 w-3.5" />
@@ -392,6 +648,14 @@ export function CardsDesigner({ subscribers, onBack }: { subscribers: Subscriber
             <span className="hidden sm:inline mr-1">إعادة</span>
           </Button>
           <div className="w-px h-6 bg-border mx-0.5 hidden sm:block" />
+          <Button size="sm" variant="outline" onClick={handleExportPNG} disabled={generating} className="h-8 px-2 sm:px-3" title="تصدير PNG">
+            {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            <span className="mr-1">PNG</span>
+          </Button>
+          <Button size="sm" variant="outline" onClick={handlePrint8} disabled={generating} className="h-8 px-2 sm:px-3" title="طباعة 8 بطاقات/A4">
+            {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5" />}
+            <span className="hidden sm:inline mr-1">8/A4</span>
+          </Button>
           <Button size="sm" variant="outline" onClick={handleExportWord} disabled={generating} className="h-8 px-2 sm:px-3">
             {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
             <span className="mr-1">Word</span>
@@ -430,7 +694,7 @@ export function CardsDesigner({ subscribers, onBack }: { subscribers: Subscriber
           </div>
 
           {/* Card canvas — wrapped in a fit-to-screen scaler */}
-          <CardCanvasScaler design={design} elements={elements} selectedId={selectedId} previewSub={previewSub} activeSide={activeSide} handleMouseDown={handleMouseDown} handleDoubleClick={handleDoubleClick} setSelectedId={setSelectedId} />
+          <CardCanvasScaler design={design} elements={elements} selectedId={selectedId} previewSub={previewSub} activeSide={activeSide} handleMouseDown={handleMouseDown} handleDoubleClick={handleDoubleClick} setSelectedId={setSelectedId} showGrid={showGrid} />
 
           <p className="text-xs text-muted-foreground mt-3 no-print text-center px-2">{design.config.width}سم × {design.config.height}سم — اسحب العناصر لتحريكها — اضغط على عنصر لتحديده</p>
         </div>
@@ -438,7 +702,7 @@ export function CardsDesigner({ subscribers, onBack }: { subscribers: Subscriber
         {/* Desktop: Right — properties (hidden on mobile) */}
         <div className="hidden lg:block w-64 border-r bg-card overflow-y-auto no-print">
           {selected ? (
-            <PropertiesPanel selected={selected} updateEl={updateEl} />
+            <PropertiesPanel selected={selected} updateEl={updateEl} bringToFront={bringToFront} sendToBack={sendToBack} />
           ) : (
             <div className="p-6 text-center text-sm text-muted-foreground">
               <Layers className="h-10 w-10 mx-auto mb-3 opacity-30" />
@@ -508,7 +772,7 @@ export function CardsDesigner({ subscribers, onBack }: { subscribers: Subscriber
                 </SheetTitle>
               </SheetHeader>
               <div className="overflow-y-auto h-[calc(100%-56px)]">
-                <PropertiesPanel selected={selected} updateEl={updateEl} />
+                <PropertiesPanel selected={selected} updateEl={updateEl} bringToFront={bringToFront} sendToBack={sendToBack} />
               </div>
             </SheetContent>
           </Sheet>
@@ -622,10 +886,70 @@ export function CardsDesigner({ subscribers, onBack }: { subscribers: Subscriber
             </div>
             <div><Label className="text-sm">لون الخلفية</Label><Input type="color" value={design.config.bgColor} onChange={(e) => updateConfig({ bgColor: e.target.value })} className="h-9 w-full" /></div>
             <div><Label className="text-sm">شفافية الخلفية: {design.config.bgOpacity}%</Label><input type="range" min="0" max="100" value={design.config.bgOpacity} onChange={(e) => updateConfig({ bgOpacity: parseInt(e.target.value) })} className="w-full" /></div>
+            {/* خلفية متدرجة */}
+            <div className="rounded-lg border p-3 space-y-2">
+              <label className="flex items-center justify-between text-sm font-semibold"><span>خلفية متدرجة</span><Switch checked={design.config.gradientEnabled || false} onCheckedChange={(v) => updateConfig({ gradientEnabled: v })} /></label>
+              {design.config.gradientEnabled && (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><Label className="text-xs">لون البداية</Label><Input type="color" value={design.config.gradientStart || "#0f766e"} onChange={(e) => updateConfig({ gradientStart: e.target.value })} className="h-9 w-full" /></div>
+                    <div><Label className="text-xs">لون النهاية</Label><Input type="color" value={design.config.gradientEnd || "#0369a1"} onChange={(e) => updateConfig({ gradientEnd: e.target.value })} className="h-9 w-full" /></div>
+                  </div>
+                  <div><Label className="text-xs">اتجاه التدرج</Label>
+                    <select value={design.config.gradientDirection || "diagonal"} onChange={(e) => updateConfig({ gradientDirection: e.target.value as any })} className="w-full h-9 text-sm rounded border bg-card">
+                      <option value="horizontal">أفقي</option>
+                      <option value="vertical">عمودي</option>
+                      <option value="diagonal">قطري</option>
+                    </select>
+                  </div>
+                </>
+              )}
+            </div>
             <div><Label className="text-sm">صورة خلفية (PNG حتى 20MB)</Label><input ref={fileBgRef} type="file" accept="image/png,image/jpeg" onChange={(e) => handleImageUpload(e, "bg")} className="hidden" /><div className="flex gap-1"><Button size="sm" variant="outline" className="flex-1 h-9" onClick={() => fileBgRef.current?.click()}><ImageIcon className="h-4 w-4 ml-1" /> رفع</Button>{design.config.bgImage && <Button size="sm" variant="ghost" className="h-9 text-rose-600" onClick={() => updateConfig({ bgImage: undefined })}>إزالة</Button>}</div></div>
             {design.config.bgImage && <div><Label className="text-sm">شفافية صورة الخلفية: {design.config.bgImageOpacity ?? 30}%</Label><input type="range" min="0" max="100" value={design.config.bgImageOpacity ?? 30} onChange={(e) => updateConfig({ bgImageOpacity: parseInt(e.target.value) })} className="w-full" /></div>}
             <div><Label className="text-sm">لون الإطار</Label><Input type="color" value={design.config.borderColor} onChange={(e) => updateConfig({ borderColor: e.target.value })} className="h-9 w-full" /></div>
             <Button className="w-full" onClick={() => setShowSettings(false)}>تم</Button>
+          </div>
+        </div>
+      )}
+
+      {/* Save Template Dialog */}
+      {showSaveTemplate && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setShowSaveTemplate(false)}>
+          <div className="bg-card rounded-2xl p-6 max-w-sm w-full space-y-3" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-bold text-base flex items-center gap-2"><Save className="h-4 w-4 text-primary" /> حفظ كقالب</h3>
+            <p className="text-xs text-muted-foreground">سيتم حفظ التصميم الحالي ({design.config.width}×{design.config.height}سم) كقالب قابل لإعادة الاستخدام.</p>
+            <Input placeholder="اسم القالب" value={templateName} onChange={(e) => setTemplateName(e.target.value)} className="h-9" autoFocus onKeyDown={(e) => { if (e.key === "Enter") handleSaveTemplateSubmit(); }} />
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1 h-9" onClick={() => setShowSaveTemplate(false)}>إلغاء</Button>
+              <Button className="flex-1 h-9" onClick={handleSaveTemplateSubmit} disabled={!templateName.trim() || savingTemplate}>
+                {savingTemplate ? <Loader2 className="h-4 w-4 animate-spin" /> : "حفظ"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Load Template Dialog */}
+      {showTemplates && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setShowTemplates(false)}>
+          <div className="bg-card rounded-2xl p-6 max-w-md w-full space-y-3 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-bold text-base flex items-center gap-2"><FolderOpen className="h-4 w-4 text-primary" /> تحميل قالب</h3>
+            {loadingTemplates ? (
+              <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+            ) : templates.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">لا توجد قوالب محفوظة</p>
+            ) : (
+              <div className="space-y-2">
+                {templates.map((t: any) => (
+                  <button key={t.id} onClick={() => handleApplyTemplate(t.id)} className="w-full text-right p-3 rounded-lg border hover:bg-accent hover:border-primary/40 transition">
+                    <div className="font-semibold text-sm">{t.name}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">{t.cardSize || "custom"} • {t.width}×{t.height}سم {t.isShared && <span className="text-primary">• مشترك</span>}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+            <Button variant="outline" className="w-full h-9" onClick={() => setShowTemplates(false)}>إغلاق</Button>
           </div>
         </div>
       )}
@@ -649,6 +973,7 @@ function CardCanvasScaler({
   handleMouseDown,
   handleDoubleClick,
   setSelectedId,
+  showGrid,
 }: {
   design: CardDesign;
   elements: CardElement[];
@@ -658,11 +983,18 @@ function CardCanvasScaler({
   handleMouseDown: (e: React.MouseEvent, el: CardElement) => void;
   handleDoubleClick: (el: CardElement) => void;
   setSelectedId: (id: string | null) => void;
+  showGrid: boolean;
 }) {
   const naturalW = design.config.width * 37.8;
   const naturalH = design.config.height * 37.8;
   // Only scale on mobile/tablet; desktop shows full size with scroll
   const { containerRef, scale } = useScaleFit(naturalW, naturalH);
+  const gradientDir = design.config.gradientDirection === "horizontal" ? "to right" : design.config.gradientDirection === "vertical" ? "to bottom" : "to bottom right";
+  const bgStyle: React.CSSProperties = design.config.bgImage
+    ? { backgroundColor: design.config.bgColor, backgroundImage: `url(${design.config.bgImage})`, backgroundSize: "cover", backgroundPosition: "center" }
+    : design.config.gradientEnabled
+      ? { background: `linear-gradient(${gradientDir}, ${design.config.gradientStart || "#0f766e"}, ${design.config.gradientEnd || "#0369a1"})` }
+      : { backgroundColor: design.config.bgColor };
 
   return (
     <div
@@ -679,19 +1011,26 @@ function CardCanvasScaler({
           height: `${naturalH}px`,
           transform: `scale(${scale})`,
           transformOrigin: "top center",
-          backgroundColor: design.config.bgColor,
+          ...bgStyle,
           opacity: design.config.bgOpacity / 100,
           border: `${design.config.borderWidth}px ${design.config.borderStyle} ${design.config.borderColor}`,
           borderRadius: `${design.config.borderRadius}px`,
           direction: "rtl",
           overflow: "hidden",
-          backgroundImage: design.config.bgImage ? `url(${design.config.bgImage})` : undefined,
-          backgroundSize: "cover",
-          backgroundPosition: "center",
         }}
       >
         {design.config.bgImage && (
           <div className="absolute inset-0" style={{ backgroundColor: design.config.bgColor, opacity: 1 - (design.config.bgImageOpacity ?? 30) / 100 }} />
+        )}
+        {showGrid && (
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              zIndex: 9999,
+              backgroundImage: `linear-gradient(to right, rgba(15,118,110,0.18) 1px, transparent 1px), linear-gradient(to bottom, rgba(15,118,110,0.18) 1px, transparent 1px)`,
+              backgroundSize: `${0.5 * 37.8}px ${0.5 * 37.8}px`,
+            }}
+          />
         )}
         {activeSide === "back" && (
           <img src="/images/rcs-logo-official.png" alt="" className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-3/4 w-3/4 object-contain pointer-events-none" style={{ opacity: 0.1 }} onError={(e) => e.currentTarget.style.display = "none"} />
@@ -725,6 +1064,7 @@ function CardCanvasScaler({
             }}
           >
             {el.type === "qr" && <img src={`https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent(previewSub?.fileNumber || "RCS")}&color=000000&bgcolor=ffffff`} alt="QR" className="w-full h-full object-contain" draggable={false} />}
+            {el.type === "barcode" && <img src={`https://api.qrserver.com/v1/create-barcode/?data=${encodeURIComponent(previewSub?.fileNumber || "RCS")}&type=code128`} alt="barcode" className="w-full h-full object-contain" draggable={false} />}
             {el.type === "logo" && <img src="/images/rcs-logo-official.png" alt="logo" className="w-full h-full object-contain" onError={(e) => e.currentTarget.style.display = "none"} draggable={false} />}
             {el.type === "uploadedImage" && el.imageData && <img src={el.imageData} alt="img" className="w-full h-full object-contain" draggable={false} />}
             {el.type === "uploadedImage" && !el.imageData && <div className="w-full h-full bg-gray-200 flex items-center justify-center text-gray-400 text-xs">صورة</div>}
@@ -745,7 +1085,7 @@ function CardCanvasScaler({
               </div>
             )}
             {el.type === "shape" && <div className="w-full h-full" />}
-            {el.type !== "qr" && el.type !== "logo" && el.type !== "photo" && el.type !== "shape" && el.type !== "uploadedImage" && (
+            {el.type !== "qr" && el.type !== "barcode" && el.type !== "logo" && el.type !== "photo" && el.type !== "shape" && el.type !== "uploadedImage" && (
               <span style={{ fontFamily: `${el.fontFamily}, Arial, sans-serif`, fontSize: `${el.fontSize}px`, fontWeight: el.fontWeight as React.CSSProperties["fontWeight"], color: el.color, textAlign: el.textAlign as React.CSSProperties["textAlign"], width: "100%", lineHeight: 1.3, wordBreak: "break-word" }}>
                 {(el.showLabel ? (el.labelText || "") : "") + getContent(el, previewSub)}
               </span>
@@ -835,11 +1175,15 @@ function ElementsPanel({
 function PropertiesPanel({
   selected,
   updateEl,
+  bringToFront,
+  sendToBack,
 }: {
   selected: CardElement;
   updateEl: (id: string, updates: Partial<CardElement>) => void;
+  bringToFront: (id: string) => void;
+  sendToBack: (id: string) => void;
 }) {
-  const isTextType = selected.type !== "logo" && selected.type !== "qr" && selected.type !== "photo" && selected.type !== "shape" && selected.type !== "uploadedImage";
+  const isTextType = selected.type !== "logo" && selected.type !== "qr" && selected.type !== "barcode" && selected.type !== "photo" && selected.type !== "shape" && selected.type !== "uploadedImage";
   const isEditableText = selected.type === "customText" || selected.type === "cardTitle" || selected.type === "clubName";
 
   return (
@@ -850,6 +1194,36 @@ function PropertiesPanel({
         <span className="font-bold text-xs flex-1 truncate">{selected.name}</span>
         <Badge variant="outline" className="text-[8px] h-4 px-1 shrink-0">{selected.type}</Badge>
       </div>
+
+      {/* 📊 الطبقات والقفل */}
+      <CollapsibleSection title="📊 الطبقات والقفل" defaultOpen>
+        <div className="flex gap-1">
+          <Button size="sm" variant="outline" className="flex-1 h-8 text-xs" onClick={() => bringToFront(selected.id)}>
+            <BringToFront className="h-3 w-3 ml-1" /> للأمام
+          </Button>
+          <Button size="sm" variant="outline" className="flex-1 h-8 text-xs" onClick={() => sendToBack(selected.id)}>
+            <SendToBack className="h-3 w-3 ml-1" /> للخلف
+          </Button>
+        </div>
+        <Button size="sm" variant={selected.locked ? "default" : "outline"} className="w-full h-8 text-xs mt-2" onClick={() => updateEl(selected.id, { locked: !selected.locked })}>
+          {selected.locked ? <Lock className="h-3 w-3 ml-1" /> : <Unlock className="h-3 w-3 ml-1" />}
+          {selected.locked ? "إلغاء القفل" : "قفل العنصر"}
+        </Button>
+      </CollapsibleSection>
+
+      {/* 📷 شكل الصورة (للعنصر photo فقط) */}
+      {selected.type === "photo" && (
+        <CollapsibleSection title="📷 شكل الصورة" defaultOpen>
+          <div className="flex gap-1">
+            <Button size="sm" variant={selected.shapeKind !== "circle" && (selected.borderRadius || 0) === 0 ? "default" : "outline"} className="flex-1 h-8 text-xs" onClick={() => updateEl(selected.id, { shapeKind: "rectangle", borderRadius: 0 })}>مربع</Button>
+            <Button size="sm" variant={selected.shapeKind === "circle" ? "default" : "outline"} className="flex-1 h-8 text-xs" onClick={() => updateEl(selected.id, { shapeKind: "circle" })}>دائري</Button>
+            <Button size="sm" variant={selected.shapeKind !== "circle" && (selected.borderRadius || 0) > 0 ? "default" : "outline"} className="flex-1 h-8 text-xs" onClick={() => updateEl(selected.id, { shapeKind: "rectangle", borderRadius: 12 })}>زوايا</Button>
+          </div>
+          {selected.shapeKind !== "circle" && (
+            <div className="mt-2"><Label className="text-[10px]">انحناء الزوايا: {selected.borderRadius || 0}px</Label><input type="range" min="0" max="50" value={selected.borderRadius || 0} onChange={(e) => updateEl(selected.id, { borderRadius: parseInt(e.target.value), shapeKind: "rectangle" })} className="w-full" /></div>
+          )}
+        </CollapsibleSection>
+      )}
 
       {/* 📍 الموضع */}
       <CollapsibleSection title="📍 الموضع" defaultOpen>
@@ -927,16 +1301,22 @@ function generatePrintHTML(subscribers: SubscriberWithComputed[], design: CardDe
     const elsHTML = els.filter((e) => e.visible).sort((a, b) => a.zIndex - b.zIndex).map((el) => {
       const base = `position:absolute;left:${el.x}cm;top:${el.y}cm;width:${el.width}cm;height:${el.height}cm;display:flex;align-items:center;justify-content:${el.textAlign === "center" ? "center" : el.textAlign === "left" ? "flex-start" : "flex-end"};direction:rtl;overflow:hidden;transform:rotate(${el.rotation}deg);opacity:${el.opacity / 100};z-index:${el.zIndex};${el.bgColor ? `background-color:${el.bgColor}${Math.round((el.bgOpacity ?? 100) * 2.55).toString(16).padStart(2, "0")};` : ""}${el.borderWidth ? `border:${el.borderWidth}px ${el.borderStyle} ${el.borderColor};` : ""}border-radius:${el.shapeKind === "circle" ? "50%" : `${el.borderRadius || 0}px`};padding:0 4px;`;
       if (el.type === "qr") return `<div style="${base}"><img src="https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent(sub?.fileNumber || "RCS")}&color=000000&bgcolor=ffffff" style="width:100%;height:100%;object-fit:contain;" /></div>`;
+      if (el.type === "barcode") return `<div style="${base}"><img src="https://api.qrserver.com/v1/create-barcode/?data=${encodeURIComponent(sub?.fileNumber || "RCS")}&type=code128" style="width:100%;height:100%;object-fit:contain;" /></div>`;
       if (el.type === "logo") return `<div style="${base}"><img src="/images/rcs-logo-official.png" style="width:100%;height:100%;object-fit:contain;" onerror="this.style.display='none'" /></div>`;
       if (el.type === "uploadedImage" && el.imageData) return `<div style="${base}"><img src="${el.imageData}" style="width:100%;height:100%;object-fit:contain;" /></div>`;
-      if (el.type === "photo") return `<div style="${base}background:#e5e7eb;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:8px;color:#999;">صورة</div>`;
+      if (el.type === "photo") return `<div style="${base}background:#e5e7eb;border-radius:${el.shapeKind === "circle" ? "50%" : (el.borderRadius || 8)}px;display:flex;align-items:center;justify-content:center;font-size:8px;color:#999;">صورة</div>`;
       if (el.type === "shape") return `<div style="${base}"></div>`;
       const content = getContent(el, sub); const label = el.showLabel ? (el.labelText || "") : "";
       return `<div style="${base}"><span style="font-family:${el.fontFamily},Arial,sans-serif;font-size:${el.fontSize}px;font-weight:${el.fontWeight};color:${el.color};text-align:${el.textAlign};width:100%;line-height:1.3;word-break:break-word;">${escapeHtml(label + content)}</span></div>`;
     }).join("");
-    const bgStyle = config.bgImage ? `background-image:url(${config.bgImage});background-size:cover;background-position:center;` : "";
+    const gradDir = config.gradientDirection === "horizontal" ? "to right" : config.gradientDirection === "vertical" ? "to bottom" : "to bottom right";
+    const bgStyle = config.bgImage
+      ? `background-image:url(${config.bgImage});background-size:cover;background-position:center;background-color:${config.bgColor};`
+      : config.gradientEnabled
+        ? `background:linear-gradient(${gradDir}, ${config.gradientStart || "#0f766e"}, ${config.gradientEnd || "#0369a1"});`
+        : `background-color:${config.bgColor};`;
     const logoWatermark = side === "back" ? `<img src="/images/rcs-logo-official.png" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);height:75%;width:75%;object-fit:contain;opacity:0.1;z-index:0;" onerror="this.style.display='none'" />` : "";
-    return `<div style="width:${config.width}cm;height:${config.height}cm;background-color:${config.bgColor};${bgStyle}border:${config.borderWidth}px ${config.borderStyle} ${config.borderColor};border-radius:${config.borderRadius}px;position:relative;overflow:hidden;direction:rtl;break-inside:avoid;">${logoWatermark}${elsHTML}</div>`;
+    return `<div style="width:${config.width}cm;height:${config.height}cm;${bgStyle}border:${config.borderWidth}px ${config.borderStyle} ${config.borderColor};border-radius:${config.borderRadius}px;position:relative;overflow:hidden;direction:rtl;break-inside:avoid;">${logoWatermark}${elsHTML}</div>`;
   };
   let pagesHTML = "";
   for (let i = 0; i < subscribers.length; i += cardsPerPage) {
@@ -945,6 +1325,33 @@ function generatePrintHTML(subscribers: SubscriberWithComputed[], design: CardDe
     pagesHTML += `<div class="print-page" style="width:21cm;min-height:297mm;padding:10mm;direction:ltr;"><div style="display:grid;grid-template-columns:repeat(${config.cols},1fr);gap:${config.gap}mm;">${chunk.map((s) => generateCard(s, "back")).join("")}</div></div>`;
   }
   return `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>بطاقات الانخراط - نادي RCS</title><style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:'Cairo','Tajawal',Arial,sans-serif;background:white;}@page{size:Letter portrait;margin:0 1.27cm;}.print-page{page-break-after:always;}.print-page:last-child{page-break-after:auto;}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}@media screen{.print-page{margin:10mm auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);}body{background:#f5f5f5;padding:20px;}}</style></head><body>${pagesHTML}</body></html>`;
+}
+
+// ──────────────── Print 8 per A4 (2 cols × 4 rows) ────────────────
+
+function generatePrint8HTML(subscribers: SubscriberWithComputed[], design: CardDesign): string {
+  const { config } = design;
+  const generateCard = (sub: SubscriberWithComputed, side: "front" | "back") => {
+    const els = side === "front" ? design.front : design.back;
+    const elsHTML = els.filter((e) => e.visible).sort((a, b) => a.zIndex - b.zIndex).map((el) => {
+      const base = `position:absolute;left:${el.x}cm;top:${el.y}cm;width:${el.width}cm;height:${el.height}cm;display:flex;align-items:center;justify-content:${el.textAlign === "center" ? "center" : el.textAlign === "left" ? "flex-start" : "flex-end"};direction:rtl;overflow:hidden;transform:rotate(${el.rotation}deg);opacity:${el.opacity / 100};z-index:${el.zIndex};${el.bgColor ? `background-color:${el.bgColor}${Math.round((el.bgOpacity ?? 100) * 2.55).toString(16).padStart(2, "0")};` : ""}${el.borderWidth ? `border:${el.borderWidth}px ${el.borderStyle} ${el.borderColor};` : ""}border-radius:${el.shapeKind === "circle" ? "50%" : `${el.borderRadius || 0}px`};padding:0 4px;`;
+      if (el.type === "qr") return `<div style="${base}"><img src="https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent(sub.fileNumber)}&color=000000&bgcolor=ffffff" style="width:100%;height:100%;object-fit:contain;" /></div>`;
+      if (el.type === "barcode") return `<div style="${base}"><img src="https://api.qrserver.com/v1/create-barcode/?data=${encodeURIComponent(sub.fileNumber)}&type=code128" style="width:100%;height:100%;object-fit:contain;" /></div>`;
+      if (el.type === "logo") return `<div style="${base}"><img src="/images/rcs-logo-official.png" style="width:100%;height:100%;object-fit:contain;" onerror="this.style.display='none'" /></div>`;
+      if (el.type === "uploadedImage" && el.imageData) return `<div style="${base}"><img src="${el.imageData}" style="width:100%;height:100%;object-fit:contain;" /></div>`;
+      if (el.type === "photo") return `<div style="${base}background:#e5e7eb;border-radius:${el.shapeKind === "circle" ? "50%" : (el.borderRadius || 8)}px;display:flex;align-items:center;justify-content:center;font-size:8px;color:#999;">صورة</div>`;
+      if (el.type === "shape") return `<div style="${base}"></div>`;
+      const content = getContent(el, sub); const label = el.showLabel ? (el.labelText || "") : "";
+      return `<div style="${base}"><span style="font-family:${el.fontFamily},Arial,sans-serif;font-size:${el.fontSize}px;font-weight:${el.fontWeight};color:${el.color};text-align:${el.textAlign};width:100%;line-height:1.3;word-break:break-word;">${escapeHtml(label + content)}</span></div>`;
+    }).join("");
+    const gradDir = config.gradientDirection === "horizontal" ? "to right" : config.gradientDirection === "vertical" ? "to bottom" : "to bottom right";
+    const bgStyle = config.gradientEnabled
+      ? `background:linear-gradient(${gradDir}, ${config.gradientStart || "#0f766e"}, ${config.gradientEnd || "#0369a1"});`
+      : `background-color:${config.bgColor};`;
+    return `<div style="width:${config.width}cm;height:${config.height}cm;${bgStyle}border:${config.borderWidth}px ${config.borderStyle} ${config.borderColor};border-radius:${config.borderRadius}px;position:relative;overflow:hidden;direction:rtl;break-inside:avoid;">${elsHTML}</div>`;
+  };
+  const cardsHTML = subscribers.map((s) => generateCard(s, "front")).join("");
+  return `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>8 بطاقات/A4</title><style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:'Cairo','Tajawal',Arial,sans-serif;background:white;}@page{size:A4 portrait;margin:8mm;}.page{display:grid;grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(4,1fr);gap:4mm;}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}@media screen{.page{margin:10mm auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);padding:8mm;}body{background:#f5f5f5;padding:20px;}}</style></head><body><div class="page">${cardsHTML}</div></body></html>`;
 }
 
 // ──────────────── Word HTML (with EN-TETE) ────────────────
@@ -960,6 +1367,7 @@ function generateWordHTML(subscribers: SubscriberWithComputed[], design: CardDes
     const elsHTML = els.filter((e) => e.visible).sort((a, b) => a.zIndex - b.zIndex).map((el) => {
       const base = `position:absolute;left:${el.x}cm;top:${el.y}cm;width:${el.width}cm;height:${el.height}cm;display:flex;align-items:center;justify-content:${el.textAlign === "center" ? "center" : el.textAlign === "left" ? "flex-start" : "flex-end"};direction:rtl;overflow:hidden;${el.bgColor ? `background-color:${el.bgColor};` : ""}${el.borderWidth ? `border:${el.borderWidth}px ${el.borderStyle} ${el.borderColor};` : ""}border-radius:${el.borderRadius || 0}px;padding:0 4px;`;
       if (el.type === "qr") return `<div style="${base}"><img src="https://api.qrserver.com/v1/create-qr-code/?size=60x60&data=${encodeURIComponent(sub.fileNumber)}&color=000000&bgcolor=ffffff" style="width:100%;height:100%;object-fit:contain;" /></div>`;
+      if (el.type === "barcode") return `<div style="${base}"><img src="https://api.qrserver.com/v1/create-barcode/?data=${encodeURIComponent(sub.fileNumber)}&type=code128" style="width:100%;height:100%;object-fit:contain;" /></div>`;
       if (el.type === "logo") return `<div style="${base}"><img src="/images/rcs-logo-official.png" style="width:100%;height:100%;object-fit:contain;" onerror="this.style.display='none'" /></div>`;
       if (el.type === "uploadedImage" && el.imageData) return `<div style="${base}"><img src="${el.imageData}" style="width:100%;height:100%;object-fit:contain;" /></div>`;
       if (el.type === "photo") return `<div style="${base}background:#e5e7eb;border-radius:8px;"></div>`;

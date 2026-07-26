@@ -30,6 +30,11 @@
     "desktop:build:linux": "npm run desktop:prepare && next build && electron-builder --linux && npm run desktop:restore"
   },
   "dependencies": {
+    "@capacitor/app": "^6.0.0",
+    "@capacitor/camera": "^6.0.0",
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/preferences": "^6.0.0",
+    "@capacitor/splash-screen": "^6.0.0",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
@@ -100,14 +105,11 @@
     "xlsx": "^0.18.5",
     "z-ai-web-dev-sdk": "^0.0.18",
     "zod": "^4.0.2",
-    "zustand": "^5.0.6",
-    "@capacitor/core": "^6.0.0",
-    "@capacitor/app": "^6.0.0",
-    "@capacitor/splash-screen": "^6.0.0",
-    "@capacitor/camera": "^6.0.0",
-    "@capacitor/preferences": "^6.0.0"
+    "zustand": "^5.0.6"
   },
   "devDependencies": {
+    "@capacitor/android": "^6.0.0",
+    "@capacitor/cli": "^6.0.0",
     "@tailwindcss/postcss": "^4",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -122,8 +124,6 @@
     "tailwindcss": "^4",
     "tw-animate-css": "^1.3.5",
     "typescript": "^5",
-    "wait-on": "^9.0.10",
-    "@capacitor/cli": "^6.0.0",
-    "@capacitor/android": "^6.0.0"
+    "wait-on": "^9.0.10"
   }
 }

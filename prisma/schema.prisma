@@ -65,6 +65,7 @@ model Club {
   uiConfigurations UIConfiguration[]                 // إعدادات الواجهات المخصصة
   groupMemberships ClubGroupMember[]                 // عضوية في مجموعات النوادي
   featureAccess   FeatureAccess[]                    // وصول مخصص للميزات
+  cardTemplates   CardTemplate[]                     // قوالب بطاقات الانخراط
 }
 
 // Club subscription (اشتراك النادي)
@@ -909,4 +910,32 @@ model SubscriberPhoto {
   updatedAt       DateTime @updatedAt
 
   @@index([subscriberId])
+}
+
+// ═══════════════════════════════════════════════════════════
+// PVC CARD TEMPLATES — قوالب بطاقات الانخراط
+// ═══════════════════════════════════════════════════════════
+model CardTemplate {
+  id              String   @id @default(cuid())
+  clubId          String?
+  club            Club?    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  name            String   @unique
+  description     String?
+  cardSize        String   @default("CR80")    // CR80 | A7 | A6 | custom
+  orientation     String   @default("landscape") // landscape | portrait
+  width           Float    @default(10)        // cm
+  height          Float    @default(6.5)       // cm
+  // التخطيط الكامل كـ JSON (عناصر + خلفية + إعدادات)
+  layout          String   @default("{}")      // JSON: { front: [...], back: [...], config: {...} }
+  thumbnail       String?                       // data URL للمعاينة المصغّرة
+  isDefault       Boolean  @default(false)
+  isShared        Boolean  @default(false)      // مشترك بين كل النوادي
+  version         Int      @default(1)
+  createdById     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([clubId])
+  @@index([isShared])
+  @@index([isDefault])
 }
