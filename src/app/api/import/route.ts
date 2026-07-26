@@ -101,11 +101,31 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
     const dryRun = formData.get("dryRun") === "true";
-    // دعم استيراد صفوف محددة فقط (للاستيراد الجزئي)
     const selectedRowsStr = formData.get("selectedRows") as string | null;
     const selectedRows: number[] | null = selectedRowsStr
       ? JSON.parse(selectedRowsStr).map((n: any) => Number(n))
       : null;
+
+    // 🔑 حل مشكلة superadmin: حدد targetClubId
+    let targetClubId: string | null = null;
+    if (currentUser.role === "superadmin") {
+      // superadmin: استخدم targetClubId من form، أو أول نادٍ نشط
+      targetClubId = (formData.get("targetClubId") as string) || null;
+      if (!targetClubId) {
+        const firstClub = await db.club.findFirst({
+          where: { status: "active" },
+          orderBy: { createdAt: "asc" },
+          select: { id: true },
+        });
+        targetClubId = firstClub?.id || null;
+      }
+    } else {
+      targetClubId = currentUser.clubId;
+    }
+
+    if (!targetClubId) {
+      return NextResponse.json({ error: "لم يتم العثور على نادٍ نشط للاستيراد فيه" }, { status: 400 });
+    }
 
     if (!file) {
       return NextResponse.json({ error: "لم يتم رفع أي ملف" }, { status: 400 });
@@ -193,6 +213,8 @@ export async function POST(req: NextRequest) {
     const swimmingDaysKey = findKey(firstRow, ["أيام السباحة", "الأيام"]);
     const timeSlotKey = findKey(firstRow, ["التوقيت"]);
     const phoneKey = findKey(firstRow, ["الهاتف", "هاتف", "رقم الهاتف"]);
+    // 🔑 دعم استيراد رقم الملف من Excel مباشرةً
+    const fileNumberKey = findKey(firstRow, ["رقم الملف", "رقم", "الملف"]);
 
     if (!lastNameKey || !firstNameKey) {
       return NextResponse.json({
@@ -205,7 +227,7 @@ export async function POST(req: NextRequest) {
     const validPaymentStatuses = ["مدفوع", "لم يدفع", "تأمين فقط", "اشتراك 300"];
     // جلب جميع أنواع الاشتراك من قاعدة البيانات (نشطة وغير نشطة)
     const dbSubTypesAll = await db.subscriptionType.findMany({
-      where: { clubId: currentUser.clubId! },
+      where: { clubId: targetClubId },
       select: { code: true, name: true, active: true, givesMembershipNumber: true, numberingGroup: true },
     });
     const validSubscriptionTypes = dbSubTypesAll.filter(t => t.active).map((t) => t.code);
@@ -226,6 +248,7 @@ export async function POST(req: NextRequest) {
       swimmingDays: string | null;
       timeSlot: string | null;
       phone: string | null;
+      fileNumber: string | null;  // 🔑 رقم الملف من Excel (إن وُجد)
       errors: string[];
       // ─── تفاصيل الأخطاء المنظمة لكل صف ───
       errorDetails: Array<{
@@ -258,6 +281,7 @@ export async function POST(req: NextRequest) {
         swimmingDays: null,
         timeSlot: null,
         phone: null,
+        fileNumber: null,
         errors: [],
         errorDetails: [],
       };
@@ -381,6 +405,12 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // 🔑 رقم الملف من Excel (اختياري — إن وُجد يُستخدم مباشرة)
+      if (fileNumberKey) {
+        const fn = String(row[fileNumberKey] || "").trim();
+        r.fileNumber = fn || null;
+      }
+
       if (r.errors.length > 0) errorCount++;
       parsed.push(r);
     });
@@ -399,7 +429,7 @@ export async function POST(req: NextRequest) {
     // Compute financial summary for valid rows (verification)
     // ─── تحميل أنواع الاشتراك من قاعدة البيانات (خصائص ديناميكية) ───
     const dbTypes = await db.subscriptionType.findMany({
-      where: { clubId: currentUser.clubId! },
+      where: { clubId: targetClubId },
     });
     const typesMap: Record<string, SubscriptionTypeConfig> = {};
     for (const t of dbTypes) {
@@ -464,6 +494,7 @@ export async function POST(req: NextRequest) {
           swimmingDays: swimmingDaysKey,
           timeSlot: timeSlotKey,
           phone: phoneKey,
+          fileNumber: fileNumberKey,
         },
         // جميع الصفوف الصالحة (وليس عينة فقط)
         sample: financialCheck,
@@ -497,7 +528,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Actually import — use batch insert for performance
-    const clubFilter = currentUser.role === "superadmin" ? {} : { clubId: currentUser.clubId! };
+    const clubFilter = { clubId: targetClubId };
     const existingCount = await db.subscriber.count({ where: clubFilter });
 
     // فلترة الصفوف الصالحة حسب التحديد (إن وجد)
@@ -507,7 +538,7 @@ export async function POST(req: NextRequest) {
 
     // ═══ منع التكرار: جلب جميع المنخرطين الحاليين للمقارنة ═══
     const existingSubscribers = await db.subscriber.findMany({
-      where: { clubId: currentUser.clubId! },
+      where: { clubId: targetClubId },
       select: { id: true, fileNumber: true, lastName: true, firstName: true, birthDate: true },
     });
 
@@ -526,7 +557,14 @@ export async function POST(req: NextRequest) {
 
     for (const r of rowsToImport) {
       const key = `${r.lastName.trim().toLowerCase()}|${r.firstName.trim().toLowerCase()}|${r.birthDate ? new Date(r.birthDate).toISOString().split("T")[0] : ""}`;
-      if (existingKeys.has(key)) {
+      // 🔑 فحص تكرار رقم الملف أيضاً
+      if (r.fileNumber && existingFileNumbers.has(r.fileNumber.trim())) {
+        duplicateRows.push({
+          row: r.row,
+          name: `${r.lastName} ${r.firstName}`,
+          reason: `رقم الملف "${r.fileNumber}" موجود مسبقاً`,
+        });
+      } else if (existingKeys.has(key)) {
         duplicateRows.push({
           row: r.row,
           name: `${r.lastName} ${r.firstName}`,
@@ -536,6 +574,8 @@ export async function POST(req: NextRequest) {
         newRows.push(r);
         // إضافة المفتاح للقائمة لمنع التكرار داخل نفس الملف
         existingKeys.add(key);
+        // 🔑 أضف رقم الملف أيضاً لمنع تكراره في نفس الملف
+        if (r.fileNumber) existingFileNumbers.add(r.fileNumber.trim());
       }
     }
 
@@ -563,7 +603,10 @@ export async function POST(req: NextRequest) {
       const givesMembership = typeConfig ? typeConfig.givesMembershipNumber : true;
 
       let fileNumber: string;
-      if (typeConfig && !givesMembership) {
+      // 🔑 استخدم رقم الملف من Excel إن وُجد
+      if (r.fileNumber && r.fileNumber.trim()) {
+        fileNumber = r.fileNumber.trim();
+      } else if (typeConfig && !givesMembership) {
         // النوع لا يمنح رقم عضوية — استخدم الكود نفسه (مثل MJ)
         fileNumber = r.subscriptionType || "**";
       } else {
@@ -575,7 +618,7 @@ export async function POST(req: NextRequest) {
       }
 
       return {
-        clubId: currentUser.clubId!,
+        clubId: targetClubId,
         fileNumber,
         lastName: r.lastName,
         firstName: r.firstName,
@@ -625,7 +668,7 @@ export async function POST(req: NextRequest) {
     // Log activity
     await db.activity.create({
       data: {
-        clubId: currentUser.clubId!,
+        clubId: targetClubId,
         type: "import",
         description: `تم استيراد ${imported} منخرط جديد، ${duplicateRows.length} مكرر تم تجاهله`,
       },
