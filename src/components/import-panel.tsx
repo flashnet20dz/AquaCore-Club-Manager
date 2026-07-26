@@ -140,8 +140,8 @@ export function ImportPanel() {
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    if (!f.name.endsWith(".xlsx") && !f.name.endsWith(".xls")) {
-      toast.error("يجب أن يكون الملف بصيغة Excel (.xlsx أو .xls)");
+    if (!f.name.endsWith(".xlsx") && !f.name.endsWith(".xls") && !f.name.endsWith(".xlsm")) {
+      toast.error("يجب أن يكون الملف بصيغة Excel (.xlsx أو .xls أو .xlsm)");
       return;
     }
     setFile(f);
@@ -149,6 +149,45 @@ export function ImportPanel() {
     setRows([]);
     setSelectedRows(new Set());
     setExcludedRows(new Set());
+  };
+
+  // ─── Download template ───
+  const handleDownloadTemplate = () => {
+    // قالب Excel بصيغة AquaCore — مطابق لمنظومة_اشتراكات_RCS_v5
+    const templateData = [
+      ["نظام إدارة اشتراكات  —  AquaCore Club Manager"],
+      [],
+      ["رقم الملف", "اللقب", "الاسم", "تاريخ الميلاد", "الجنس", "العمر", "فصيلة الدم", "نوع الاشتراك", "تاريخ آخر دفعة", "تاريخ انتهاء الاشتراك", "حالة الدفع", "رسوم الاشتراك", "مصاريف التأمين", "حقوق المركب", "المبلغ الإجمالي", "حالة التجديد", "أيام السباحة", "التوقيت", "عدد أشهر الاشتراك", "البادئة", "مفتاح شهر التسجيل", "ترتيب ضمن الشهر", "مفتاح مركب", "رقم الهاتف (واتساب)"],
+      ["AQC001", "مثال", "محمد", "2014-05-07", "ذكر", 12, "A+", "/", "2026-01-15", "2026-02-15", "مدفوع", 1300, 500, 1000, 1800, "✅ ساري", "الأحد والأربعاء", "10:00-11:00", 1, "AQC", "2026-01", 1, "2026-01-1", "0555000000"],
+    ];
+
+    // إنشاء ملف Excel باستخدام مكتبة xlsx (موجودة في المشروع)
+    import("xlsx").then((XLSX) => {
+      const ws = XLSX.utils.aoa_to_sheet(templateData);
+      // ضبط عرض الأعمدة
+      ws["!cols"] = Array.from({ length: 24 }, () => ({ wch: 15 }));
+      // ضبط دمج الخلايا للعنوان
+      ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 23 } }];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "بيانات");
+
+      // أضف ورقة إعدادات الأنواع
+      const typesData = [
+        ["إعدادات أنواع الاشتراك"],
+        [],
+        ["كود النوع", "البادئة", "رسوم الاشتراك (تحت 14)", "رسوم الاشتراك (14+)", "رسوم التأمين", "حقوق المركب", "ملاحظات"],
+        ["/", "AQC", 1300, 1500, 500, 1000, "اشتراك عادي"],
+        ["DJS", "AQC", 300, 500, 500, 0, "الاشتراك والتأمين فقط"],
+      ];
+      const wsTypes = XLSX.utils.aoa_to_sheet(typesData);
+      wsTypes["!cols"] = Array.from({ length: 7 }, () => ({ wch: 18 }));
+      wsTypes["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 6 } }];
+      XLSX.utils.book_append_sheet(wb, wsTypes, "إعدادات_الأنواع");
+
+      XLSX.writeFile(wb, "AquaCore_قالب_الاستيراد.xlsx");
+      toast.success("تم تحميل القالب");
+    });
   };
 
   // ─── Preview / Analyze ───
@@ -547,7 +586,7 @@ export function ImportPanel() {
             onClick={() => inputRef.current?.click()}
             className="border-2 border-dashed border-border rounded-2xl p-8 text-center hover:border-primary/50 hover:bg-accent/40 transition cursor-pointer"
           >
-            <input ref={inputRef} type="file" accept=".xlsx,.xls" onChange={handleFileSelect} className="hidden" />
+            <input ref={inputRef} type="file" accept=".xlsx,.xls,.xlsm" onChange={handleFileSelect} className="hidden" />
             <FileSpreadsheet className="h-12 w-12 mx-auto mb-3 text-primary/60" />
             {file ? (
               <div>
@@ -557,13 +596,23 @@ export function ImportPanel() {
             ) : (
               <div>
                 <p className="font-semibold text-sm mb-1">اضغط لاختيار ملف Excel</p>
-                <p className="text-xs text-muted-foreground">يدعم صيغ .xlsx و .xls</p>
+                <p className="text-xs text-muted-foreground">يدعم صيغ .xlsx و .xls و .xlsm</p>
               </div>
             )}
           </div>
 
+          {/* زر تحميل القالب */}
+          {!file && (
+            <div className="mt-4 flex justify-center">
+              <Button onClick={handleDownloadTemplate} variant="outline" size="sm">
+                <Download className="h-4 w-4 ml-1" />
+                تحميل قالب Excel فارغ
+              </Button>
+            </div>
+          )}
+
           {file && (
-            <div className="flex items-center gap-2 mt-4 justify-center">
+            <div className="flex items-center gap-2 mt-4 justify-center flex-wrap">
               <Button onClick={handlePreview} disabled={loading}>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4 ml-1" />}
                 معاينة وتحليل
