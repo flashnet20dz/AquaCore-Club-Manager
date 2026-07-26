@@ -170,6 +170,20 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
       },
     });
 
+    // 🔑 احذف صورة Cloudinary إن وُجدت (قبل حذف السجل)
+    try {
+      const photo = await db.subscriberPhoto.findUnique({
+        where: { subscriberId: id },
+        select: { cloudinaryPublicId: true },
+      });
+      if (photo?.cloudinaryPublicId) {
+        const { deleteImage } = await import("@/lib/cloudinary");
+        await deleteImage(photo.cloudinaryPublicId);
+      }
+    } catch (e) {
+      console.warn("Failed to delete Cloudinary image:", e);
+    }
+
     await db.subscriber.delete({ where: { id } });
 
     await recordSyncOutbox({

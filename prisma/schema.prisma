@@ -906,6 +906,9 @@ model SubscriberPhoto {
   cropped         String   // 300×300 مقصوصة
   thumbnail       String   // 100×100 مصغّرة
   faceDetected    Boolean  @default(false)
+  // 🔑 Cloudinary integration
+  cloudinaryPublicId  String?  // معرّف Cloudinary (للحذف/الاستبدال)
+  cloudinaryUrl       String?  // رابط Cloudinary الآمن
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
