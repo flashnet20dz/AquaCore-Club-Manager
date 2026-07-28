@@ -997,7 +997,7 @@ export default function Home() {
           {/* COMPOUND RIGHTS TAB */}
           {hasPermission(sessionUser.role, "subscribers") && (
             <TabsContent value="compound" className="mt-0">
-              <CompoundPanel subscribers={subscribers} onRefresh={fetchData} />
+              <CompoundPanel />
             </TabsContent>
           )}
 
