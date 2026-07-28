@@ -88,19 +88,23 @@ export function InsurancePanel({ subscribers, onRefresh }: InsurancePanelProps) 
   const handleBulkInsure = async () => {
     const toInsure = selectedIds.filter((id) => !insuranceStatus[id]);
     if (toInsure.length === 0) {
-      toast.warning("المنخرطون المحددون مؤمنون بالفعل");
+      toast.info("المنخرطون المحددون مؤمنون بالفعل");
       return;
     }
+    setLoading(true);
     let success = 0;
     for (const id of toInsure) {
       try {
         const res = await fetch(`/api/subscribers/${id}/toggle-insurance`, { method: "PATCH" });
-        if (res.ok) success++;
+        if (res.ok) {
+          success++;
+          setInsuranceStatus((prev) => ({ ...prev, [id]: true }));
+        }
       } catch {}
     }
     toast.success(`تم تأمين ${success} منخرط`);
     setSelectedIds([]);
-    fetchInsuranceStatus();
+    setLoading(false);
     onRefresh?.();
   };
 

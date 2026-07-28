@@ -7,7 +7,7 @@ import {
   RefreshCw, Calendar, Droplet, Clock, Activity, Crown, Sparkles, Waves as WavesIcon,
   QrCode, Download, Settings as SettingsIcon, LogOut, Moon, Sun, ChevronLeft,
   UserCheck, RefreshCcw, FileText, Bell, Zap, Award, Pencil, Trash2,
-  CreditCard, Inbox, UserCog, Database, Layers, Menu, CalendarOff, ListPlus,
+  CreditCard, Inbox, UserCog, Database, Layers, Menu, CalendarOff, ListPlus, Building2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,6 +49,7 @@ import { ImportPanel } from "@/components/import-panel";
 import { CardsPanel } from "@/components/cards-panel";
 import { CardsDesigner } from "@/components/cards-designer";
 import { InsurancePanel } from "@/components/insurance-panel";
+import { CompoundPanel } from "@/components/compound-panel";
 import { CompensationsPanel } from "@/components/compensations-panel";
 import { WaitlistPanel } from "@/components/waitlist-panel";
 import { useSubscriptionTypes } from "@/hooks/use-subscription-types";
@@ -523,6 +524,11 @@ export default function Home() {
                 </TabsTrigger>
               )}
               {hasPermission(sessionUser.role, "subscribers") && (
+                <TabsTrigger value="compound" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
+                  <Building2 className="h-4 w-4" /> حقوق المركب
+                </TabsTrigger>
+              )}
+              {hasPermission(sessionUser.role, "subscribers") && (
                 <TabsTrigger value="categories" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
                   <Crown className="h-4 w-4" /> الفئات
                 </TabsTrigger>
@@ -985,6 +991,13 @@ export default function Home() {
           {hasPermission(sessionUser.role, "subscribers") && (
             <TabsContent value="insurance" className="mt-0">
               <InsurancePanel subscribers={subscribers} onRefresh={fetchData} />
+            </TabsContent>
+          )}
+
+          {/* COMPOUND RIGHTS TAB */}
+          {hasPermission(sessionUser.role, "subscribers") && (
+            <TabsContent value="compound" className="mt-0">
+              <CompoundPanel subscribers={subscribers} onRefresh={fetchData} />
             </TabsContent>
           )}
 
