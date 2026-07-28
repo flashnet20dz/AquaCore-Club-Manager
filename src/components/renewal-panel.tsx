@@ -66,6 +66,7 @@ export function RenewalPanel({ subscribers, onRefresh }: RenewalPanelProps) {
     subscriber: null,
   });
   const [filter, setFilter] = useState<"all" | "expiring" | "expired" | "frozen">("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const fetchRenewals = useCallback(async () => {
     setLoading(true);
@@ -91,10 +92,21 @@ export function RenewalPanel({ subscribers, onRefresh }: RenewalPanelProps) {
   const active = subscribers.filter((s) => s.renewalStatus === "✅ ساري");
 
   const filteredSubs = (() => {
-    if (filter === "expiring") return expiringSoon;
-    if (filter === "expired") return expired;
-    if (filter === "frozen") return frozen;
-    return subscribers;
+    let result = subscribers;
+    if (filter === "expiring") result = expiringSoon;
+    else if (filter === "expired") result = expired;
+    else if (filter === "frozen") result = frozen;
+    // 🔑 فلتر البحث برقم الملف أو الاسم أو اللقب
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      result = result.filter((s) =>
+        s.fileNumber?.toLowerCase().includes(q) ||
+        s.lastName?.toLowerCase().includes(q) ||
+        s.firstName?.toLowerCase().includes(q) ||
+        `${s.lastName} ${s.firstName}`.toLowerCase().includes(q)
+      );
+    }
+    return result;
   })();
 
   const sendWhatsApp = (sub: SubscriberWithComputed) => {
@@ -161,6 +173,15 @@ export function RenewalPanel({ subscribers, onRefresh }: RenewalPanelProps) {
 
       {/* Subscribers needing renewal */}
       <div className="rounded-2xl border border-border/60 bg-card p-4">
+        {/* 🔑 بحث برقم الملف أو الاسم */}
+        <div className="mb-3">
+          <Input
+            placeholder="بحث برقم الملف أو الاسم أو اللقب..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="h-9"
+          />
+        </div>
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <h3 className="font-bold text-sm flex items-center gap-2">
             <RefreshCw className="h-4 w-4 text-primary" />

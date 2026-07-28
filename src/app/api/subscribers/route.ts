@@ -22,9 +22,10 @@ export async function GET(req: NextRequest) {
     const gender = url.searchParams.get("gender") || "";
     const renewalStatus = url.searchParams.get("renewalStatus") || "";
 
-    // 🔒 Pagination: افتراضي 100، حد أقصى 500 لكل صفحة
+    // 🔑 تحميل كل المنخرطين افتراضياً (not just 100)
     const page = Math.max(1, parseInt(url.searchParams.get("page") || "1"));
-    const limit = Math.min(500, Math.max(1, parseInt(url.searchParams.get("limit") || "100")));
+    const limitParam = url.searchParams.get("limit");
+    const limit = limitParam ? Math.min(10000, Math.max(1, parseInt(limitParam))) : 10000;
     const skip = (page - 1) * limit;
 
     const where: Record<string, unknown> = currentUser.role === "superadmin" ? {} : { clubId: currentUser.clubId };

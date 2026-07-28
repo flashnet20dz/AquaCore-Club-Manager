@@ -133,7 +133,7 @@ function startLocalServer() {
                     console.log("[Server] Timeout — falling back to cloud");
                     resolve(false);
                 }
-            }, 15000);
+            }, 30000);
             nextServer.stdout.on("data", (data) => {
                 const output = data.toString();
                 console.log("[Server]", output.trim());

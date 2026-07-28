@@ -1350,7 +1350,7 @@ function generatePrint8HTML(subscribers: SubscriberWithComputed[], design: CardD
       : `background-color:${config.bgColor};`;
     return `<div style="width:${config.width}cm;height:${config.height}cm;${bgStyle}border:${config.borderWidth}px ${config.borderStyle} ${config.borderColor};border-radius:${config.borderRadius}px;position:relative;overflow:hidden;direction:rtl;break-inside:avoid;">${elsHTML}</div>`;
   };
-  const cardsHTML = subscribers.map((s) => generateCard(s, "front")).join("");
+  const cardsHTML = subscribers.map((s) => generateCard(s, "front") + generateCard(s, "back")).join("");
   return `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>8 بطاقات/A4</title><style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:'Cairo','Tajawal',Arial,sans-serif;background:white;}@page{size:A4 portrait;margin:8mm;}.page{display:grid;grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(4,1fr);gap:4mm;}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}@media screen{.page{margin:10mm auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);padding:8mm;}body{background:#f5f5f5;padding:20px;}}</style></head><body><div class="page">${cardsHTML}</div></body></html>`;
 }
 

@@ -136,6 +136,86 @@ function drawEnTete(doc: jsPDF, type: string) {
   return refY + 8; // Return Y position for table start
 }
 
+// ─── Type aliases: UI type → API query type ───
+// Allows the export panel to expose multiple UI types that map to the same DB query.
+const TYPE_ALIASES: Record<string, string> = {
+  "subscribers-all": "subscribers",
+  "subscribers-active": "subscribers",
+  "subscribers-expired": "subscribers",
+  "subscribers-expiring": "subscribers",
+  "payments": "incoming",
+  "financial-stats": "financial",
+  "monthly-revenue": "financial",
+  "expenses": "financial",
+};
+
+// ─── Full title map (covers all UI types) ───
+const FULL_TITLE_MAP: Record<string, string> = {
+  subscribers: "قائمة المنخرطين",
+  "subscribers-all": "قائمة المنخرطين الكاملة",
+  "subscribers-active": "قائمة المنخرطين النشطين",
+  "subscribers-expired": "قائمة المنخرطين المنتهية",
+  "subscribers-expiring": "قائمة المنخرطين قريبة الانتهاء",
+  insurance: "قائمة التأمين",
+  compound: "قائمة حقوق ديوان المركب",
+  incoming: "قائمة الوارد",
+  payments: "كشف المدفوعات",
+  attendance: "سجل الحضور",
+  renewals: "سجل التجديدات",
+  financial: "التقرير المالي",
+  "financial-stats": "الإحصائيات المالية",
+  "monthly-revenue": "تقرير الإيرادات الشهرية",
+  expenses: "تقرير المصاريف",
+  compensations: "كشف التعويضات",
+  "dist-age-categories": "توزيع الفئات العمرية",
+  "dist-subscription-types": "توزيع أنواع الاشتراكات",
+  "dist-blood-types": "توزيع فصائل الدم",
+  "dist-swimming-days": "توزيع أيام السباحة",
+  "dist-time-slots": "توزيع التوقيت",
+  "work-hours": "كشف ساعات العمل",
+  waitlist: "قائمة الانتظار",
+  employees: "كشف الموظفين",
+  contracts: "كشف العقود",
+};
+
+// ─── Export filters (club + ids + date range) ───
+interface ExportFilters {
+  /** Club-level filter (clubId) — applies to all queries */
+  club: Record<string, unknown>;
+  /** Filter for subscriber-based queries (club + ids) */
+  sub: Record<string, unknown>;
+  /** Filter for attendance queries (club + date range on `date`) */
+  att: Record<string, unknown>;
+  /** Filter for renewal queries (club + date range on `renewalDate`) */
+  ren: Record<string, unknown>;
+}
+
+function buildExportFilters(clubFilter: Record<string, unknown>, ids: string[], dateFrom: string, dateTo: string): ExportFilters {
+  // Sub filter: club + ids
+  const sub: Record<string, unknown> = { ...clubFilter };
+  if (ids.length > 0) sub.id = { in: ids };
+
+  // Attendance filter: club + date range on `date`
+  const att: Record<string, unknown> = { ...clubFilter };
+  if (dateFrom || dateTo) {
+    const dr: Record<string, Date> = {};
+    if (dateFrom) dr.gte = new Date(dateFrom);
+    if (dateTo) dr.lte = new Date(`${dateTo}T23:59:59`);
+    att.date = dr;
+  }
+
+  // Renewal filter: club + date range on `renewalDate`
+  const ren: Record<string, unknown> = { ...clubFilter };
+  if (dateFrom || dateTo) {
+    const dr: Record<string, Date> = {};
+    if (dateFrom) dr.gte = new Date(dateFrom);
+    if (dateTo) dr.lte = new Date(`${dateTo}T23:59:59`);
+    ren.renewalDate = dr;
+  }
+
+  return { club: clubFilter, sub, att, ren };
+}
+
 export async function GET(req: NextRequest) {
   try {
     const currentUser = await getCurrentUser();
@@ -151,15 +231,21 @@ export async function GET(req: NextRequest) {
     const sigs = url.searchParams.get("sigs")?.split(",").filter(Boolean) || [];
     const origin = url.origin; // e.g. https://aladine-pool-manager.vercel.app
 
+    // ── New filter params: ids (subscriber selection) + from/to (date range) ──
+    const ids = url.searchParams.get("ids")?.split(",").filter(Boolean) || [];
+    const dateFrom = url.searchParams.get("from") || "";
+    const dateTo = url.searchParams.get("to") || "";
+    const filters = buildExportFilters(clubFilter, ids, dateFrom, dateTo);
+
     // Load EN-TETE config once (used by PDF + Word)
     const enteteConfig = await loadEnteteConfig(currentUser.clubId);
 
     if (format === "xlsx") {
-      return await exportExcel(type, clubFilter);
+      return await exportExcel(type, filters);
     } else if (format === "pdf") {
-      return await exportPdf(type, sigs, enteteConfig, origin, clubFilter);
+      return await exportPdf(type, sigs, enteteConfig, origin, filters);
     } else if (format === "word") {
-      return await exportWord(type, sigs, enteteConfig, origin, clubFilter);
+      return await exportWord(type, sigs, enteteConfig, origin, filters);
     }
 
     return NextResponse.json({ error: "Invalid format" }, { status: 400 });
@@ -169,7 +255,8 @@ export async function GET(req: NextRequest) {
   }
 }
 
-async function exportExcel(type: string, clubFilter: Record<string, unknown> = {}) {
+async function exportExcel(type: string, filters: ExportFilters = { club: {}, sub: {}, att: {}, ren: {} }) {
+  const queryType = TYPE_ALIASES[type] || type;
   const wb = XLSX.utils.book_new();
   const today = formatDate(new Date());
 
@@ -178,21 +265,15 @@ async function exportExcel(type: string, clubFilter: Record<string, unknown> = {
     ["نادي RCS للسباحة - RCS Club"],
     [`الرقم: . . ./ن.ر.ه.ر.س ${new Date().getFullYear()}`],
     [`سعيدة في: ${today}`],
-    [type === "subscribers" ? "قائمة المنخرطين" :
-      type === "insurance" ? "قائمة التأمين" :
-      type === "compound" ? "قائمة حقوق ديوان المركب" :
-      type === "incoming" ? "قائمة الوارد" :
-      type === "attendance" ? "سجل الحضور" :
-      type === "renewals" ? "سجل التجديدات" :
-      type === "financial" ? "التقرير المالي" : type],
+    [FULL_TITLE_MAP[type] || type],
     [],
   ];
 
   let dataRows: Record<string, unknown>[] = [];
   let sheetName = "البيانات";
 
-  if (type === "subscribers") {
-    const subs = await db.subscriber.findMany({ where: clubFilter, orderBy: { createdAt: "asc" } });
+  if (queryType === "subscribers") {
+    const subs = await db.subscriber.findMany({ where: filters.sub, orderBy: { createdAt: "asc" } });
     dataRows = subs.map((s, i) => {
       const c = computeSubscriberFields(s);
       return {
@@ -235,9 +316,9 @@ async function exportExcel(type: string, clubFilter: Record<string, unknown> = {
     wsSum["!cols"] = [{ wch: 30 }, { wch: 20 }];
     XLSX.utils.book_append_sheet(wb, wsSum, "ملخص");
 
-  } else if (type === "insurance") {
+  } else if (queryType === "insurance") {
     // قائمة التأمين - كل من دفع 500 دج تأمين
-    const subs = await db.subscriber.findMany({ where: clubFilter, orderBy: { createdAt: "asc" } });
+    const subs = await db.subscriber.findMany({ where: filters.sub, orderBy: { createdAt: "asc" } });
     const computed = subs
       .map((s) => ({ ...s, ...computeSubscriberFields(s) }))
       .filter((s) => s.insuranceFee !== null && s.insuranceFee > 0);
@@ -257,9 +338,9 @@ async function exportExcel(type: string, clubFilter: Record<string, unknown> = {
     }));
     sheetName = "التأمين";
 
-  } else if (type === "compound") {
+  } else if (queryType === "compound") {
     // قائمة حقوق ديوان المركب - كل من مجموعه 2000/1800/1500/1300 (1000 دج منها للديوان)
-    const subs = await db.subscriber.findMany({ where: clubFilter, orderBy: { createdAt: "asc" } });
+    const subs = await db.subscriber.findMany({ where: filters.sub, orderBy: { createdAt: "asc" } });
     const computed = subs
       .map((s) => ({ ...s, ...computeSubscriberFields(s) }))
       .filter((s) => s.compoundRights !== null && s.compoundRights > 0);
@@ -279,9 +360,9 @@ async function exportExcel(type: string, clubFilter: Record<string, unknown> = {
     }));
     sheetName = "حقوق الديوان";
 
-  } else if (type === "incoming") {
+  } else if (queryType === "incoming") {
     // قائمة الوارد - جميع المدفوعات الواردة
-    const subs = await db.subscriber.findMany({ where: clubFilter, orderBy: { createdAt: "asc" } });
+    const subs = await db.subscriber.findMany({ where: filters.sub, orderBy: { createdAt: "asc" } });
     const computed = subs
       .map((s) => ({ ...s, ...computeSubscriberFields(s) }))
       .filter((s) => s.totalAmount !== null && s.totalAmount > 0);
@@ -299,9 +380,9 @@ async function exportExcel(type: string, clubFilter: Record<string, unknown> = {
     }));
     sheetName = "الوارد";
 
-  } else if (type === "attendance") {
+  } else if (queryType === "attendance") {
     const atts = await db.attendance.findMany({
-      where: clubFilter,
+      where: filters.att,
       include: { subscriber: true },
       orderBy: { date: "desc" },
     });
@@ -319,9 +400,9 @@ async function exportExcel(type: string, clubFilter: Record<string, unknown> = {
     }));
     sheetName = "الحضور";
 
-  } else if (type === "renewals") {
+  } else if (queryType === "renewals") {
     const rens = await db.renewal.findMany({
-      where: clubFilter,
+      where: filters.ren,
       include: { subscriber: true },
       orderBy: { createdAt: "desc" },
     });
@@ -340,8 +421,8 @@ async function exportExcel(type: string, clubFilter: Record<string, unknown> = {
     }));
     sheetName = "التجديدات";
 
-  } else if (type === "financial") {
-    const subs = await db.subscriber.findMany({ where: clubFilter });
+  } else if (queryType === "financial") {
+    const subs = await db.subscriber.findMany({ where: filters.sub });
     const computed = subs.map((s) => ({ ...s, ...computeSubscriberFields(s) }));
     const paid = computed.filter((s) => s.paymentStatus !== "لم يدفع");
 
@@ -390,27 +471,18 @@ async function exportExcel(type: string, clubFilter: Record<string, unknown> = {
   });
 }
 
-async function exportPdf(type: string, _sigs: string[], _enteteConfig: EnteteConfig, _origin: string, clubFilter: Record<string, unknown> = {}) {
+async function exportPdf(type: string, _sigs: string[], _enteteConfig: EnteteConfig, _origin: string, filters: ExportFilters = { club: {}, sub: {}, att: {}, ren: {} }) {
+  const queryType = TYPE_ALIASES[type] || type;
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
 
-  const titleMap: Record<string, string> = {
-    subscribers: "قائمة المنخرطين",
-    insurance: "قائمة التأمين",
-    compound: "قائمة حقوق ديوان المركب",
-    incoming: "قائمة الوارد",
-    attendance: "سجل الحضور",
-    renewals: "سجل التجديدات",
-    financial: "التقرير المالي",
-  };
-
-  const title = titleMap[type] || type;
+  const title = FULL_TITLE_MAP[type] || type;
   const startY = drawEnTete(doc, title);
 
   let head: string[] = [];
   let body: (string | number)[][] = [];
 
-  if (type === "subscribers") {
-    const subs = await db.subscriber.findMany({ where: clubFilter, orderBy: { createdAt: "asc" } });
+  if (queryType === "subscribers") {
+    const subs = await db.subscriber.findMany({ where: filters.sub, orderBy: { createdAt: "asc" } });
     head = ["#", "File", "Last Name", "First Name", "Birth Date", "Gender", "Age", "Type", "Payment", "Fee", "Insurance", "Compound", "Total", "Status"];
     body = subs.map((s, i) => {
       const c = computeSubscriberFields(s);
@@ -423,8 +495,8 @@ async function exportPdf(type: string, _sigs: string[], _enteteConfig: EnteteCon
         c.renewalStatus.replace(/[^\x00-\x7F]/g, "").trim() || "active",
       ];
     });
-  } else if (type === "insurance") {
-    const subs = await db.subscriber.findMany({ where: clubFilter, orderBy: { createdAt: "asc" } });
+  } else if (queryType === "insurance") {
+    const subs = await db.subscriber.findMany({ where: filters.sub, orderBy: { createdAt: "asc" } });
     const computed = subs
       .map((s) => ({ ...s, ...computeSubscriberFields(s) }))
       .filter((s) => s.insuranceFee !== null && s.insuranceFee > 0);
@@ -434,8 +506,8 @@ async function exportPdf(type: string, _sigs: string[], _enteteConfig: EnteteCon
       formatDate(new Date(s.birthDate)),
       s.gender, s.age, s.subscriptionType, s.insuranceFee,
     ]);
-  } else if (type === "compound") {
-    const subs = await db.subscriber.findMany({ where: clubFilter, orderBy: { createdAt: "asc" } });
+  } else if (queryType === "compound") {
+    const subs = await db.subscriber.findMany({ where: filters.sub, orderBy: { createdAt: "asc" } });
     const computed = subs
       .map((s) => ({ ...s, ...computeSubscriberFields(s) }))
       .filter((s) => s.compoundRights !== null && s.compoundRights > 0);
@@ -445,8 +517,8 @@ async function exportPdf(type: string, _sigs: string[], _enteteConfig: EnteteCon
       formatDate(new Date(s.birthDate)),
       s.gender, s.age, s.subscriptionFee, s.totalAmount, s.compoundRights,
     ]);
-  } else if (type === "incoming") {
-    const subs = await db.subscriber.findMany({ where: clubFilter, orderBy: { createdAt: "asc" } });
+  } else if (queryType === "incoming") {
+    const subs = await db.subscriber.findMany({ where: filters.sub, orderBy: { createdAt: "asc" } });
     const computed = subs
       .map((s) => ({ ...s, ...computeSubscriberFields(s) }))
       .filter((s) => s.totalAmount !== null && s.totalAmount > 0);
@@ -457,9 +529,9 @@ async function exportPdf(type: string, _sigs: string[], _enteteConfig: EnteteCon
       s.subscriptionType, s.paymentStatus, s.totalAmount,
       s.lastPaymentDate ? formatDate(new Date(s.lastPaymentDate)) : "-",
     ]);
-  } else if (type === "attendance") {
+  } else if (queryType === "attendance") {
     const atts = await db.attendance.findMany({
-      where: clubFilter,
+      where: filters.att,
       include: { subscriber: true },
       orderBy: { date: "desc" },
       take: 500,
@@ -473,9 +545,9 @@ async function exportPdf(type: string, _sigs: string[], _enteteConfig: EnteteCon
       new Date(a.checkInTime).toLocaleTimeString("en-GB"),
       a.method === "qr" ? "QR" : "Manual",
     ]);
-  } else if (type === "renewals") {
+  } else if (queryType === "renewals") {
     const rens = await db.renewal.findMany({
-      where: clubFilter,
+      where: filters.ren,
       include: { subscriber: true },
       orderBy: { createdAt: "desc" },
     });
@@ -489,8 +561,8 @@ async function exportPdf(type: string, _sigs: string[], _enteteConfig: EnteteCon
       formatDate(new Date(r.expiryDate)),
       r.amount, r.paymentStatus,
     ]);
-  } else if (type === "financial") {
-    const subs = await db.subscriber.findMany({ where: clubFilter });
+  } else if (queryType === "financial") {
+    const subs = await db.subscriber.findMany({ where: filters.sub });
     const computed = subs.map((s) => ({ ...s, ...computeSubscriberFields(s) }));
     const paid = computed.filter((s) => s.paymentStatus !== "لم يدفع");
     head = ["#", "File", "Name", "Birth Date", "Type", "Sub Fee", "Insurance", "Compound", "Total"];
@@ -667,27 +739,19 @@ function generateEnteteHTML(title: string, config: EnteteConfig, origin: string)
   `;
 }
 
-async function exportWord(type: string, sigs: string[] = [], enteteConfig: EnteteConfig = DEFAULT_ENTETE_CONFIG, origin: string = "", clubFilter: Record<string, unknown> = {}) {
+async function exportWord(type: string, sigs: string[] = [], enteteConfig: EnteteConfig = DEFAULT_ENTETE_CONFIG, origin: string = "", filters: ExportFilters = { club: {}, sub: {}, att: {}, ren: {} }) {
+  const queryType = TYPE_ALIASES[type] || type;
   const today = new Date();
   const year = today.getFullYear();
   const dateStr = formatDate(today);
 
-  const titleMap: Record<string, string> = {
-    subscribers: "قائمة المنخرطين",
-    insurance: "قائمة التأمين",
-    compound: "قائمة حقوق ديوان المركب",
-    incoming: "قائمة الوارد",
-    attendance: "سجل الحضور",
-    renewals: "سجل التجديدات",
-    financial: "التقرير المالي",
-  };
-  const title = titleMap[type] || type;
+  const title = FULL_TITLE_MAP[type] || type;
 
   let tableHeaders = "";
   let tableRows = "";
 
-  if (type === "subscribers") {
-    const subs = await db.subscriber.findMany({ where: clubFilter, orderBy: { createdAt: "asc" } });
+  if (queryType === "subscribers") {
+    const subs = await db.subscriber.findMany({ where: filters.sub, orderBy: { createdAt: "asc" } });
     tableHeaders = "<th>#</th><th>رقم الملف</th><th>اللقب</th><th>الاسم</th><th>تاريخ الميلاد</th><th>الجنس</th><th>العمر</th><th>فصيلة الدم</th><th>نوع الاشتراك</th><th>تاريخ آخر دفعة</th><th>تاريخ الانتهاء</th><th>حالة الدفع</th><th>رسوم الاشتراك</th><th>مصاريف التأمين</th><th>حقوق المركب</th><th>المبلغ الإجمالي</th><th>حالة التجديد</th>";
     tableRows = subs.map((s, i) => {
       const c = computeSubscriberFields(s);
@@ -711,9 +775,9 @@ async function exportWord(type: string, sigs: string[] = [], enteteConfig: Entet
         <td style="text-align:center;">${c.renewalStatus}</td>
       </tr>`;
     }).join("");
-  } else if (type === "insurance") {
+  } else if (queryType === "insurance") {
     // Insurance list: only (اللقب، الاسم، تاريخ الميلاد) per user requirement
-    const subs = await db.subscriber.findMany({ where: clubFilter, orderBy: { createdAt: "asc" } });
+    const subs = await db.subscriber.findMany({ where: filters.sub, orderBy: { createdAt: "asc" } });
     const computed = subs.map((s) => ({ ...s, ...computeSubscriberFields(s) })).filter((s) => s.insuranceFee !== null && s.insuranceFee > 0);
     tableHeaders = "<th>#</th><th>اللقب</th><th>الاسم</th><th>تاريخ الميلاد</th>";
     tableRows = computed.map((s, i) => `<tr>
@@ -722,9 +786,9 @@ async function exportWord(type: string, sigs: string[] = [], enteteConfig: Entet
       <td>${s.firstName}</td>
       <td style="text-align:center;">${formatDate(new Date(s.birthDate))}</td>
     </tr>`).join("");
-  } else if (type === "compound") {
+  } else if (queryType === "compound") {
     // Compound rights list: only (اللقب، الاسم، المبلغ = 1000 دج) per user requirement
-    const subs = await db.subscriber.findMany({ where: clubFilter, orderBy: { createdAt: "asc" } });
+    const subs = await db.subscriber.findMany({ where: filters.sub, orderBy: { createdAt: "asc" } });
     const computed = subs.map((s) => ({ ...s, ...computeSubscriberFields(s) })).filter((s) => s.compoundRights !== null && s.compoundRights > 0);
     const totalAmount = computed.length * 1000;
     tableHeaders = "<th>#</th><th>اللقب</th><th>الاسم</th><th>المبلغ (دج)</th>";
@@ -741,8 +805,8 @@ async function exportWord(type: string, sigs: string[] = [], enteteConfig: Entet
     </tr>`;
     // Store the "تم تحديد المبلغ بـ:" for this type — will be appended after table
     (tableRows as any) += `<!--COMPOUND_TOTAL:${totalAmount}-->`;
-  } else if (type === "incoming") {
-    const subs = await db.subscriber.findMany({ where: clubFilter, orderBy: { createdAt: "asc" } });
+  } else if (queryType === "incoming") {
+    const subs = await db.subscriber.findMany({ where: filters.sub, orderBy: { createdAt: "asc" } });
     const computed = subs.map((s) => ({ ...s, ...computeSubscriberFields(s) })).filter((s) => s.totalAmount !== null && s.totalAmount > 0);
     tableHeaders = "<th>#</th><th>رقم الملف</th><th>اللقب</th><th>الاسم</th><th>تاريخ الميلاد</th><th>نوع الاشتراك</th><th>حالة الدفع</th><th>المبلغ الإجمالي</th><th>تاريخ الدفعة</th>";
     tableRows = computed.map((s, i) => `<tr>
@@ -756,8 +820,8 @@ async function exportWord(type: string, sigs: string[] = [], enteteConfig: Entet
       <td style="text-align:center;font-weight:bold;">${s.totalAmount} دج</td>
       <td style="text-align:center;">${s.lastPaymentDate ? formatDate(new Date(s.lastPaymentDate)) : "—"}</td>
     </tr>`).join("");
-  } else if (type === "attendance") {
-    const atts = await db.attendance.findMany({ include: { subscriber: true }, orderBy: { date: "desc" }, take: 500 });
+  } else if (queryType === "attendance") {
+    const atts = await db.attendance.findMany({ where: filters.att, include: { subscriber: true }, orderBy: { date: "desc" }, take: 500 });
     tableHeaders = "<th>#</th><th>التاريخ</th><th>رقم الملف</th><th>اللقب</th><th>الاسم</th><th>تاريخ الميلاد</th><th>وقت الحضور</th><th>الطريقة</th>";
     tableRows = atts.map((a, i) => `<tr>
       <td style="text-align:center;">${i + 1}</td>
@@ -769,8 +833,8 @@ async function exportWord(type: string, sigs: string[] = [], enteteConfig: Entet
       <td style="text-align:center;">${new Date(a.checkInTime).toLocaleTimeString("ar-DZ")}</td>
       <td style="text-align:center;">${a.method === "qr" ? "QR" : "يدوي"}</td>
     </tr>`).join("");
-  } else if (type === "renewals") {
-    const rens = await db.renewal.findMany({ include: { subscriber: true }, orderBy: { createdAt: "desc" } });
+  } else if (queryType === "renewals") {
+    const rens = await db.renewal.findMany({ where: filters.ren, include: { subscriber: true }, orderBy: { createdAt: "desc" } });
     tableHeaders = "<th>#</th><th>التاريخ</th><th>رقم الملف</th><th>اللقب</th><th>الاسم</th><th>تاريخ الميلاد</th><th>عدد الأشهر</th><th>تاريخ الانتهاء</th><th>المبلغ</th><th>حالة الدفع</th>";
     tableRows = rens.map((r, i) => `<tr>
       <td style="text-align:center;">${i + 1}</td>
@@ -784,8 +848,8 @@ async function exportWord(type: string, sigs: string[] = [], enteteConfig: Entet
       <td style="text-align:center;font-weight:bold;">${r.amount} دج</td>
       <td style="text-align:center;">${r.paymentStatus}</td>
     </tr>`).join("");
-  } else if (type === "financial") {
-    const subs = await db.subscriber.findMany({ where: clubFilter });
+  } else if (queryType === "financial") {
+    const subs = await db.subscriber.findMany({ where: filters.sub });
     const computed = subs.map((s) => ({ ...s, ...computeSubscriberFields(s) }));
     const paid = computed.filter((s) => s.paymentStatus !== "لم يدفع");
     tableHeaders = "<th>#</th><th>رقم الملف</th><th>اللقب والاسم</th><th>تاريخ الميلاد</th><th>نوع الاشتراك</th><th>رسوم الاشتراك</th><th>مصاريف التأمين</th><th>حقوق المركب</th><th>المبلغ الإجمالي</th>";
@@ -813,11 +877,11 @@ async function exportWord(type: string, sigs: string[] = [], enteteConfig: Entet
   const entete = generateEnteteHTML(title, enteteConfig, origin);
   const sigsHTML = generateSignaturesHTML(sigs);
   // Narrow margins for "incoming" (étroites), normal for others
-  const pageMargin = type === "incoming" ? "margin: 1.27cm;" : "margin: 15mm;";
+  const pageMargin = queryType === "incoming" ? "margin: 1.27cm;" : "margin: 15mm;";
   // Compound total amount in words
   let compoundTotalText = "";
-  if (type === "compound") {
-    const subs = await db.subscriber.findMany({ where: clubFilter });
+  if (queryType === "compound") {
+    const subs = await db.subscriber.findMany({ where: filters.sub });
     const computed = subs.map((s) => ({ ...s, ...computeSubscriberFields(s) })).filter((s) => s.compoundRights !== null && s.compoundRights > 0);
     const total = computed.length * 1000;
     const amountInWords = numberToArabicWords(total);
