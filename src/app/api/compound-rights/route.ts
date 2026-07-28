@@ -15,7 +15,7 @@ import { getCurrentUser } from "@/lib/session";
 export async function GET(req: NextRequest) {
   try {
     const currentUser = await getCurrentUser();
-    if (!currentUser || !currentUser.clubId) {
+    if (!currentUser) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
     }
 
@@ -27,6 +27,7 @@ export async function GET(req: NextRequest) {
     const startDate = new Date(year, month - 1, 1);
     const endDate = new Date(year, month, 0, 23, 59, 59);
 
+    // superadmin: يستخدم clubId من query أو كل النوادي
     const clubId = currentUser.role === "superadmin"
       ? (url.searchParams.get("clubId") || undefined)
       : currentUser.clubId;
