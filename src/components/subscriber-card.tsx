@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -103,9 +103,17 @@ export const SubscriberCard = memo(function SubscriberCard({
         {/* Header */}
         <div className="flex items-start gap-3">
           <Avatar className={cn(
-            "h-12 w-12 rounded-xl border-2",
+            "h-12 w-12 rounded-xl border-2 overflow-hidden",
             isMale ? "border-sky-500/30 bg-sky-500/10" : "border-pink-500/30 bg-pink-500/10"
           )}>
+            {subscriber.photoPath && (
+              <img
+                src={`/api/subscribers/${subscriber.id}/photo?size=thumbnail&raw=1`}
+                alt={`${subscriber.lastName} ${subscriber.firstName}`}
+                className="h-full w-full object-cover rounded-xl"
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+              />
+            )}
             <AvatarFallback className={cn(
               "rounded-lg font-bold text-sm",
               isMale ? "text-sky-700 dark:text-sky-300" : "text-pink-700 dark:text-pink-300"
