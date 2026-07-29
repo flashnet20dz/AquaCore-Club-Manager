@@ -41,11 +41,15 @@ export async function GET(req: NextRequest) {
     if (subscriptionType) where.subscriptionType = subscriptionType;
     if (gender) where.gender = gender;
 
+    // 🔑 الترتيب الافتراضي حسب رقم الملف (تصاعدي) — خاصية دائمة
+    const sortBy = url.searchParams.get("sortBy") || "fileNumber";
+    const sortOrder = (url.searchParams.get("sortOrder") || "asc") as "asc" | "desc";
+
     // 🔒 Pagination: اجلب العدد الإجمالي + الصفحة الحالية
     const [subscribers, total] = await Promise.all([
       db.subscriber.findMany({
         where,
-        orderBy: { createdAt: "asc" },
+        orderBy: sortBy === "fileNumber" ? { fileNumber: sortOrder } : { createdAt: sortOrder },
         take: limit,
         skip,
       }),

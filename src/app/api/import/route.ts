@@ -415,13 +415,23 @@ export async function POST(req: NextRequest) {
       parsed.push(r);
     });
 
-    // Filter valid rows — صف صالح = لا أخطاء حرجة (التحذيرات مقبولة)
+    // ════ صفر تسامح: صف صالح = لا أخطاء حرجة ولا تحذيرات ════
+    // سياسة الاستيراد: لا تسامح مع الأخطاء — أي خطأ أو تحذير يُستبعد الصف
     const validRows = parsed.filter((r) =>
-      r.errorDetails.filter((e) => e.type === "critical").length === 0 &&
+      r.errorDetails.length === 0 &&
       r.lastName &&
       r.firstName &&
-      r.birthDate
+      r.birthDate &&
+      r.gender &&
+      r.subscriptionType &&
+      r.paymentStatus
     );
+
+    // ════ التحقق المالي: مطابقة الرسوم مع ملف المصدر ════
+    // اقرأ أعمدة الرسوم من Excel إن وُجدت
+    const feeKey = findKey(firstRow, ["رسوم الاشتراك", "رسوم", "الرسوم"]);
+    const insuranceFeeKey = findKey(firstRow, ["مصاريف التأمين", "التأمين", "مصاريف"]);
+    const totalAmountKey = findKey(firstRow, ["المبلغ الإجمالي", "الإجمالي", "المبلغ"]);
 
     // Compute financial summary for valid rows (verification)
     // ─── تحميل أنواع الاشتراك من قاعدة البيانات (خصائص ديناميكية) ───
@@ -457,8 +467,36 @@ export async function POST(req: NextRequest) {
         subscriptionType: r.subscriptionType as SubscriptionType,
         lastPaymentDate: r.lastPaymentDate,
       };
-      // استخدام الدالة الديناميكية مع إعداد النوع من قاعدة البيانات
       const c = computeSubscriberFieldsDynamic(mockSub, typeConfig);
+
+      // ════ التحقق من تطابق الرسوم مع ملف المصدر ════
+      let feeMismatch: { sourceFee: number; computedFee: number; difference: number } | null = null;
+      if (feeKey) {
+        const sourceFee = Number(rows[validRows.indexOf(r)]?.[feeKey] || 0);
+        const computedFee = c.subscriptionFee ?? 0;
+        if (sourceFee > 0 && sourceFee !== computedFee) {
+          feeMismatch = { sourceFee, computedFee, difference: sourceFee - computedFee };
+        }
+      }
+
+      let insuranceMismatch: { sourceFee: number; computedFee: number; difference: number } | null = null;
+      if (insuranceFeeKey) {
+        const sourceIns = Number(rows[validRows.indexOf(r)]?.[insuranceFeeKey] || 0);
+        const computedIns = c.insuranceFee ?? 0;
+        if (sourceIns > 0 && sourceIns !== computedIns) {
+          insuranceMismatch = { sourceFee: sourceIns, computedFee: computedIns, difference: sourceIns - computedIns };
+        }
+      }
+
+      let totalMismatch: { sourceTotal: number; computedTotal: number; difference: number } | null = null;
+      if (totalAmountKey) {
+        const sourceTotal = Number(rows[validRows.indexOf(r)]?.[totalAmountKey] || 0);
+        const computedTotal = c.totalAmount ?? 0;
+        if (sourceTotal > 0 && sourceTotal !== computedTotal) {
+          totalMismatch = { sourceTotal, computedTotal, difference: sourceTotal - computedTotal };
+        }
+      }
+
       return {
         ...r,
         birthDateDisplay: formatDate(r.birthDate),
@@ -468,17 +506,35 @@ export async function POST(req: NextRequest) {
         rightsRule: typeConfig.freeSubscription
           ? "مجاني"
           : (typeConfig.requiresCompoundFee ? `${typeConfig.compoundRights} دج للديوان` : "مستثنى"),
+        // 🔑 تعارضات مالية
+        feeMismatch,
+        insuranceMismatch,
+        totalMismatch,
+        hasFinancialConflict: !!(feeMismatch || insuranceMismatch || totalMismatch),
       };
     });
+
+    // ════ فصل الصفوف ذات التعارض المالي ════
+    const conflictedRows = financialCheck.filter((r) => r.hasFinancialConflict);
+    const cleanRows = financialCheck.filter((r) => !r.hasFinancialConflict);
 
     if (dryRun) {
       // إرجاع جميع الصفوف للمراجعة الكاملة (وليس فقط عينة)
       return NextResponse.json({
         preview: true,
         totalRows: rows.length,
-        validRows: validRows.length,
+        validRows: cleanRows.length,
         errorRows: errorCount,
         warnings,
+        conflictedCount: conflictedRows.length, // 🔑 عدد التعارضات المالية
+        financialConflicts: conflictedRows.map((r) => ({
+          row: r.row,
+          name: `${r.lastName} ${r.firstName}`,
+          fileNumber: r.fileNumber || "—",
+          feeMismatch: r.feeMismatch,
+          insuranceMismatch: r.insuranceMismatch,
+          totalMismatch: r.totalMismatch,
+        })),
         detectedColumns: {
           lastName: lastNameKey,
           firstName: firstNameKey,
@@ -528,10 +584,10 @@ export async function POST(req: NextRequest) {
     const clubFilter = { clubId: targetClubId };
     const existingCount = await db.subscriber.count({ where: clubFilter });
 
-    // فلترة الصفوف الصالحة حسب التحديد (إن وجد)
+    // فلترة الصفوف الصالحة حسب التحديد (إن وجد) — تستبعد المتعارضة مالياً
     const rowsToImport = selectedRows
-      ? validRows.filter((r) => selectedRows.includes(r.row))
-      : validRows;
+      ? cleanRows.filter((r) => selectedRows.includes(r.row))
+      : cleanRows;
 
     // ═══ منع التكرار: جلب جميع المنخرطين الحاليين للمقارنة ═══
     const existingSubscribers = await db.subscriber.findMany({
@@ -676,7 +732,16 @@ export async function POST(req: NextRequest) {
       imported,
       skipped,
       duplicates: duplicateRows.length,
-      duplicateDetails: duplicateRows.slice(0, 50), // أول 50 مكرر
+      duplicateDetails: duplicateRows.slice(0, 50),
+      // 🔑 التعارضات المالية (لم تُستورد — تحتاج مراجعة يدوية)
+      conflictedCount: conflictedRows.length,
+      financialConflicts: conflictedRows.map((r) => ({
+        row: r.row,
+        name: `${r.lastName} ${r.firstName}`,
+        feeMismatch: r.feeMismatch,
+        insuranceMismatch: r.insuranceMismatch,
+        totalMismatch: r.totalMismatch,
+      })).slice(0, 50),
       totalRows: rows.length,
       errors: importErrors,
     });

@@ -8,6 +8,7 @@ import {
   QrCode, Download, Settings as SettingsIcon, LogOut, Moon, Sun, ChevronLeft,
   UserCheck, RefreshCcw, FileText, Bell, Zap, Award, Pencil, Trash2,
   CreditCard, Inbox, UserCog, Database, Layers, Menu, CalendarOff, ListPlus, Building2,
+  ArrowDownAZ,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -131,6 +132,9 @@ export default function Home() {
   const [filterGender, setFilterGender] = useState("");
   const [filterRenewal, setFilterRenewal] = useState("");
   const [filterAgeCategory, setFilterAgeCategory] = useState("");
+  // 🔑 ترتيب حسب رقم الملف
+  const [sortBy, setSortBy] = useState("fileNumber");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [formOpen, setFormOpen] = useState(false);
   const [editInitial, setEditInitial] = useState<Partial<SubscriberFormValues> & { id?: string } | undefined>();
   const [deleteTarget, setDeleteTarget] = useState<SubscriberWithComputed | null>(null);
@@ -234,6 +238,9 @@ export default function Home() {
       if (filterType) params.set("subscriptionType", filterType);
       if (filterGender) params.set("gender", filterGender);
       if (filterRenewal) params.set("renewalStatus", filterRenewal);
+      // 🔑 ترتيب حسب رقم الملف
+      params.set("sortBy", sortBy);
+      params.set("sortOrder", sortOrder);
 
       const [allSubs, statsRes, actRes] = await Promise.all([
         fetchAllSubscribers(params),
@@ -250,7 +257,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [filterPayment, filterType, filterGender, filterRenewal, fetchAllSubscribers]);
+  }, [filterPayment, filterType, filterGender, filterRenewal, sortBy, sortOrder, fetchAllSubscribers]);
 
   useEffect(() => {
     if (!sessionUser) return;
@@ -823,6 +830,17 @@ export default function Home() {
                     className="pr-10 h-11"
                   />
                 </div>
+                {/* 🔑 زر ترتيب حسب رقم الملف */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-11 px-3 shrink-0"
+                  onClick={() => { setSortBy("fileNumber"); setSortOrder("asc"); fetchData(); }}
+                  title="ترتيب حسب رقم الملف"
+                >
+                  <ArrowDownAZ className="h-4 w-4 ml-1" />
+                  <span className="hidden sm:inline">ترتيب</span>
+                </Button>
                 {/* Mobile: filter button that opens a Drawer */}
                 <Button
                   variant="outline"
