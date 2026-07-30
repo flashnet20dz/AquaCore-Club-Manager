@@ -1070,7 +1070,7 @@ function CardCanvasScaler({
             {el.type === "uploadedImage" && !el.imageData && <div className="w-full h-full bg-gray-200 flex items-center justify-center text-gray-400 text-xs">صورة</div>}
             {el.type === "photo" && (
               <div
-                className="w-full h-full bg-gray-200 flex items-center justify-center text-gray-400 text-xs overflow-hidden"
+                className="w-full h-full bg-gray-200 flex items-center justify-center text-gray-400 text-xs overflow-hidden relative"
                 style={{
                   borderRadius: el.shapeKind === "circle" ? "50%" : (el.borderRadius || 8),
                   border: el.borderWidth ? `${el.borderWidth}px ${el.borderStyle || "solid"} ${el.borderColor || "#000"}` : undefined,
@@ -1079,6 +1079,14 @@ function CardCanvasScaler({
               >
                 {el.imageData ? (
                   <img src={el.imageData} alt="عضو" className="w-full h-full object-cover" draggable={false} />
+                ) : previewSub?.photoPath ? (
+                  <img
+                    src={`/api/subscribers/${previewSub.id}/photo?size=cropped&raw=1`}
+                    alt="صورة المنخرط"
+                    className="absolute inset-0 w-full h-full object-cover"
+                    draggable={false}
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                  />
                 ) : (
                   <User className="h-1/2 w-1/2 opacity-40" />
                 )}
