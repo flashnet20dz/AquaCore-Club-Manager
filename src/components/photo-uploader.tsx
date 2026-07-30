@@ -26,6 +26,7 @@ import {
   Image as ImageIcon,
   AlertCircle,
   Check,
+  SwitchCamera,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -120,6 +121,7 @@ export function PhotoUploader({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [cameraSaving, setCameraSaving] = useState(false);
+  const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
 
   // Delete state
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -164,7 +166,7 @@ export function PhotoUploader({
       }
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: "user",
+          facingMode: facingMode,
           width: { ideal: 640 },
           height: { ideal: 480 },
         },
@@ -201,7 +203,7 @@ export function PhotoUploader({
     } finally {
       setCameraStarting(false);
     }
-  }, []);
+  }, [facingMode]);
 
   // Synchronous resets live in the click handler (not in an effect),
   // so they don't trigger react-hooks/set-state-in-effect.
@@ -211,6 +213,16 @@ export function PhotoUploader({
     setCameraStarting(true);
     setCameraOpen(true);
   }, []);
+
+  // 🔑 تبديل الكاميرا (أمامية/خلفية)
+  const switchCamera = useCallback(() => {
+    stopCamera();
+    setCapturedImage(null);
+    setCameraError(null);
+    setFacingMode((prev) => prev === "user" ? "environment" : "user");
+    setCameraStarting(true);
+    // الكاميرا ستُعاد تشغيلها تلقائياً عبر الـ effect عند تغيّر facingMode
+  }, [stopCamera]);
 
   // Manage camera lifecycle: start when dialog opens, stop when it closes.
   // This is a legitimate external-system sync (MediaStream). The setState
@@ -656,6 +668,7 @@ export function PhotoUploader({
                   playsInline
                   muted
                   className="h-full w-full object-cover"
+                  style={{ transform: facingMode === "user" ? "scaleX(-1)" : "none" }}
                 />
                 {cameraStarting && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-white">
@@ -667,6 +680,23 @@ export function PhotoUploader({
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center text-white">
                     <AlertCircle className="h-10 w-10 text-amber-400" />
                     <span className="text-sm">{cameraError}</span>
+                  </div>
+                )}
+                {/* 🔑 زر تبديل الكاميرا */}
+                {!cameraStarting && !cameraError && (
+                  <button
+                    type="button"
+                    onClick={switchCamera}
+                    className="absolute top-3 right-3 p-2 rounded-xl bg-black/50 backdrop-blur-sm text-white hover:bg-black/70 transition border border-white/20"
+                    title={facingMode === "user" ? "الكاميرا الخلفية" : "الكاميرا الأمامية"}
+                  >
+                    <SwitchCamera className="h-5 w-5" />
+                  </button>
+                )}
+                {/* 🔑 مؤشر الكاميرا الحالية */}
+                {!cameraStarting && !cameraError && (
+                  <div className="absolute bottom-3 left-3 px-2 py-1 rounded-lg bg-black/50 backdrop-blur-sm text-white text-[10px] font-medium">
+                    {facingMode === "user" ? "أمامية" : "خلفية"}
                   </div>
                 )}
               </>
