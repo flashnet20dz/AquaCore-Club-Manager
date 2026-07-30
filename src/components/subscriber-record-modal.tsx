@@ -108,22 +108,22 @@ export function SubscriberRecordModal({ subscriber, open, onOpenChange }: Subscr
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
-            <Avatar className="h-10 w-10 rounded-xl overflow-hidden">
+            <div className="h-10 w-10 rounded-xl overflow-hidden shrink-0 relative bg-muted">
               {subscriber.photoPath && (
                 <img
                   src={`/api/subscribers/${subscriber.id}/photo?size=thumbnail&raw=1`}
                   alt={`${subscriber.lastName} ${subscriber.firstName}`}
-                  className="h-full w-full object-cover rounded-xl"
+                  className="absolute inset-0 h-full w-full object-cover rounded-xl"
                   onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
                 />
               )}
-              <AvatarFallback className={cn(
-                "rounded-lg text-sm font-bold",
+              <div className={cn(
+                "absolute inset-0 flex items-center justify-center rounded-lg text-sm font-bold",
                 subscriber.gender === "ذكر" ? "bg-sky-500/15 text-sky-700" : "bg-pink-500/15 text-pink-700"
               )}>
                 {subscriber.lastName[0]}{subscriber.firstName[0]}
-              </AvatarFallback>
-            </Avatar>
+              </div>
+            </div>
             <div className="flex-1">
               <p className="text-base font-bold">{subscriber.lastName} {subscriber.firstName}</p>
               <p className="text-xs text-muted-foreground font-mono">{subscriber.fileNumber} • {subscriber.age} سنة</p>

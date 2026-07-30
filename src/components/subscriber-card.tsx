@@ -102,25 +102,25 @@ export const SubscriberCard = memo(function SubscriberCard({
       <div className="p-4 space-y-3">
         {/* Header */}
         <div className="flex items-start gap-3">
-          <Avatar className={cn(
-            "h-12 w-12 rounded-xl border-2 overflow-hidden",
+          <div className={cn(
+            "h-12 w-12 rounded-xl border-2 overflow-hidden shrink-0 relative",
             isMale ? "border-sky-500/30 bg-sky-500/10" : "border-pink-500/30 bg-pink-500/10"
           )}>
             {subscriber.photoPath && (
               <img
                 src={`/api/subscribers/${subscriber.id}/photo?size=thumbnail&raw=1`}
                 alt={`${subscriber.lastName} ${subscriber.firstName}`}
-                className="h-full w-full object-cover rounded-xl"
+                className="absolute inset-0 h-full w-full object-cover rounded-xl"
                 onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
               />
             )}
-            <AvatarFallback className={cn(
-              "rounded-lg font-bold text-sm",
+            <div className={cn(
+              "absolute inset-0 flex items-center justify-center rounded-lg font-bold text-sm",
               isMale ? "text-sky-700 dark:text-sky-300" : "text-pink-700 dark:text-pink-300"
             )}>
               {initials}
-            </AvatarFallback>
-          </Avatar>
+            </div>
+          </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
               <Badge variant="outline" className="text-[10px] font-mono py-0 px-1.5 h-5">
