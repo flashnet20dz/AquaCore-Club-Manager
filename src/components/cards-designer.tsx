@@ -652,15 +652,15 @@ export function CardsDesigner({ subscribers, onBack }: { subscribers: Subscriber
             {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
             <span className="mr-1">PNG</span>
           </Button>
-          <Button size="sm" variant="outline" onClick={handlePrint8} disabled={generating} className="h-8 px-2 sm:px-3" title="طباعة 8 بطاقات/A4">
+          <Button size="sm" onClick={handlePrint8} disabled={generating} className="h-8 px-2 sm:px-3 bg-gradient-to-l from-teal-500 to-sky-500 text-white hover:opacity-90" title="طباعة 8 بطاقات/A4">
             {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5" />}
-            <span className="hidden sm:inline mr-1">8/A4</span>
+            <span className="mr-1">8/A4</span>
           </Button>
-          <Button size="sm" variant="outline" onClick={handleExportWord} disabled={generating} className="h-8 px-2 sm:px-3">
+          <Button size="sm" onClick={handleExportWord} disabled={generating} className="h-8 px-2 sm:px-3 bg-gradient-to-l from-teal-500 to-sky-500 text-white hover:opacity-90">
             {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
             <span className="mr-1">Word</span>
           </Button>
-          <Button size="sm" onClick={handlePrint} disabled={generating} className="h-8 px-2 sm:px-3">
+          <Button size="sm" onClick={handlePrint} disabled={generating} className="h-8 px-2 sm:px-3 bg-gradient-to-l from-teal-500 to-sky-500 text-white hover:opacity-90">
             {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5" />}
             <span className="mr-1">PDF</span>
           </Button>
@@ -1313,7 +1313,7 @@ function generatePrintHTML(subscribers: SubscriberWithComputed[], design: CardDe
       if (el.type === "logo") return `<div style="${base}"><img src="/images/rcs-logo-official.png" style="width:100%;height:100%;object-fit:contain;" onerror="this.style.display='none'" /></div>`;
       if (el.type === "uploadedImage" && el.imageData) return `<div style="${base}"><img src="${el.imageData}" style="width:100%;height:100%;object-fit:contain;" /></div>`;
       if (el.type === "photo") {
-        const photoSrc = sub.photoPath ? `/api/subscribers/${sub.id}/photo?size=cropped&raw=1` : "";
+        const photoSrc = sub.photoPath ? `${window.location.origin}/api/subscribers/${sub.id}/photo?size=cropped&raw=1` : "";
         const br = el.shapeKind === "circle" ? "50%" : (el.borderRadius || 8) + "px";
         const phStyle = `width:100%;height:100%;background:#e5e7eb;border-radius:${br};display:flex;align-items:center;justify-content:center;font-size:8px;color:#999;`;
         const imgStyle = `position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:${br};`;
@@ -1321,7 +1321,7 @@ function generatePrintHTML(subscribers: SubscriberWithComputed[], design: CardDe
       }
       if (el.type === "shape") return `<div style="${base}"></div>`;
       const content = getContent(el, sub); const label = el.showLabel ? (el.labelText || "") : "";
-      return `<div style="${base}"><span style="font-family:${el.fontFamily},Arial,sans-serif;font-size:${el.fontSize}px;font-weight:${el.fontWeight};color:${el.color};text-align:${el.textAlign};width:100%;line-height:1.3;word-break:break-word;">${escapeHtml(label + content)}</span></div>`;
+      return `<div style="${base}"><span style="font-family:${el.fontFamily},Arial,sans-serif;font-size:${(el.fontSize * 0.353).toFixed(1)}mm;font-weight:${el.fontWeight};color:${el.color};text-align:${el.textAlign};width:100%;line-height:1.3;word-break:break-word;">${escapeHtml(label + content)}</span></div>`;
     }).join("");
     const gradDir = config.gradientDirection === "horizontal" ? "to right" : config.gradientDirection === "vertical" ? "to bottom" : "to bottom right";
     const bgStyle = config.bgImage
@@ -1354,7 +1354,7 @@ function generatePrint8HTML(subscribers: SubscriberWithComputed[], design: CardD
       if (el.type === "logo") return `<div style="${base}"><img src="/images/rcs-logo-official.png" style="width:100%;height:100%;object-fit:contain;" onerror="this.style.display='none'" /></div>`;
       if (el.type === "uploadedImage" && el.imageData) return `<div style="${base}"><img src="${el.imageData}" style="width:100%;height:100%;object-fit:contain;" /></div>`;
       if (el.type === "photo") {
-        const photoSrc = sub.photoPath ? `/api/subscribers/${sub.id}/photo?size=cropped&raw=1` : "";
+        const photoSrc = sub.photoPath ? `${window.location.origin}/api/subscribers/${sub.id}/photo?size=cropped&raw=1` : "";
         const br = el.shapeKind === "circle" ? "50%" : (el.borderRadius || 8) + "px";
         const phStyle = `width:100%;height:100%;background:#e5e7eb;border-radius:${br};display:flex;align-items:center;justify-content:center;font-size:8px;color:#999;`;
         const imgStyle = `position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:${br};`;
@@ -1362,7 +1362,7 @@ function generatePrint8HTML(subscribers: SubscriberWithComputed[], design: CardD
       }
       if (el.type === "shape") return `<div style="${base}"></div>`;
       const content = getContent(el, sub); const label = el.showLabel ? (el.labelText || "") : "";
-      return `<div style="${base}"><span style="font-family:${el.fontFamily},Arial,sans-serif;font-size:${el.fontSize}px;font-weight:${el.fontWeight};color:${el.color};text-align:${el.textAlign};width:100%;line-height:1.3;word-break:break-word;">${escapeHtml(label + content)}</span></div>`;
+      return `<div style="${base}"><span style="font-family:${el.fontFamily},Arial,sans-serif;font-size:${(el.fontSize * 0.353).toFixed(1)}mm;font-weight:${el.fontWeight};color:${el.color};text-align:${el.textAlign};width:100%;line-height:1.3;word-break:break-word;">${escapeHtml(label + content)}</span></div>`;
     }).join("");
     const gradDir = config.gradientDirection === "horizontal" ? "to right" : config.gradientDirection === "vertical" ? "to bottom" : "to bottom right";
     const bgStyle = config.gradientEnabled
@@ -1391,14 +1391,14 @@ function generateWordHTML(subscribers: SubscriberWithComputed[], design: CardDes
       if (el.type === "logo") return `<div style="${base}"><img src="/images/rcs-logo-official.png" style="width:100%;height:100%;object-fit:contain;" onerror="this.style.display='none'" /></div>`;
       if (el.type === "uploadedImage" && el.imageData) return `<div style="${base}"><img src="${el.imageData}" style="width:100%;height:100%;object-fit:contain;" /></div>`;
       if (el.type === "photo") {
-        const photoSrc = sub.photoPath ? `/api/subscribers/${sub.id}/photo?size=cropped&raw=1` : "";
+        const photoSrc = sub.photoPath ? `${window.location.origin}/api/subscribers/${sub.id}/photo?size=cropped&raw=1` : "";
         const phStyle = `width:100%;height:100%;background:#e5e7eb;border-radius:8px;`;
         const imgStyle = `position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:8px;`;
         return `<div style="${base}overflow:hidden;border-radius:8px;position:relative;">${photoSrc ? `<img src="${photoSrc}" style="${imgStyle}" onerror="this.style.display='none'" /><div style="${phStyle}"></div>` : `<div style="${phStyle}"></div>`}</div>`;
       }
       if (el.type === "shape") return `<div style="${base}"></div>`;
       const content = getContent(el, sub); const label = el.showLabel ? (el.labelText || "") : "";
-      return `<div style="${base}"><span style="font-family:${el.fontFamily},Arial,sans-serif;font-size:${el.fontSize}px;font-weight:${el.fontWeight};color:${el.color};text-align:${el.textAlign};width:100%;line-height:1.3;">${escapeHtml(label + content)}</span></div>`;
+      return `<div style="${base}"><span style="font-family:${el.fontFamily},Arial,sans-serif;font-size:${(el.fontSize * 0.353).toFixed(1)}mm;font-weight:${el.fontWeight};color:${el.color};text-align:${el.textAlign};width:100%;line-height:1.3;">${escapeHtml(label + content)}</span></div>`;
     }).join("");
     const logoWatermark = side === "back" ? `<img src="/images/rcs-logo-official.png" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);height:75%;width:75%;object-fit:contain;opacity:0.1;" onerror="this.style.display='none'" />` : "";
     return `<div style="width:${config.width}cm;height:${config.height}cm;background-color:${config.bgColor};border:${config.borderWidth}px ${config.borderStyle} ${config.borderColor};border-radius:${config.borderRadius}px;position:relative;overflow:hidden;direction:rtl;display:inline-block;margin:5mm;">${logoWatermark}${elsHTML}</div>`;
