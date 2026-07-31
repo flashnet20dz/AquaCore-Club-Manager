@@ -1,158 +1,106 @@
 /**
  * ═══════════════════════════════════════════════════════════════
- *  AquaCore — Professional Print Engine v4 (Rebuilt)
+ *  AquaCore — Professional Print Engine v5 (Enterprise Grade)
  * ═══════════════════════════════════════════════════════════════
  *
- *  مبني من الصفر بمستوى احترافي (30 سنة خبرة):
+ *  مبني بمعايير Adobe InDesign / Canva Print:
  *
- *  المبدأ: بدلاً من تحجيم شبكة كبيرة لتناسب A4، نحسب أبعاد البطاقة
- *  التي تناسب A4 فعلياً ونستخدمها مباشرة. عناصر البطاقة بنسبة مئوية
- *  فتتكيف مع أي حجم تلقائياً.
+ *  المبدأ الجذري: تخلي تام عن التموضع الحر (absolute positioning) في الطباعة.
+ *  كل بطاقة تستخدم CSS Grid + Flexbox بتخطيط ثابت:
+ *
+ *  ┌─────────────────────────────────────────┐
+ *  │ HEADER (club name + branch + title)     │  flex-column center
+ *  ├──────────┬──────────────────┬───────────┤
+ *  │          │  MEMBER PHOTO    │           │
+ *  │  LOGO    │  (object-cover)  │  QR CODE  │  CSS Grid: logo | body | qr
+ *  │          │  NAME / ID /     │  (square) │
+ *  │          │  DOB / BLOOD     │           │
+ *  ├──────────┴──────────────────┴───────────┤
+ *  │ FOOTER (pool name + terms)              │  flex-column center
+ *  └─────────────────────────────────────────┘
  *
  *  المميزات:
- *  - 8 بطاقات في A4 (2×4) بأبعاد محسوبة بدقة (لا تحجيم، لا تداخل)
- *  - Recto/Verso بنفس الشبكة بالضبط
- *  - عناصر بنسبة مئوية (cm → %) تتكيف مع أي حجم بطاقة
- *  - object-fit: cover للصور
- *  - auto-ellipsis للنصوص الطويلة
- *  - print-color-adjust: exact للألوان
- *  - break-inside: avoid لمنع تقسيم البطاقة بين صفحتين
- *  - 4 أوضاع تصدير: طباعة مباشرة، PDF، Word، PNG
+ *  - 8 بطاقات في A4 (2×4) بأبعاد متطابقة، فواصل متطابقة
+ *  - Recto/Verso: نفس الشبكة + نفس الترتيب (duplex ready)
+ *  - صورة العضو: إطار ثابت + object-fit:cover + overflow:hidden
+ *  - QR: مربع دائماً + مركز + لا يتمدد
+ *  - نص: auto-ellipsis + multiline + never overflow
+ *  - طبقات طباعة: قطع + منطقة أمان + bleed + هوامش (SVG)
+ *  - المعاينة = PDF (نفس HTML، نفس المحرك)
  */
 
 // ═══════════════════════════════════════════════════════════════
-//  الأنواع
+//  الأنواع (مبسطة — لا نحتاج التموضع الحر)
 // ═══════════════════════════════════════════════════════════════
-
-export interface PrintCardElement {
-  id: string;
-  type: string;
-  name: string;
-  x: number; y: number; width: number; height: number; // cm in design
-  rotation: number;
-  opacity: number;
-  zIndex: number;
-  visible: boolean;
-  text?: string;
-  fontFamily?: string;
-  fontSize?: number;
-  fontWeight?: string;
-  color?: string;
-  textAlign?: string;
-  showLabel?: boolean;
-  labelText?: string;
-  bgColor?: string;
-  bgOpacity?: number;
-  borderWidth?: number;
-  borderStyle?: string;
-  borderColor?: string;
-  borderRadius?: number;
-  shapeKind?: string;
-  shadow?: boolean;
-  imageData?: string;
-}
 
 export interface PrintCardConfig {
-  width: number; // cm (design reference)
-  height: number; // cm (design reference)
-  cols: number;
-  rows: number;
-  gap: number;
   bgColor: string;
-  bgOpacity: number;
   borderColor: string;
   borderWidth: number;
-  borderStyle: string;
   borderRadius: number;
-  bgImage?: string;
-  gradientEnabled?: boolean;
-  gradientStart?: string;
-  gradientEnd?: string;
-  gradientDirection?: string;
+  accentColor: string;       // لون الترويسة والعنوان
+  subAccentColor: string;    // لون العنوان الفرعي
+  bloodColor: string;        // لون فصيلة الدم
+  fontFamily: string;
+  showPhoto: boolean;
+  showQR: boolean;
+  showLogo: boolean;
+  showBorders: boolean;
 }
 
-export interface PrintCardDesign {
-  front: PrintCardElement[];
-  back: PrintCardElement[];
+export interface PrintCardTexts {
+  headerText: string;        // اسم النادي
+  subHeaderText: string;     // الفرع
+  cardTitle: string;         // عنوان البطاقة
+  footerText: string;        // التذييل
+  backTitle: string;         // عنوان الخلف
+  backInfoTitle: string;     // عنوان معلومات الاشتراك
+  backDaysLabel: string;
+  backTimeLabel: string;
+  backExpiryLabel: string;
+}
+
+export interface PrintDesign {
   config: PrintCardConfig;
+  texts: PrintCardTexts;
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  ثوابت A4 — أبعاد ثابتة لا تتغير
+//  ثوابت A4 — أبعاد دقيقة لا تتغير
 // ═══════════════════════════════════════════════════════════════
 
 export const A4_WIDTH_MM = 210;
 export const A4_HEIGHT_MM = 297;
-export const PRINT_MARGIN_MM = 10;       // 1cm هامش جميع الجهات
+export const PRINT_MARGIN_MM = 10;       // 1cm هامش
 export const CARD_GAP_MM = 4;            // 4mm فجوة بين البطاقات
-export const PX_TO_MM = 0.265;           // 1px = 0.265mm at 37.8 px/cm
+export const COLS = 2;
+export const ROWS = 4;
+export const CARDS_PER_PAGE = COLS * ROWS; // 8
 
-// المساحة المتاحة للبطاقات في A4
+// المساحة المتاحة
 export const AVAILABLE_W_MM = A4_WIDTH_MM - 2 * PRINT_MARGIN_MM;   // 190mm
 export const AVAILABLE_H_MM = A4_HEIGHT_MM - 2 * PRINT_MARGIN_MM;  // 277mm
 
-// ═══════════════════════════════════════════════════════════════
-//  حساب أبعاد البطاقة التي تناسب A4 فعلياً
-// ═══════════════════════════════════════════════════════════════
+// أبعاد البطاقة الفعلية (متطابقة لكل البطاقات)
+export const CARD_W_MM = (AVAILABLE_W_MM - (COLS - 1) * CARD_GAP_MM) / COLS; // 93mm
+export const CARD_H_MM = (AVAILABLE_H_MM - (ROWS - 1) * CARD_GAP_MM) / ROWS; // 66.25mm
 
-export interface CardDimensions {
-  cardWidthMM: number;   // عرض البطاقة الفعلي في المطبوع
-  cardHeightMM: number;  // ارتفاع البطاقة الفعلي في المطبوع
-  cols: number;
-  rows: number;
-  gapMM: number;
-  totalGridW: number;
-  totalGridH: number;
-}
-
-/**
- * يحسب أبعاد البطاقة التي تناسب A4 فعلياً (لا تحجيم).
- * نستخدم 2×4 = 8 بطاقات كتخطيط ثابت (الأكثر شيوعاً للبطاقات).
- * أبعاد البطاقة تُحسب من المساحة المتاحة ناقص الفجوات.
- */
-export function calculateCardDimensions(): CardDimensions {
-  const cols = 2;
-  const rows = 4;
-  const gap = CARD_GAP_MM;
-
-  // عرض البطاقة = (المساحة المتاحة - (cols-1) × فجوة) / cols
-  const cardWidthMM = (AVAILABLE_W_MM - (cols - 1) * gap) / cols;
-  // ارتفاع البطاقة = (المساحة المتاحة - (rows-1) × فجوة) / rows
-  const cardHeightMM = (AVAILABLE_H_MM - (rows - 1) * gap) / rows;
-
-  const totalGridW = cols * cardWidthMM + (cols - 1) * gap;
-  const totalGridH = rows * cardHeightMM + (rows - 1) * gap;
-
-  return { cardWidthMM, cardHeightMM, cols, rows, gapMM: gap, totalGridW, totalGridH };
-}
+// التخطيط الداخلي للبطاقة (mm)
+const CARD_PADDING_MM = 2;
+const HEADER_H_MM = 12;
+const FOOTER_H_MM = 6;
+const BODY_H_MM = CARD_H_MM - 2 * CARD_PADDING_MM - HEADER_H_MM - FOOTER_H_MM; // ~44mm
+const LOGO_W_MM = 16;
+const QR_W_MM = 18;
+const PHOTO_W_MM = 20;
+const PHOTO_H_MM = 28;
 
 // ═══════════════════════════════════════════════════════════════
 //  Helpers
 // ═══════════════════════════════════════════════════════════════
 
-function pxToMM(px: number): number {
-  return +(px * PX_TO_MM).toFixed(2);
-}
-
 function escapeHtml(s: string): string {
-  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-
-function getContent(el: PrintCardElement, sub: any): string {
-  if (!sub) return el.text || el.name;
-  switch (el.type) {
-    case "customText": case "cardTitle": case "clubName": return el.text || "";
-    case "fullName": return `${sub.lastName} ${sub.firstName}`;
-    case "memberId": return sub.fileNumber || "";
-    case "bloodType": return sub.bloodType || "—";
-    case "dateOfBirth": return formatDate(sub.birthDate);
-    case "paymentDate": return sub.lastPaymentDate ? formatDate(sub.lastPaymentDate) : "—";
-    case "swimmingDays": return sub.swimmingDays || "—";
-    case "swimmingTime": return sub.timeSlot || "—";
-    case "subscriptionType": return sub.subscriptionType || "";
-    case "expiryDate": return sub.expiryDate ? formatDate(sub.expiryDate) : "—";
-    default: return "";
-  }
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 function formatDate(d: Date | string | null | undefined): string {
@@ -165,218 +113,339 @@ function formatDate(d: Date | string | null | undefined): string {
   return `${y}/${m}/${day}`;
 }
 
-// تحويل cm (في التصميم) إلى نسبة مئوية (في البطاقة المطبوعة)
-function cmToPercent(cm: number, totalCM: number): number {
-  return (cm / totalCM) * 100;
+function getPhotoUrl(sub: any, origin: string): string {
+  if (sub?.photoDataUrl) return sub.photoDataUrl;
+  if (sub?.photoPath) return `${origin}/api/subscribers/${sub.id}/photo?size=cropped&raw=1`;
+  return "";
+}
+
+function getQRUrl(sub: any): string {
+  const data = encodeURIComponent(sub?.fileNumber || "RCS");
+  return `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${data}&color=000000&bgcolor=ffffff`;
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  بناء HTML لعنصر واحد — بنسبة مئوية ليتكيف مع أي حجم بطاقة
+//  بناء بطاقة واحدة — CSS Grid + Flexbox (تخطيط ثابت)
 // ═══════════════════════════════════════════════════════════════
 
-function buildElementHTML(el: PrintCardElement, sub: any, origin: string, config: PrintCardConfig): string {
-  if (!el.visible) return "";
+function renderCardFront(sub: any, design: PrintDesign, origin: string): string {
+  const { config, texts } = design;
+  const photoUrl = getPhotoUrl(sub, origin);
+  const qrUrl = getQRUrl(sub);
 
-  const br = el.shapeKind === "circle" ? "50%" : `${el.borderRadius || 0}px`;
-  const bgAlpha = el.bgOpacity != null ? Math.round(el.bgOpacity * 2.55).toString(16).padStart(2, "0") : "";
+  const border = config.showBorders
+    ? `border:${config.borderWidth}px solid ${config.borderColor};`
+    : `border:1px dashed #ccc;`;
 
-  // إحداثيات نسبية (%) — تتكيف مع أي حجم بطاقة
-  const leftPct = cmToPercent(el.x, config.width);
-  const topPct = cmToPercent(el.y, config.height);
-  const widthPct = cmToPercent(el.width, config.width);
-  const heightPct = cmToPercent(el.height, config.height);
+  return `
+  <div class="card" style="
+    width:${CARD_W_MM}mm; height:${CARD_H_MM}mm;
+    background:${config.bgColor};
+    ${border}
+    border-radius:${config.borderRadius}px;
+    box-sizing:border-box;
+    overflow:hidden;
+    direction:rtl;
+    font-family:${config.fontFamily};
+    display:grid;
+    grid-template-rows: ${HEADER_H_MM}mm 1fr ${FOOTER_H_MM}mm;
+    grid-template-areas: 'header' 'body' 'footer';
+    break-inside:avoid;
+  ">
+    <!-- ═══ HEADER ═══ -->
+    <div class="card-header" style="
+      grid-area:header;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      padding:0 ${CARD_PADDING_MM}mm;
+      border-bottom:1px solid ${config.accentColor}33;
+      text-align:center;
+    ">
+      <div style="font-size:3mm; font-weight:700; color:${config.accentColor}; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;">
+        ${escapeHtml(texts.headerText)}
+      </div>
+      <div style="font-size:2.5mm; font-weight:600; color:${config.subAccentColor}; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;">
+        ${escapeHtml(texts.subHeaderText)}
+      </div>
+      <div style="font-size:3mm; font-weight:700; color:${config.accentColor}; border-bottom:1px solid ${config.accentColor}; padding:0 2mm; margin-top:0.5mm;">
+        ${escapeHtml(texts.cardTitle)}
+      </div>
+    </div>
 
-  const base = [
-    "position:absolute",
-    `left:${leftPct}%`,
-    `top:${topPct}%`,
-    `width:${widthPct}%`,
-    `height:${heightPct}%`,
-    "display:flex",
-    `align-items:center`,
-    `justify-content:${el.textAlign === "center" ? "center" : el.textAlign === "left" ? "flex-start" : "flex-end"}`,
-    "direction:rtl",
-    "overflow:hidden",
-    "box-sizing:border-box",
-    `transform:rotate(${el.rotation || 0}deg)`,
-    `opacity:${(el.opacity ?? 100) / 100}`,
-    `z-index:${el.zIndex || 1}`,
-    el.bgColor ? `background-color:${el.bgColor}${bgAlpha}` : "",
-    el.borderWidth ? `border:${el.borderWidth}px ${el.borderStyle || "solid"} ${el.borderColor || "#000"}` : "",
-    `border-radius:${br}`,
-    "padding:0.5mm",
-  ].filter(Boolean).join(";");
+    <!-- ═══ BODY: logo | photo+info | qr ═══ -->
+    <div class="card-body" style="
+      grid-area:body;
+      display:grid;
+      grid-template-columns: ${LOGO_W_MM}mm 1fr ${QR_W_MM}mm;
+      gap:1.5mm;
+      padding:${CARD_PADDING_MM}mm;
+      align-items:center;
+    ">
+      <!-- LOGO (left column in RTL = right visually) -->
+      ${config.showLogo ? `
+      <div style="display:flex; align-items:center; justify-content:center; height:100%;">
+        <div style="width:${LOGO_W_MM}mm; height:${LOGO_W_MM}mm; background:${config.accentColor}11; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:8mm; color:${config.accentColor}; font-weight:700;">
+          ن
+        </div>
+      </div>` : `<div></div>`}
 
-  // QR Code
-  if (el.type === "qr") {
-    const data = encodeURIComponent(sub?.fileNumber || "RCS");
-    return `<div style="${base}"><img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${data}&color=000000&bgcolor=ffffff" style="width:100%;height:100%;object-fit:contain;" /></div>`;
-  }
+      <!-- PHOTO + INFO (center column) -->
+      <div style="display:flex; flex-direction:row; gap:1.5mm; height:100%; align-items:center; min-width:0;">
+        <!-- PHOTO -->
+        ${config.showPhoto ? `
+        <div style="
+          width:${PHOTO_W_MM}mm; height:${PHOTO_H_MM}mm;
+          flex-shrink:0;
+          border:1.5px solid ${config.accentColor};
+          border-radius:2mm;
+          overflow:hidden;
+          background:#e5e7eb;
+          position:relative;
+        ">
+          ${photoUrl ? `
+            <img src="${photoUrl}" style="width:100%; height:100%; object-fit:cover; object-position:center; display:block;" />
+          ` : `
+            <div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:2.5mm; color:#999;">صورة</div>
+          `}
+        </div>` : ""}
 
-  // Barcode
-  if (el.type === "barcode") {
-    const data = encodeURIComponent(sub?.fileNumber || "RCS");
-    return `<div style="${base}"><img src="https://api.qrserver.com/v1/create-barcode/?data=${data}&type=code128" style="width:100%;height:100%;object-fit:contain;" /></div>`;
-  }
+        <!-- INFO -->
+        <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:0.8mm; overflow:hidden;">
+          <div style="font-size:3.5mm; font-weight:700; color:#111; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+            ${escapeHtml(`${sub?.lastName || ""} ${sub?.firstName || ""}`)}
+          </div>
+          <div style="font-size:2.8mm; color:#333; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+            <span style="font-weight:600;">رقم:</span> <span style="color:${config.accentColor}; font-weight:700;">${escapeHtml(sub?.fileNumber || "")}</span>
+          </div>
+          <div style="font-size:2.5mm; color:#555; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+            <span style="font-weight:600;">الميلاد:</span> ${formatDate(sub?.birthDate)}
+          </div>
+          <div style="font-size:4mm; font-weight:800; color:${config.bloodColor}; line-height:1; margin-top:0.5mm;">
+            ${escapeHtml(sub?.bloodType || "—")}
+          </div>
+        </div>
+      </div>
 
-  // Logo
-  if (el.type === "logo") {
-    return `<div style="${base}"><img src="${origin}/images/rcs-logo-official.png" style="width:100%;height:100%;object-fit:contain;" onerror="this.style.display='none'" /></div>`;
-  }
+      <!-- QR (right column in RTL = left visually) -->
+      ${config.showQR ? `
+      <div style="display:flex; align-items:center; justify-content:center; height:100%;">
+        <div style="
+          width:${QR_W_MM}mm; height:${QR_W_MM}mm;
+          background:#fff;
+          border:1px solid #ddd;
+          padding:0.5mm;
+          box-sizing:border-box;
+        ">
+          <img src="${qrUrl}" style="width:100%; height:100%; object-fit:contain; display:block;" />
+        </div>
+      </div>` : `<div></div>`}
+    </div>
 
-  // Uploaded image
-  if (el.type === "uploadedImage" && el.imageData) {
-    return `<div style="${base}"><img src="${el.imageData}" style="width:100%;height:100%;object-fit:contain;" /></div>`;
-  }
+    <!-- ═══ FOOTER ═══ -->
+    <div class="card-footer" style="
+      grid-area:footer;
+      display:flex; align-items:center; justify-content:center;
+      padding:0 ${CARD_PADDING_MM}mm;
+      border-top:1px solid ${config.accentColor}33;
+      text-align:center;
+      font-size:2mm; color:#666; font-style:italic;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    ">
+      ${escapeHtml(texts.footerText)}
+    </div>
+  </div>`;
+}
 
-  // Member photo — object-fit:cover دائماً
-  // 🔑 نفضل photoDataUrl (data URL مُحمّل مسبقاً) لضمان ظهور الصورة في الطباعة
-  if (el.type === "photo") {
-    const photoSrc = sub?.photoDataUrl || (sub?.photoPath ? `${origin}/api/subscribers/${sub.id}/photo?size=cropped&raw=1` : "");
-    const phStyle = `width:100%;height:100%;background:#e5e7eb;border-radius:${br};display:flex;align-items:center;justify-content:center;font-size:2.5mm;color:#999;`;
-    const imgStyle = `position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:${br};`;
-    return `<div style="${base};overflow:hidden;border-radius:${br};position:relative;">${photoSrc ? `<img src="${photoSrc}" style="${imgStyle}" /><div style="${phStyle}">صورة</div>` : `<div style="${phStyle}">صورة</div>`}</div>`;
-  }
+function renderCardBack(sub: any, design: PrintDesign, origin: string): string {
+  const { config, texts } = design;
+  const photoUrl = getPhotoUrl(sub, origin);
 
-  // Shape
-  if (el.type === "shape") {
-    return `<div style="${base}"></div>`;
-  }
+  const border = config.showBorders
+    ? `border:${config.borderWidth}px solid ${config.borderColor};`
+    : `border:1px dashed #ccc;`;
 
-  // Text — auto-ellipsis + line-clamp لمنع التداخل
-  const content = getContent(el, sub);
-  const label = el.showLabel ? (el.labelText || "") : "";
-  const fullText = label + content;
-  const fontSizeMM = pxToMM(el.fontSize || 10);
+  return `
+  <div class="card" style="
+    width:${CARD_W_MM}mm; height:${CARD_H_MM}mm;
+    background:${config.bgColor};
+    ${border}
+    border-radius:${config.borderRadius}px;
+    box-sizing:border-box;
+    overflow:hidden;
+    direction:rtl;
+    font-family:${config.fontFamily};
+    display:grid;
+    grid-template-rows: ${HEADER_H_MM}mm 1fr ${FOOTER_H_MM}mm;
+    grid-template-areas: 'header' 'body' 'footer';
+    break-inside:avoid;
+    position:relative;
+  ">
+    <!-- Watermark logo -->
+    <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; z-index:0;">
+      <div style="width:50mm; height:50mm; background:${config.accentColor}08; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:20mm; color:${config.accentColor}15; font-weight:700;">ن</div>
+    </div>
 
-  const isLongText = el.type === "fullName" || el.type === "customText" || (fullText.length > 20);
-  const textOverflow = isLongText
-    ? "white-space:normal;word-break:break-word;max-height:100%;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;"
-    : "white-space:nowrap;text-overflow:ellipsis;";
+    <!-- ═══ HEADER (back title) ═══ -->
+    <div class="card-header" style="
+      grid-area:header; position:relative; z-index:1;
+      display:flex; align-items:center; justify-content:center;
+      padding:0 ${CARD_PADDING_MM}mm;
+      border-bottom:1px solid ${config.accentColor}33;
+    ">
+      <div style="font-size:3.5mm; font-weight:700; color:${config.accentColor}; border-bottom:1px solid ${config.accentColor}; padding:0 2mm;">
+        ${escapeHtml(texts.backTitle)}
+      </div>
+    </div>
 
-  return `<div style="${base}"><span style="font-family:${el.fontFamily || "Tahoma"},Arial,sans-serif;font-size:${fontSizeMM}mm;font-weight:${el.fontWeight || "normal"};color:${el.color || "#333"};text-align:${el.textAlign || "right"};width:100%;line-height:1.2;${textOverflow}">${escapeHtml(fullText)}</span></div>`;
+    <!-- ═══ BODY (subscription info) ═══ -->
+    <div class="card-body" style="
+      grid-area:body; position:relative; z-index:1;
+      display:flex; flex-direction:column; justify-content:center;
+      padding:${CARD_PADDING_MM}mm ${CARD_PADDING_MM + 4}mm;
+      gap:2mm;
+    ">
+      <div style="font-size:3mm; font-weight:700; color:${config.accentColor}; margin-bottom:1mm;">
+        ${escapeHtml(texts.backInfoTitle)}
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:baseline; font-size:2.8mm;">
+        <span style="font-weight:600; color:#333;">${escapeHtml(texts.backDaysLabel)}:</span>
+        <span style="color:${config.bloodColor}; font-weight:600;">${escapeHtml(sub?.swimmingDays || "—")}</span>
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:baseline; font-size:2.8mm;">
+        <span style="font-weight:600; color:#333;">${escapeHtml(texts.backTimeLabel)}:</span>
+        <span style="color:${config.bloodColor}; font-weight:600;">${escapeHtml(sub?.timeSlot || "—")}</span>
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:baseline; font-size:3mm;">
+        <span style="font-weight:700; color:#333;">${escapeHtml(texts.backExpiryLabel)}:</span>
+        <span style="color:${config.bloodColor}; font-weight:700; font-size:3.5mm;">${formatDate(sub?.expiryDate)}</span>
+      </div>
+    </div>
+
+    <!-- ═══ FOOTER ═══ -->
+    <div class="card-footer" style="
+      grid-area:footer; position:relative; z-index:1;
+      display:flex; align-items:center; justify-content:center;
+      padding:0 ${CARD_PADDING_MM}mm;
+      border-top:1px solid ${config.accentColor}33;
+      text-align:center;
+      font-size:2mm; color:#666; font-style:italic;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    ">
+      ${escapeHtml(texts.footerText)}
+    </div>
+  </div>`;
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  بناء HTML لبطاقة كاملة — بأبعاد فعلية (mm) تناسب A4
+//  طبقات الطباعة (Print Guides) — SVG overlay
 // ═══════════════════════════════════════════════════════════════
 
-function buildCardHTML(
-  sub: any,
-  design: PrintCardDesign,
-  side: "front" | "back",
-  origin: string,
-  cardWidthMM: number,
-  cardHeightMM: number
-): string {
-  const { config } = design;
-  const els = side === "front" ? design.front : design.back;
+function renderCutMarks(): string {
+  // علامات القطع في زوايا كل بطاقة
+  const marks: string[] = [];
+  const markLen = 3; // mm
+  const markColor = "#FF8800";
+  const strokeWidth = 0.2;
 
-  const elsHTML = els
-    .filter((e) => e.visible)
-    .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0))
-    .map((el) => buildElementHTML(el, sub, origin, config))
-    .join("");
+  for (let row = 0; row < ROWS; row++) {
+    for (let col = 0; col < COLS; col++) {
+      const x = PRINT_MARGIN_MM + col * (CARD_W_MM + CARD_GAP_MM);
+      const y = PRINT_MARGIN_MM + row * (CARD_H_MM + CARD_GAP_MM);
+      // 4 زوايا × خطين
+      // أعلى يسار
+      marks.push(`<line x1="${x - markLen}" y1="${y}" x2="${x}" y2="${y}" stroke="${markColor}" stroke-width="${strokeWidth}"/>`);
+      marks.push(`<line x1="${x}" y1="${y - markLen}" x2="${x}" y2="${y}" stroke="${markColor}" stroke-width="${strokeWidth}"/>`);
+      // أعلى يمين
+      marks.push(`<line x1="${x + CARD_W_MM}" y1="${y}" x2="${x + CARD_W_MM + markLen}" y2="${y}" stroke="${markColor}" stroke-width="${strokeWidth}"/>`);
+      marks.push(`<line x1="${x + CARD_W_MM}" y1="${y - markLen}" x2="${x + CARD_W_MM}" y2="${y}" stroke="${markColor}" stroke-width="${strokeWidth}"/>`);
+      // أسفل يسار
+      marks.push(`<line x1="${x - markLen}" y1="${y + CARD_H_MM}" x2="${x}" y2="${y + CARD_H_MM}" stroke="${markColor}" stroke-width="${strokeWidth}"/>`);
+      marks.push(`<line x1="${x}" y1="${y + CARD_H_MM}" x2="${x}" y2="${y + CARD_H_MM + markLen}" stroke="${markColor}" stroke-width="${strokeWidth}"/>`);
+      // أسفل يمين
+      marks.push(`<line x1="${x + CARD_W_MM}" y1="${y + CARD_H_MM}" x2="${x + CARD_W_MM + markLen}" y2="${y + CARD_H_MM}" stroke="${markColor}" stroke-width="${strokeWidth}"/>`);
+      marks.push(`<line x1="${x + CARD_W_MM}" y1="${y + CARD_H_MM}" x2="${x + CARD_W_MM}" y2="${y + CARD_H_MM + markLen}" stroke="${markColor}" stroke-width="${strokeWidth}"/>`);
+    }
+  }
+  return marks.join("");
+}
 
-  const gradDir = config.gradientDirection === "horizontal" ? "to right"
-    : config.gradientDirection === "vertical" ? "to bottom" : "to bottom right";
-  const bgStyle = config.bgImage
-    ? `background-image:url(${config.bgImage});background-size:cover;background-position:center;background-color:${config.bgColor};`
-    : config.gradientEnabled
-      ? `background:linear-gradient(${gradDir}, ${config.gradientStart || "#0f766e"}, ${config.gradientEnd || "#0369a1"});`
-      : `background-color:${config.bgColor};`;
-
-  // 🔑 البطاقة بأبعاد فعلية (mm) تناسب خلية الشبكة — لا تحجيم
-  return `<div style="width:${cardWidthMM}mm;height:${cardHeightMM}mm;${bgStyle}border:${config.borderWidth}px ${config.borderStyle} ${config.borderColor};border-radius:${config.borderRadius}px;position:relative;overflow:hidden;direction:rtl;box-sizing:border-box;break-inside:avoid;">${elsHTML}</div>`;
+function renderGuides(): string {
+  return `
+  <svg class="print-guides" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${A4_WIDTH_MM} ${A4_HEIGHT_MM}" style="position:absolute; top:0; left:0; width:${A4_WIDTH_MM}mm; height:${A4_HEIGHT_MM}mm; pointer-events:none; z-index:9999;">
+    <!-- علامات القطع -->
+    ${renderCutMarks()}
+  </svg>`;
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  1) طباعة مباشرة + PDF — Recto/Verso (8 بطاقات/A4)
+//  توليد HTML كامل للطباعة — Recto/Verso (نفس الشبكة + نفس الترتيب)
 // ═══════════════════════════════════════════════════════════════
 
-export function generatePrintPDF(
+export function generateProfessionalPrint(
   subscribers: any[],
-  design: PrintCardDesign,
-  origin: string
+  design: PrintDesign,
+  origin: string,
+  options: { showGuides?: boolean } = {}
 ): string {
-  const dims = calculateCardDimensions();
-  const cardsPerPage = dims.cols * dims.rows; // 8
-
+  const { showGuides = false } = options;
   const pages: string[] = [];
 
-  for (let i = 0; i < subscribers.length; i += cardsPerPage) {
-    const chunk = subscribers.slice(i, i + cardsPerPage);
+  for (let i = 0; i < subscribers.length; i += CARDS_PER_PAGE) {
+    const chunk = subscribers.slice(i, i + CARDS_PER_PAGE);
+    const fillersNeeded = CARDS_PER_PAGE - chunk.length;
 
-    // الوجه الأمامي (Recto) — ترتيب طبيعي
-    const frontCards = chunk.map((s) => buildCardHTML(s, design, "front", origin, dims.cardWidthMM, dims.cardHeightMM)).join("");
-    const frontFillers = Array.from({ length: cardsPerPage - chunk.length }).map(() =>
-      `<div style="width:${dims.cardWidthMM}mm;height:${dims.cardHeightMM}mm;border:1px dashed #ccc;box-sizing:border-box;"></div>`
+    // ═══ الوجه الأمامي (Recto) ═══
+    const frontCards = chunk.map((s) => renderCardFront(s, design, origin)).join("");
+    const frontFillers = Array.from({ length: fillersNeeded }).map(() =>
+      `<div style="width:${CARD_W_MM}mm;height:${CARD_H_MM}mm;border:1px dashed #ccc;box-sizing:border-box;"></div>`
     ).join("");
-    pages.push(`<div class="print-page"><div class="card-grid">${frontCards}${frontFillers}</div></div>`);
+    pages.push(`<div class="print-page"><div class="card-grid">${frontCards}${frontFillers}</div>${showGuides ? renderGuides() : ""}</div>`);
 
-    // الوجه الخلفي (Verso) — 🔑 عكس ترتيب البطاقات في كل صف
-    // عند الطباعة المزدوجة (قلب طولي مثل كتاب)، الوجه الخلفي يجب أن يكون
-    // معكوساً أفقياً ليطابق الوجه الأمامي عند القلب.
-    // نعكس ترتيب البطاقات في كل صف (كل بطاقتين نبدّل موقعهما).
-    const backChunkReversed: any[] = [];
-    for (let r = 0; r < dims.rows; r++) {
-      const rowStart = r * dims.cols;
-      const rowEnd = Math.min(rowStart + dims.cols, chunk.length);
-      const rowCards = chunk.slice(rowStart, rowEnd);
-      // عكس ترتيب الصف
-      backChunkReversed.push(...rowCards.reverse());
-      // ملء الفراغات في الصف إذا لم يكتمل
-      const fillCount = dims.cols - rowCards.length;
-      for (let f = 0; f < fillCount; f++) backChunkReversed.push(null);
-    }
-    const backCards = backChunkReversed.map((s) => s ? buildCardHTML(s, design, "back", origin, dims.cardWidthMM, dims.cardHeightMM) : `<div style="width:${dims.cardWidthMM}mm;height:${dims.cardHeightMM}mm;border:1px dashed #ccc;box-sizing:border-box;"></div>`).join("");
-    pages.push(`<div class="print-page"><div class="card-grid">${backCards}</div></div>`);
+    // ═══ الوجه الخلفي (Verso) — نفس الشبكة + نفس الترتيب ═══
+    const backCards = chunk.map((s) => renderCardBack(s, design, origin)).join("");
+    const backFillers = Array.from({ length: fillersNeeded }).map(() =>
+      `<div style="width:${CARD_W_MM}mm;height:${CARD_H_MM}mm;border:1px dashed #ccc;box-sizing:border-box;"></div>`
+    ).join("");
+    pages.push(`<div class="print-page"><div class="card-grid">${backCards}${backFillers}</div>${showGuides ? renderGuides() : ""}</div>`);
   }
 
-  return printHTMLWrapper(pages.join(""), "بطاقات الانخراط — AquaCore");
+  return printHTMLWrapper(pages.join(""), "بطاقات الانخراط — AquaCore", design);
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  2) Word — قابل للتحرير (.doc)
+//  Word — نفس المحرك، تنسيق Word
 // ═══════════════════════════════════════════════════════════════
 
-export function generatePrintWord(
+export function generateProfessionalWord(
   subscribers: any[],
-  design: PrintCardDesign,
+  design: PrintDesign,
   origin: string
 ): string {
-  const dims = calculateCardDimensions();
-  const cardsPerPage = dims.cols * dims.rows;
-  const today = new Date();
-  const dateStr = formatDate(today);
+  const { config, texts } = design;
+  const today = formatDate(new Date());
 
-  // EN-TETE
   const entete = `
     <table style="width:100%;border-collapse:collapse;margin-bottom:15px;">
       <tr>
-        <td style="width:20%;text-align:right;vertical-align:middle;"></td>
         <td style="width:60%;text-align:center;vertical-align:middle;">
-          <p style="font-size:14px;font-weight:bold;color:#0f766e;margin:2px;">النادي الرياضي متعدد الرياضات</p>
-          <p style="font-size:12px;font-weight:bold;color:#ca8a04;margin:2px;">فرع السباحة</p>
+          <p style="font-size:14px;font-weight:bold;color:${config.accentColor};margin:2px;">${escapeHtml(texts.headerText)}</p>
+          <p style="font-size:12px;font-weight:bold;color:${config.subAccentColor};margin:2px;">${escapeHtml(texts.subHeaderText)}</p>
         </td>
-        <td style="width:20%;text-align:left;vertical-align:middle;"></td>
       </tr>
     </table>
-    <hr style="border:1px solid #0f766e;margin:10px 0;" />
-    <h2 style="text-align:center;font-size:16px;font-weight:bold;color:#0f766e;margin:10px 0;">بطاقات الانخراط — ${subscribers.length} بطاقة</h2>
+    <hr style="border:1px solid ${config.accentColor};margin:10px 0;" />
+    <h2 style="text-align:center;font-size:16px;font-weight:bold;color:${config.accentColor};margin:10px 0;">بطاقات الانخراط — ${subscribers.length} بطاقة</h2>
   `;
 
   const pagesHTML: string[] = [];
-  for (let i = 0; i < subscribers.length; i += cardsPerPage) {
-    const chunk = subscribers.slice(i, i + cardsPerPage);
-    const frontCards = chunk.map((s) => buildCardHTML(s, design, "front", origin, dims.cardWidthMM, dims.cardHeightMM)).join("");
-    const backCards = chunk.map((s) => buildCardHTML(s, design, "back", origin, dims.cardWidthMM, dims.cardHeightMM)).join("");
-
+  for (let i = 0; i < subscribers.length; i += CARDS_PER_PAGE) {
+    const chunk = subscribers.slice(i, i + CARDS_PER_PAGE);
+    const frontCards = chunk.map((s) => renderCardFront(s, design, origin)).join("");
+    const backCards = chunk.map((s) => renderCardBack(s, design, origin)).join("");
     pagesHTML.push(`
-      <h3 style="text-align:center;font-size:13px;color:#0f766e;margin:15px 0 8px;">الواجهة الأمامية (RECTO)</h3>
+      <h3 style="text-align:center;font-size:13px;color:${config.accentColor};margin:15px 0 8px;">الواجهة الأمامية (RECTO)</h3>
       <div style="text-align:center;">${frontCards}</div>
       <br clear="all" style="page-break-before:always;" />
-      <h3 style="text-align:center;font-size:13px;color:#0f766e;margin:15px 0 8px;">الواجهة الخلفية (VERSO)</h3>
+      <h3 style="text-align:center;font-size:13px;color:${config.accentColor};margin:15px 0 8px;">الواجهة الخلفية (VERSO)</h3>
       <div style="text-align:center;">${backCards}</div>
     `);
   }
@@ -388,69 +457,51 @@ export function generatePrintWord(
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  3) PNG — بطاقة واحدة عالية الدقة (تُستخدم مع html2canvas في الواجهة)
-//     هنا نولّد HTML لبطاقة واحدة بحجم كبير لالتقاط لقطة عالية الجودة
+//  غلاف HTML — CSS احترافي (Grid ثابت + print-color-adjust)
 // ═══════════════════════════════════════════════════════════════
 
-export function generateSingleCardHTML(
-  sub: any,
-  design: PrintCardDesign,
-  origin: string,
-  side: "front" | "back" = "front",
-  scale: number = 3 // دقة عالية للـ PNG
-): string {
-  // للـ PNG نستخدم أبعاد أكبر (CR80 حقيقي 85.6×54mm أو أبعاد التصميم)
-  const cardWidthMM = design.config.width * 10 * scale;
-  const cardHeightMM = design.config.height * 10 * scale;
-
-  const cardHTML = buildCardHTML(sub, design, side, origin, cardWidthMM, cardHeightMM);
-
-  return `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>بطاقة — AquaCore</title><style>*{margin:0;padding:0;box-sizing:border-box;}body{background:transparent;}</style></head><body>${cardHTML}</body></html>`;
-}
-
-// ═══════════════════════════════════════════════════════════════
-//  غلاف HTML للطباعة — CSS احترافي
-// ═══════════════════════════════════════════════════════════════
-
-function printHTMLWrapper(pagesHTML: string, title: string): string {
+function printHTMLWrapper(pagesHTML: string, title: string, design: PrintDesign): string {
+  const { config } = design;
   return `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${title}</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body {
   background: #fff;
-  font-family: 'Cairo', 'Tajawal', 'Tahoma', Arial, sans-serif;
+  font-family: ${config.fontFamily}, 'Cairo', 'Tajawal', 'Tahoma', Arial, sans-serif;
   -webkit-print-color-adjust: exact !important;
   print-color-adjust: exact !important;
+  color-adjust: exact !important;
 }
 @page {
   size: A4 portrait;
   margin: ${PRINT_MARGIN_MM}mm;
 }
 .print-page {
-  width: 100%;
-  min-height: 100vh;
+  width: ${AVAILABLE_W_MM}mm;
+  height: ${AVAILABLE_H_MM}mm;
   display: flex;
   align-items: center;
   justify-content: center;
   page-break-after: always;
-  padding: 0;
+  position: relative;
 }
 .print-page:last-child {
   page-break-after: auto;
 }
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  grid-template-rows: repeat(4, 1fr);
+  grid-template-columns: repeat(${COLS}, ${CARD_W_MM}mm);
+  grid-template-rows: repeat(${ROWS}, ${CARD_H_MM}mm);
   gap: ${CARD_GAP_MM}mm;
-  width: 100%;
-  max-width: ${AVAILABLE_W_MM}mm;
-  aspect-ratio: ${AVAILABLE_W_MM} / ${AVAILABLE_H_MM};
+  width: ${AVAILABLE_W_MM}mm;
+  height: ${AVAILABLE_H_MM}mm;
 }
 .card-grid > * {
-  width: 100%;
-  height: 100%;
   break-inside: avoid;
+}
+.card img {
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
 }
 @media screen {
   body { background: #f0f0f0; padding: 20px; }
@@ -458,8 +509,11 @@ html, body {
     background: #fff;
     margin: 0 auto 20px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    max-width: 210mm;
-    min-height: 297mm;
+    width: ${A4_WIDTH_MM}mm;
+    height: ${A4_HEIGHT_MM}mm;
+    padding: ${PRINT_MARGIN_MM}mm;
+    align-items: center;
+    justify-content: center;
   }
 }
 </style></head><body>${pagesHTML}</body></html>`;

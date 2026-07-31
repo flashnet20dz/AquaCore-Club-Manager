@@ -63,7 +63,7 @@ import { toast } from "sonner";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { useSubscriptionTypes } from "@/hooks/use-subscription-types";
 import type { SubscriberWithComputed } from "@/lib/rcs";
-import { generatePrintPDF, generatePrintWord, generateSingleCardHTML } from "@/lib/print-engine";
+import { generateProfessionalPrint, generateProfessionalWord, type PrintDesign, type PrintCardConfig, type PrintCardTexts } from "@/lib/print-engine";
 
 // ──────────────────────────── Types ────────────────────────────
 
@@ -721,6 +721,48 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
   };
 
   // ═══════════════════════════════════════════════════════════════
+  //  🔑 تحويل التصميم الحر (CardDesign) إلى تصميم طباعة مهيكل (PrintDesign)
+  //  نستخرج النصوص والألوان من العناصر الحرة، لكن الطباعة تستخدم تخطيط ثابت
+  // ═══════════════════════════════════════════════════════════════
+  const buildPrintDesign = (): PrintDesign => {
+    const c = design.config;
+    const findEl = (type: string) => design.front.find((e) => e.type === type) || design.back.find((e) => e.type === type);
+
+    const clubNameEl = findEl("clubName");
+    const cardTitleEl = findEl("cardTitle");
+    const customTextEl = design.front.find((e) => e.type === "customText");
+
+    const config: PrintCardConfig = {
+      bgColor: c.bgColor,
+      borderColor: c.borderColor,
+      borderWidth: c.borderWidth,
+      borderRadius: c.borderRadius,
+      accentColor: clubNameEl?.color || "#0f766e",
+      subAccentColor: cardTitleEl?.color || "#ca8a04",
+      bloodColor: findEl("bloodType")?.color || "#dc2626",
+      fontFamily: clubNameEl?.fontFamily || "Cairo",
+      showPhoto: !!findEl("photo")?.visible,
+      showQR: !!findEl("qr")?.visible,
+      showLogo: !!findEl("logo")?.visible,
+      showBorders: c.borderWidth > 0,
+    };
+
+    const texts: PrintCardTexts = {
+      headerText: clubNameEl?.text || "النادي الرياضي",
+      subHeaderText: "*- فرع السباحة *-",
+      cardTitle: cardTitleEl?.text || "بطاقة الانخراط",
+      footerText: "يُمنع الدخول إلى المسبح دون تقديم بطاقة الانخراط.",
+      backTitle: design.back.find((e) => e.type === "cardTitle")?.text || "معلومات الاشتراك",
+      backInfoTitle: design.back.find((e) => e.type === "cardTitle")?.text || "معلومات الاشتراك",
+      backDaysLabel: "أيام السباحة",
+      backTimeLabel: "التوقيت",
+      backExpiryLabel: "ت.ن.إ",
+    };
+
+    return { config, texts };
+  };
+
+  // ═══════════════════════════════════════════════════════════════
   //  أزرار الطباعة الاحترافية (4 أوضاع)
   // ═══════════════════════════════════════════════════════════════
 
@@ -731,7 +773,8 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
     setGenerating(true);
     try {
       const subsWithPhotos = await prepareSubsWithPhotos(subs);
-      const html = generatePrintPDF(subsWithPhotos, design, window.location.origin);
+      const printDesign = buildPrintDesign();
+      const html = generateProfessionalPrint(subsWithPhotos, printDesign, window.location.origin);
       const w = window.open("", "_blank");
       if (!w) { toast.error("اسمح بالنوافذ المنبثقة"); return; }
       w.document.write(html);
@@ -749,7 +792,8 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
     setGenerating(true);
     try {
       const subsWithPhotos = await prepareSubsWithPhotos(subs);
-      const html = generatePrintPDF(subsWithPhotos, design, window.location.origin);
+      const printDesign = buildPrintDesign();
+      const html = generateProfessionalPrint(subsWithPhotos, printDesign, window.location.origin);
       const w = window.open("", "_blank");
       if (!w) { toast.error("اسمح بالنوافذ المنبثقة"); return; }
       w.document.write(html);
@@ -767,7 +811,8 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
     setGenerating(true);
     try {
       const subsWithPhotos = await prepareSubsWithPhotos(subs);
-      const html = generatePrintWord(subsWithPhotos, design, window.location.origin);
+      const printDesign = buildPrintDesign();
+      const html = generateProfessionalWord(subsWithPhotos, printDesign, window.location.origin);
       const blob = new Blob([html], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");

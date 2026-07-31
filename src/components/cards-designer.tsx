@@ -28,7 +28,7 @@ import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { useScaleFit } from "@/hooks/use-scale-fit";
 import { useSubscriptionTypes } from "@/hooks/use-subscription-types";
 import type { SubscriberWithComputed } from "@/lib/rcs";
-import { generatePrintPDF, generatePrintWord } from "@/lib/print-engine";
+import { generateProfessionalPrint, generateProfessionalWord, type PrintDesign, type PrintCardConfig, type PrintCardTexts } from "@/lib/print-engine";
 
 // ──────────────── Types ────────────────
 
@@ -529,13 +529,37 @@ export function CardsDesigner({ subscribers, onBack }: { subscribers: Subscriber
     finally { setGenerating(false); }
   };
 
+  // ─── Bridge: convert free-form CardDesign to structured PrintDesign ───
+  const buildPrintDesign = (): PrintDesign => {
+    const c = design.config;
+    const findEl = (type: string) => design.front.find((e) => e.type === type) || design.back.find((e) => e.type === type);
+    const clubNameEl = findEl("clubName");
+    const cardTitleEl = findEl("cardTitle");
+    const config: PrintCardConfig = {
+      bgColor: c.bgColor, borderColor: c.borderColor, borderWidth: c.borderWidth, borderRadius: c.borderRadius,
+      accentColor: clubNameEl?.color || "#0f766e", subAccentColor: cardTitleEl?.color || "#ca8a04",
+      bloodColor: findEl("bloodType")?.color || "#dc2626", fontFamily: clubNameEl?.fontFamily || "Cairo",
+      showPhoto: !!findEl("photo")?.visible, showQR: !!findEl("qr")?.visible, showLogo: !!findEl("logo")?.visible,
+      showBorders: c.borderWidth > 0,
+    };
+    const texts: PrintCardTexts = {
+      headerText: clubNameEl?.text || "النادي الرياضي", subHeaderText: "*- فرع السباحة *-",
+      cardTitle: cardTitleEl?.text || "بطاقة الانخراط",
+      footerText: "يُمنع الدخول إلى المسبح دون تقديم بطاقة الانخراط.",
+      backTitle: design.back.find((e) => e.type === "cardTitle")?.text || "معلومات الاشتراك",
+      backInfoTitle: design.back.find((e) => e.type === "cardTitle")?.text || "معلومات الاشتراك",
+      backDaysLabel: "أيام السباحة", backTimeLabel: "التوقيت", backExpiryLabel: "ت.ن.إ",
+    };
+    return { config, texts };
+  };
+
   // ─── Print 8 per A4 ───
   const handlePrint8 = () => {
     const subs = subscribers.filter((s) => selectedSubIds.includes(s.id));
     if (subs.length === 0) { toast.error("اختر منخرطاً واحداً على الأقل"); return; }
     setGenerating(true);
     try {
-      const html = generatePrintPDF(subs, design, window.location.origin);
+      const html = generateProfessionalPrint(subs, buildPrintDesign(), window.location.origin);
       const w = window.open("", "_blank"); if (!w) { toast.error("اسمح بالنوافذ المنبثقة"); return; }
       w.document.write(html); w.document.close();
       w.onload = () => setTimeout(() => w.print(), 800);
@@ -548,7 +572,7 @@ export function CardsDesigner({ subscribers, onBack }: { subscribers: Subscriber
     if (subs.length === 0) { toast.error("اختر منخرطاً واحداً على الأقل"); return; }
     setGenerating(true);
     try {
-      const html = generatePrintPDF(subs, design, window.location.origin);
+      const html = generateProfessionalPrint(subs, buildPrintDesign(), window.location.origin);
       const w = window.open("", "_blank"); if (!w) { toast.error("اسمح بالنوافذ المنبثقة"); return; }
       w.document.write(html); w.document.close();
       w.onload = () => setTimeout(() => w.print(), 800);
@@ -561,7 +585,7 @@ export function CardsDesigner({ subscribers, onBack }: { subscribers: Subscriber
     if (subs.length === 0) { toast.error("اختر منخرطاً واحداً على الأقل"); return; }
     setGenerating(true);
     try {
-      const html = generatePrintWord(subs, design, window.location.origin);
+      const html = generateProfessionalWord(subs, buildPrintDesign(), window.location.origin);
       const blob = new Blob([html], { type: "application/msword" });
       const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `AquaCore_بطاقات_${new Date().toISOString().split("T")[0]}.doc`; a.click(); URL.revokeObjectURL(url);
       toast.success(`تم تصدير ${subs.length} بطاقة بصيغة Word`);
