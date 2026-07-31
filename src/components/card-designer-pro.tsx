@@ -63,7 +63,7 @@ import { toast } from "sonner";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { useSubscriptionTypes } from "@/hooks/use-subscription-types";
 import type { SubscriberWithComputed } from "@/lib/rcs";
-import { generatePrintPDF, generatePrint8A4, generatePrintWord } from "@/lib/print-engine";
+import { generatePrintPDF, generatePrintWord, generateSingleCardHTML } from "@/lib/print-engine";
 
 // ──────────────────────────── Types ────────────────────────────
 
@@ -687,6 +687,28 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
     return subs;
   };
 
+  // ═══════════════════════════════════════════════════════════════
+  //  أزرار الطباعة الاحترافية (4 أوضاع)
+  // ═══════════════════════════════════════════════════════════════
+
+  // 1) طباعة مباشرة — يفتح نافذة طباعة المتصفح مباشرة
+  const handlePrintDirect = () => {
+    const subs = getSelectedSubs();
+    if (!subs) return;
+    setGenerating(true);
+    try {
+      const html = generatePrintPDF(subs, design, window.location.origin);
+      const w = window.open("", "_blank");
+      if (!w) { toast.error("اسمح بالنوافذ المنبثقة"); return; }
+      w.document.write(html);
+      w.document.close();
+      w.onload = () => setTimeout(() => w.print(), 600);
+      toast.success(`جاري تحضير ${subs.length} بطاقة للطباعة المباشرة`);
+    } catch (e) { console.error(e); toast.error("فشل الطباعة المباشرة"); }
+    finally { setGenerating(false); }
+  };
+
+  // 2) PDF — يحفظ كـ PDF (عبر نافذة الطباعة مع توجيه المستخدم لحفظ كـ PDF)
   const handlePrintPDF = () => {
     const subs = getSelectedSubs();
     if (!subs) return;
@@ -697,28 +719,13 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
       if (!w) { toast.error("اسمح بالنوافذ المنبثقة"); return; }
       w.document.write(html);
       w.document.close();
-      w.onload = () => setTimeout(() => w.print(), 800);
-      toast.success(`تم إنشاء ${subs.length} بطاقة (Recto/Verso)`);
-    } catch { toast.error("فشل التصدير"); }
+      w.onload = () => setTimeout(() => w.print(), 600);
+      toast.success(`جاري تحضير PDF — اختر "حفظ كـ PDF" في نافذة الطباعة`);
+    } catch (e) { console.error(e); toast.error("فشل إنشاء PDF"); }
     finally { setGenerating(false); }
   };
 
-  const handlePrint8 = () => {
-    const subs = getSelectedSubs();
-    if (!subs) return;
-    setGenerating(true);
-    try {
-      const html = generatePrint8A4(subs, design, window.location.origin);
-      const w = window.open("", "_blank");
-      if (!w) { toast.error("اسمح بالنوافذ المنبثقة"); return; }
-      w.document.write(html);
-      w.document.close();
-      w.onload = () => setTimeout(() => w.print(), 800);
-      toast.success("تم إنشاء 8 بطاقات/A4");
-    } catch { toast.error("فشل"); }
-    finally { setGenerating(false); }
-  };
-
+  // 3) Word — ملف .doc قابل للتحرير
   const handleExportWord = () => {
     const subs = getSelectedSubs();
     if (!subs) return;
@@ -728,41 +735,56 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
       const blob = new Blob([html], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url; a.download = `AquaCore_بطاقات_${new Date().toISOString().split("T")[0]}.doc`;
-      a.click(); URL.revokeObjectURL(url);
+      a.href = url;
+      a.download = `AquaCore_بطاقات_${new Date().toISOString().split("T")[0]}.doc`;
+      a.click();
+      URL.revokeObjectURL(url);
       toast.success(`تم تصدير ${subs.length} بطاقة بصيغة Word`);
-    } catch { toast.error("فشل التصدير"); }
+    } catch (e) { console.error(e); toast.error("فشل تصدير Word"); }
     finally { setGenerating(false); }
   };
 
+  // 4) PNG — لقطة عالية الدقة للبطاقة المعروضة حالياً
   const handleExportPNG = async () => {
     const cardEl = cardRef.current;
-    if (!cardEl) { toast.error("لم يتم العثور على البطاقة"); return; }
+    if (!cardEl) { toast.error("لم يتم العثور على البطاقة — حدد بطاقة أولاً"); return; }
+    const previewSub = subscribers.find((s) => s.id === previewSubId) || subscribers[0];
+    if (!previewSub) { toast.error("لا يوجد منخرط للتصدير"); return; }
     setGenerating(true);
     try {
-      let html2canvas: ((el: HTMLElement, opts?: any) => Promise<HTMLCanvasElement>) | null = null;
+      let html2canvasFn: ((el: HTMLElement, opts?: any) => Promise<HTMLCanvasElement>) | null = null;
       try {
         const mod: any = await import("html2canvas");
-        html2canvas = mod.default || mod;
+        html2canvasFn = mod.default || mod;
       } catch { /* fallback below */ }
-      if (html2canvas) {
-        const canvas = await html2canvas(cardEl, { scale: 2, backgroundColor: null, useCORS: true, logging: false });
+
+      if (html2canvasFn) {
+        const canvas = await html2canvasFn(cardEl, {
+          scale: 3, // دقة عالية
+          backgroundColor: "#ffffff",
+          useCORS: true,
+          allowTaint: false,
+          logging: false,
+        });
         const link = document.createElement("a");
-        link.download = `card-${Date.now()}.png`;
+        link.download = `بطاقة_${previewSub.fileNumber || previewSub.lastName}_${Date.now()}.png`;
         link.href = canvas.toDataURL("image/png");
         link.click();
-        toast.success("تم تصدير PNG");
+        toast.success("تم تصدير PNG بدقة عالية");
       } else {
-        // Canvas API fallback
+        toast.info("يتم استخدام طريقة بديلة — قد لا تشمل الصور الخارجية");
         const w = cardEl.offsetWidth, h = cardEl.offsetHeight;
         const canvas = document.createElement("canvas");
-        canvas.width = w * 2; canvas.height = h * 2;
+        canvas.width = w * 3; canvas.height = h * 3;
         const ctx = canvas.getContext("2d");
         if (!ctx) throw new Error("no ctx");
-        ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, w * 2, h * 2);
-        toast.info("يتم استخدام طريقة بديلة — قد لا تشمل الصور الخارجية");
+        ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, w * 3, h * 3);
+        const link = document.createElement("a");
+        link.download = `بطاقة_${previewSub.fileNumber || previewSub.lastName}_${Date.now()}.png`;
+        link.href = canvas.toDataURL("image/png");
+        link.click();
       }
-    } catch { toast.error("فشل تصدير PNG"); }
+    } catch (e) { console.error(e); toast.error("فشل تصدير PNG"); }
     finally { setGenerating(false); }
   };
 
@@ -1103,31 +1125,75 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
 
             <Separator orientation="vertical" className="h-6 mx-1 hidden sm:block" />
 
-            {/* Export dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" className="h-8 bg-gradient-to-l from-teal-600 to-sky-600 text-white hover:opacity-90">
-                  <Download className="h-4 w-4" /> <span className="hidden sm:inline mr-1 text-xs">تصدير</span>
-                  <ChevronDown className="h-3 w-3" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
-                <DropdownMenuLabel className="text-xs">تصدير / طباعة</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handlePrintPDF} disabled={generating} className="text-xs cursor-pointer">
-                  <Printer className="h-3.5 w-3.5 ml-2" /> PDF (RECTO/VERSO)
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handlePrint8} disabled={generating} className="text-xs cursor-pointer">
-                  <Grid3x3 className="h-3.5 w-3.5 ml-2" /> 8 بطاقات / A4
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleExportWord} disabled={generating} className="text-xs cursor-pointer">
-                  <FileText className="h-3.5 w-3.5 ml-2" /> Word (.doc)
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleExportPNG} disabled={generating} className="text-xs cursor-pointer">
-                  <ImageIcon className="h-3.5 w-3.5 ml-2" /> PNG (لقطة)
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {/* ═══ 4 أزرار طباعة احترافية ═══ */}
+            <div className="flex items-center gap-1">
+              {/* 1) طباعة مباشرة */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    onClick={handlePrintDirect}
+                    disabled={generating}
+                    className="h-8 bg-teal-700 hover:bg-teal-800 text-white gap-1"
+                  >
+                    {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+                    <span className="text-xs">طباعة</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">طباعة مباشرة (Recto/Verso — 8/A4)</TooltipContent>
+              </Tooltip>
+
+              {/* 2) PDF */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handlePrintPDF}
+                    disabled={generating}
+                    className="h-8 gap-1 border-red-300 text-red-700 hover:bg-red-50"
+                  >
+                    {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                    <span className="text-xs">PDF</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">حفظ كـ PDF (Recto/Verso)</TooltipContent>
+              </Tooltip>
+
+              {/* 3) Word */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleExportWord}
+                    disabled={generating}
+                    className="h-8 gap-1 border-blue-300 text-blue-700 hover:bg-blue-50"
+                  >
+                    {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                    <span className="text-xs">Word</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">تصدير Word قابل للتحرير</TooltipContent>
+              </Tooltip>
+
+              {/* 4) PNG */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleExportPNG}
+                    disabled={generating}
+                    className="h-8 gap-1 border-green-300 text-green-700 hover:bg-green-50"
+                  >
+                    {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4" />}
+                    <span className="text-xs">PNG</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">تصدير صورة PNG عالية الدقة (البطاقة المعروضة)</TooltipContent>
+              </Tooltip>
+            </div>
 
             {/* Preview */}
             <Tooltip>

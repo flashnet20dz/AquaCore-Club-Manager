@@ -28,7 +28,7 @@ import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { useScaleFit } from "@/hooks/use-scale-fit";
 import { useSubscriptionTypes } from "@/hooks/use-subscription-types";
 import type { SubscriberWithComputed } from "@/lib/rcs";
-import { generatePrintPDF, generatePrint8A4, generatePrintWord } from "@/lib/print-engine";
+import { generatePrintPDF, generatePrintWord } from "@/lib/print-engine";
 
 // ──────────────── Types ────────────────
 
@@ -535,7 +535,7 @@ export function CardsDesigner({ subscribers, onBack }: { subscribers: Subscriber
     if (subs.length === 0) { toast.error("اختر منخرطاً واحداً على الأقل"); return; }
     setGenerating(true);
     try {
-      const html = generatePrint8A4(subs, design, window.location.origin);
+      const html = generatePrintPDF(subs, design, window.location.origin);
       const w = window.open("", "_blank"); if (!w) { toast.error("اسمح بالنوافذ المنبثقة"); return; }
       w.document.write(html); w.document.close();
       w.onload = () => setTimeout(() => w.print(), 800);

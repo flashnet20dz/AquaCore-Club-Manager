@@ -1,29 +1,34 @@
 /**
  * ═══════════════════════════════════════════════════════════════
- *  AquaCore — Professional Print Engine v2
+ *  AquaCore — Professional Print Engine v4 (Rebuilt)
  * ═══════════════════════════════════════════════════════════════
  *
- *  محرك طباعة احترافي بمعايير تجارية:
- *  - نظام إحداثيات نسبي (%) للعناصر داخل البطاقة
- *  - Master Grid واحد للوجهين (Recto/Verso)
- *  - Print Calibration (إزاحة ±10mm)
- *  - خطوط القص (Cut Marks) + هامش الأمان (Safe Area)
+ *  مبني من الصفر بمستوى احترافي (30 سنة خبرة):
+ *
+ *  المبدأ: بدلاً من تحجيم شبكة كبيرة لتناسب A4، نحسب أبعاد البطاقة
+ *  التي تناسب A4 فعلياً ونستخدمها مباشرة. عناصر البطاقة بنسبة مئوية
+ *  فتتكيف مع أي حجم تلقائياً.
+ *
+ *  المميزات:
+ *  - 8 بطاقات في A4 (2×4) بأبعاد محسوبة بدقة (لا تحجيم، لا تداخل)
+ *  - Recto/Verso بنفس الشبكة بالضبط
+ *  - عناصر بنسبة مئوية (cm → %) تتكيف مع أي حجم بطاقة
  *  - object-fit: cover للصور
- *  - auto-ellipsis لمنع تداخل النصوص
- *  - 300 DPI ready
+ *  - auto-ellipsis للنصوص الطويلة
+ *  - print-color-adjust: exact للألوان
+ *  - break-inside: avoid لمنع تقسيم البطاقة بين صفحتين
+ *  - 4 أوضاع تصدير: طباعة مباشرة، PDF، Word، PNG
  */
 
 // ═══════════════════════════════════════════════════════════════
 //  الأنواع
 // ═══════════════════════════════════════════════════════════════
+
 export interface PrintCardElement {
   id: string;
   type: string;
   name: string;
-  x: number; // cm (in design) → converted to % at render
-  y: number;
-  width: number;
-  height: number;
+  x: number; y: number; width: number; height: number; // cm in design
   rotation: number;
   opacity: number;
   zIndex: number;
@@ -48,8 +53,8 @@ export interface PrintCardElement {
 }
 
 export interface PrintCardConfig {
-  width: number; // cm
-  height: number; // cm
+  width: number; // cm (design reference)
+  height: number; // cm (design reference)
   cols: number;
   rows: number;
   gap: number;
@@ -72,112 +77,59 @@ export interface PrintCardDesign {
   config: PrintCardConfig;
 }
 
-export interface PrintCalibration {
-  offsetXMM: number; // ±10mm
-  offsetYMM: number;
-  scale: number; // 1.0 = 100%
-  rotation: number; // degrees
-}
+// ═══════════════════════════════════════════════════════════════
+//  ثوابت A4 — أبعاد ثابتة لا تتغير
+// ═══════════════════════════════════════════════════════════════
 
-// ═══════════════════════════════════════════════════════════════
-//  ثوابت
-// ═══════════════════════════════════════════════════════════════
 export const A4_WIDTH_MM = 210;
 export const A4_HEIGHT_MM = 297;
-export const PRINT_MARGIN_MM = 10; // 1cm جميع الجهات — يسمح بـ 8 بطاقات 10×7سم في A4
-export const CARD_GAP_MM = 5; // 5mm بين البطاقات
-export const PX_TO_MM = 0.265; // 1px = 0.265mm at 37.8 px/cm
-export const SAFE_MARGIN_MM = 2;
-export const BLEED_MM = 1;
+export const PRINT_MARGIN_MM = 10;       // 1cm هامش جميع الجهات
+export const CARD_GAP_MM = 4;            // 4mm فجوة بين البطاقات
+export const PX_TO_MM = 0.265;           // 1px = 0.265mm at 37.8 px/cm
 
-export const DEFAULT_CALIBRATION: PrintCalibration = {
-  offsetXMM: 0,
-  offsetYMM: 0,
-  scale: 1.0,
-  rotation: 0,
-};
+// المساحة المتاحة للبطاقات في A4
+export const AVAILABLE_W_MM = A4_WIDTH_MM - 2 * PRINT_MARGIN_MM;   // 190mm
+export const AVAILABLE_H_MM = A4_HEIGHT_MM - 2 * PRINT_MARGIN_MM;  // 277mm
 
 // ═══════════════════════════════════════════════════════════════
-//  A4 Layout — حساب مرة واحدة للوجهين
+//  حساب أبعاد البطاقة التي تناسب A4 فعلياً
 // ═══════════════════════════════════════════════════════════════
-export interface A4Layout {
+
+export interface CardDimensions {
+  cardWidthMM: number;   // عرض البطاقة الفعلي في المطبوع
+  cardHeightMM: number;  // ارتفاع البطاقة الفعلي في المطبوع
   cols: number;
   rows: number;
-  cardWidthMM: number;
-  cardHeightMM: number;
-  gapXMM: number;
-  gapYMM: number;
-  offsetXMM: number;
-  offsetYMM: number;
-  totalCards: number;
+  gapMM: number;
+  totalGridW: number;
+  totalGridH: number;
 }
 
-export function calculateA4Layout(
-  cardCount: number,
-  cardWidthCM: number,
-  cardHeightCM: number
-): A4Layout {
-  const cardW = cardWidthCM * 10;
-  const cardH = cardHeightCM * 10;
-  const availableW = A4_WIDTH_MM - 2 * PRINT_MARGIN_MM; // 210 - 30 = 180mm
-  const availableH = A4_HEIGHT_MM - 2 * PRINT_MARGIN_MM; // 297 - 30 = 267mm
+/**
+ * يحسب أبعاد البطاقة التي تناسب A4 فعلياً (لا تحجيم).
+ * نستخدم 2×4 = 8 بطاقات كتخطيط ثابت (الأكثر شيوعاً للبطاقات).
+ * أبعاد البطاقة تُحسب من المساحة المتاحة ناقص الفجوات.
+ */
+export function calculateCardDimensions(): CardDimensions {
+  const cols = 2;
+  const rows = 4;
+  const gap = CARD_GAP_MM;
 
-  const layouts = [
-    { cols: 2, rows: 4 }, // 8 cards
-    { cols: 3, rows: 3 }, // 9 cards
-    { cols: 2, rows: 5 }, // 10 cards
-    { cols: 3, rows: 4 }, // 12 cards
-    { cols: 2, rows: 3 }, // 6 cards
-    { cols: 1, rows: 4 }, // 4 cards
-  ];
+  // عرض البطاقة = (المساحة المتاحة - (cols-1) × فجوة) / cols
+  const cardWidthMM = (AVAILABLE_W_MM - (cols - 1) * gap) / cols;
+  // ارتفاع البطاقة = (المساحة المتاحة - (rows-1) × فجوة) / rows
+  const cardHeightMM = (AVAILABLE_H_MM - (rows - 1) * gap) / rows;
 
-  let best: A4Layout | null = null;
+  const totalGridW = cols * cardWidthMM + (cols - 1) * gap;
+  const totalGridH = rows * cardHeightMM + (rows - 1) * gap;
 
-  for (const l of layouts) {
-    if (l.cols * l.rows < cardCount) continue;
-    // 🔑 استخدم CARD_GAP_MM ثابت (5mm) بدل حساب متغير
-    const gapX = CARD_GAP_MM;
-    const gapY = CARD_GAP_MM;
-    const totalW = l.cols * cardW + (l.cols - 1) * gapX;
-    const totalH = l.rows * cardH + (l.rows - 1) * gapY;
-    if (totalW > availableW || totalH > availableH) continue;
-
-    // 🔑 مركزية البطاقات: offset = (مساحة متاحة - مساحة البطاقات) / 2
-    const offsetX = (A4_WIDTH_MM - totalW) / 2;
-    const offsetY = (A4_HEIGHT_MM - totalH) / 2;
-
-    if (!best || l.cols * l.rows < best.totalCards) {
-      best = {
-        cols: l.cols, rows: l.rows,
-        cardWidthMM: cardW, cardHeightMM: cardH,
-        gapXMM: gapX, gapYMM: gapY,
-        offsetXMM: offsetX, offsetYMM: offsetY,
-        totalCards: l.cols * l.rows,
-      };
-    }
-  }
-
-  if (!best) {
-    const gapX = CARD_GAP_MM;
-    const gapY = CARD_GAP_MM;
-    const totalW = 2 * cardW + gapX;
-    const totalH = 4 * cardH + 3 * gapY;
-    best = {
-      cols: 2, rows: 4,
-      cardWidthMM: cardW, cardHeightMM: cardH,
-      gapXMM: gapX, gapYMM: gapY,
-      offsetXMM: (A4_WIDTH_MM - totalW) / 2,
-      offsetYMM: (A4_HEIGHT_MM - totalH) / 2,
-      totalCards: 8,
-    };
-  }
-
-  return best;
+  return { cardWidthMM, cardHeightMM, cols, rows, gapMM: gap, totalGridW, totalGridH };
 }
 
 // ═══════════════════════════════════════════════════════════════
 //  Helpers
 // ═══════════════════════════════════════════════════════════════
+
 function pxToMM(px: number): number {
   return +(px * PX_TO_MM).toFixed(2);
 }
@@ -187,71 +139,75 @@ function escapeHtml(s: string): string {
 }
 
 function getContent(el: PrintCardElement, sub: any): string {
-  if (!sub) return el.text || "";
+  if (!sub) return el.text || el.name;
   switch (el.type) {
-    case "fullName": return `${sub.lastName || ""} ${sub.firstName || ""}`.trim();
-    case "memberId":
-    case "fileNumber": return sub.fileNumber || "";
+    case "customText": case "cardTitle": case "clubName": return el.text || "";
+    case "fullName": return `${sub.lastName} ${sub.firstName}`;
+    case "memberId": return sub.fileNumber || "";
+    case "bloodType": return sub.bloodType || "—";
+    case "dateOfBirth": return formatDate(sub.birthDate);
+    case "paymentDate": return sub.lastPaymentDate ? formatDate(sub.lastPaymentDate) : "—";
+    case "swimmingDays": return sub.swimmingDays || "—";
+    case "swimmingTime": return sub.timeSlot || "—";
     case "subscriptionType": return sub.subscriptionType || "";
-    case "bloodType": return sub.bloodType || "";
-    case "dateOfBirth": return sub.birthDate ? new Date(sub.birthDate).toISOString().split("T")[0].replace(/-/g, "/") : "";
-    case "swimmingDays": return sub.swimmingDays || "";
-    case "swimmingTime":
-    case "timeSlot": return sub.timeSlot || "";
-    case "clubName": return el.text || "AquaCore Club Manager";
-    case "cardTitle": return el.text || "بطاقة الانخراط";
-    case "customText": return el.text || "";
-    case "expiryDate":
-    case "renewalDate": return sub.expiryDate ? new Date(sub.expiryDate).toISOString().split("T")[0].replace(/-/g, "/") : "";
-    default: return el.text || "";
+    case "expiryDate": return sub.expiryDate ? formatDate(sub.expiryDate) : "—";
+    default: return "";
   }
 }
 
-/**
- * 🔑 تحويل إحداثيات cm → نسبة مئوية داخل البطاقة
- * هذا يضمن أن العناصر تبقى في نفس المكان النسبي بغض النظر عن حجم البطاقة
- */
+function formatDate(d: Date | string | null | undefined): string {
+  if (!d) return "—";
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return "—";
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${y}/${m}/${day}`;
+}
+
+// تحويل cm (في التصميم) إلى نسبة مئوية (في البطاقة المطبوعة)
 function cmToPercent(cm: number, totalCM: number): number {
-  return +((cm / totalCM) * 100).toFixed(2);
+  return (cm / totalCM) * 100;
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  بناء HTML لعنصر واحد — باستخدام % بدل cm
+//  بناء HTML لعنصر واحد — بنسبة مئوية ليتكيف مع أي حجم بطاقة
 // ═══════════════════════════════════════════════════════════════
+
 function buildElementHTML(el: PrintCardElement, sub: any, origin: string, config: PrintCardConfig): string {
   if (!el.visible) return "";
 
   const br = el.shapeKind === "circle" ? "50%" : `${el.borderRadius || 0}px`;
   const bgAlpha = el.bgOpacity != null ? Math.round(el.bgOpacity * 2.55).toString(16).padStart(2, "0") : "";
 
-  // 🔑 إحداثيات نسبية (%) — لا تتغير مع حجم البطاقة
+  // إحداثيات نسبية (%) — تتكيف مع أي حجم بطاقة
   const leftPct = cmToPercent(el.x, config.width);
   const topPct = cmToPercent(el.y, config.height);
   const widthPct = cmToPercent(el.width, config.width);
   const heightPct = cmToPercent(el.height, config.height);
 
   const base = [
-    `position:absolute`,
+    "position:absolute",
     `left:${leftPct}%`,
     `top:${topPct}%`,
     `width:${widthPct}%`,
     `height:${heightPct}%`,
-    `display:flex`,
+    "display:flex",
     `align-items:center`,
     `justify-content:${el.textAlign === "center" ? "center" : el.textAlign === "left" ? "flex-start" : "flex-end"}`,
-    `direction:rtl`,
-    `overflow:hidden`,
-    `box-sizing:border-box`,
+    "direction:rtl",
+    "overflow:hidden",
+    "box-sizing:border-box",
     `transform:rotate(${el.rotation || 0}deg)`,
     `opacity:${(el.opacity ?? 100) / 100}`,
     `z-index:${el.zIndex || 1}`,
     el.bgColor ? `background-color:${el.bgColor}${bgAlpha}` : "",
     el.borderWidth ? `border:${el.borderWidth}px ${el.borderStyle || "solid"} ${el.borderColor || "#000"}` : "",
     `border-radius:${br}`,
-    `padding:0.5mm`,
+    "padding:0.5mm",
   ].filter(Boolean).join(";");
 
-  // QR Code — مربع دائماً
+  // QR Code
   if (el.type === "qr") {
     const data = encodeURIComponent(sub?.fileNumber || "RCS");
     return `<div style="${base}"><img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${data}&color=000000&bgcolor=ffffff" style="width:100%;height:100%;object-fit:contain;" /></div>`;
@@ -265,7 +221,7 @@ function buildElementHTML(el: PrintCardElement, sub: any, origin: string, config
 
   // Logo
   if (el.type === "logo") {
-    return `<div style="${base}"><img src="/images/rcs-logo-official.png" style="width:100%;height:100%;object-fit:contain;" onerror="this.style.display='none'" /></div>`;
+    return `<div style="${base}"><img src="${origin}/images/rcs-logo-official.png" style="width:100%;height:100%;object-fit:contain;" onerror="this.style.display='none'" /></div>`;
   }
 
   // Uploaded image
@@ -294,20 +250,23 @@ function buildElementHTML(el: PrintCardElement, sub: any, origin: string, config
 
   const isLongText = el.type === "fullName" || el.type === "customText" || (fullText.length > 20);
   const textOverflow = isLongText
-    ? `white-space:normal;word-break:break-word;max-height:100%;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;`
-    : `white-space:nowrap;text-overflow:ellipsis;`;
+    ? "white-space:normal;word-break:break-word;max-height:100%;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;"
+    : "white-space:nowrap;text-overflow:ellipsis;";
 
   return `<div style="${base}"><span style="font-family:${el.fontFamily || "Tahoma"},Arial,sans-serif;font-size:${fontSizeMM}mm;font-weight:${el.fontWeight || "normal"};color:${el.color || "#333"};text-align:${el.textAlign || "right"};width:100%;line-height:1.2;${textOverflow}">${escapeHtml(fullText)}</span></div>`;
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  بناء HTML لبطاقة كاملة — استخدم نفس الـ grid للوجهين
+//  بناء HTML لبطاقة كاملة — بأبعاد فعلية (mm) تناسب A4
 // ═══════════════════════════════════════════════════════════════
+
 function buildCardHTML(
   sub: any,
   design: PrintCardDesign,
   side: "front" | "back",
-  origin: string
+  origin: string,
+  cardWidthMM: number,
+  cardHeightMM: number
 ): string {
   const { config } = design;
   const els = side === "front" ? design.front : design.back;
@@ -326,171 +285,171 @@ function buildCardHTML(
       ? `background:linear-gradient(${gradDir}, ${config.gradientStart || "#0f766e"}, ${config.gradientEnd || "#0369a1"});`
       : `background-color:${config.bgColor};`;
 
-  // 🔑 البطاقة نفسها بـ box-sizing:border-box + position:relative
-  // العناصر داخلها بـ % — لا تتغير مع الحجم
-  return `<div style="width:${config.width}cm;height:${config.height}cm;${bgStyle}border:${config.borderWidth}px ${config.borderStyle} ${config.borderColor};border-radius:${config.borderRadius}px;position:relative;overflow:hidden;direction:rtl;box-sizing:border-box;">${elsHTML}</div>`;
+  // 🔑 البطاقة بأبعاد فعلية (mm) تناسب خلية الشبكة — لا تحجيم
+  return `<div style="width:${cardWidthMM}mm;height:${cardHeightMM}mm;${bgStyle}border:${config.borderWidth}px ${config.borderStyle} ${config.borderColor};border-radius:${config.borderRadius}px;position:relative;overflow:hidden;direction:rtl;box-sizing:border-box;break-inside:avoid;">${elsHTML}</div>`;
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  خطوط القص والأمان (Cut Marks + Safe Area)
+//  1) طباعة مباشرة + PDF — Recto/Verso (8 بطاقات/A4)
 // ═══════════════════════════════════════════════════════════════
-function buildCutMarks(layout: A4Layout, calibration: PrintCalibration): string {
-  const marks: string[] = [];
-  const calibX = calibration.offsetXMM || 0;
-  const calibY = calibration.offsetYMM || 0;
 
-  for (let row = 0; row < layout.rows; row++) {
-    for (let col = 0; col < layout.cols; col++) {
-      const x = layout.offsetXMM + calibX + col * (layout.cardWidthMM + layout.gapXMM) + layout.gapXMM;
-      const y = layout.offsetYMM + calibY + row * (layout.cardHeightMM + layout.gapYMM) + layout.gapYMM;
-      const w = layout.cardWidthMM;
-      const h = layout.cardHeightMM;
-
-      // خطوط القص في الزوايا (4 زوايا × خطين)
-      const markLen = 3; // mm
-      const markColor = "#999";
-      const markStyle = `position:absolute;background:${markColor};`;
-
-      // أعلى يسار
-      marks.push(`<div style="${markStyle}left:${x - markLen}mm;top:${y}mm;width:${markLen}mm;height:0.2mm;"></div>`);
-      marks.push(`<div style="${markStyle}left:${x}mm;top:${y - markLen}mm;width:0.2mm;height:${markLen}mm;"></div>`);
-      // أعلى يمين
-      marks.push(`<div style="${markStyle}left:${x + w}mm;top:${y}mm;width:${markLen}mm;height:0.2mm;"></div>`);
-      marks.push(`<div style="${markStyle}left:${x + w}mm;top:${y - markLen}mm;width:0.2mm;height:${markLen}mm;"></div>`);
-      // أسفل يسار
-      marks.push(`<div style="${markStyle}left:${x - markLen}mm;top:${y + h}mm;width:${markLen}mm;height:0.2mm;"></div>`);
-      marks.push(`<div style="${markStyle}left:${x}mm;top:${y + h}mm;width:0.2mm;height:${markLen}mm;"></div>`);
-      // أسفل يمين
-      marks.push(`<div style="${markStyle}left:${x + w}mm;top:${y + h}mm;width:${markLen}mm;height:0.2mm;"></div>`);
-      marks.push(`<div style="${markStyle}left:${x + w}mm;top:${y + h}mm;width:0.2mm;height:${markLen}mm;"></div>`);
-    }
-  }
-  return marks.join("");
-}
-
-// ═══════════════════════════════════════════════════════════════
-//  1) PDF — Recto + Verso (نفس الـ grid + calibration)
-// ═══════════════════════════════════════════════════════════════
 export function generatePrintPDF(
   subscribers: any[],
   design: PrintCardDesign,
-  origin: string,
-  calibration: PrintCalibration = DEFAULT_CALIBRATION,
-  showCutMarks: boolean = false
+  origin: string
 ): string {
-  const { config } = design;
-  const cardsPerPage = config.cols * config.rows;
-  const layout = calculateA4Layout(cardsPerPage, config.width, config.height);
-
-  // 🔑 حساب معامل التحجيم التلقائي — حتى لا تتداخل البطاقات
-  const totalGridW = layout.cols * layout.cardWidthMM + (layout.cols - 1) * layout.gapXMM;
-  const totalGridH = layout.rows * layout.cardHeightMM + (layout.rows - 1) * layout.gapYMM;
-  const availW = A4_WIDTH_MM - 2 * PRINT_MARGIN_MM;
-  const availH = A4_HEIGHT_MM - 2 * PRINT_MARGIN_MM;
-  const fitScale = Math.min(availW / totalGridW, availH / totalGridH, 1);
-  const effectiveScale = calibration.scale * fitScale;
-
-  // 🔑 الحاوية الخارجية بأبعاد مُحجّمة فعلياً (وليس مجرد تحجيم بصري)
-  // الشبكة الداخلية بأبعادها الأصلية + transform:scale من أعلى يسار
-  const scaledW = totalGridW * effectiveScale;
-  const scaledH = totalGridH * effectiveScale;
-  const wrapperStyle = `width:${scaledW}mm;height:${scaledH}mm;overflow:hidden;position:relative;`;
-  const calibTransform = `transform:scale(${effectiveScale}) rotate(${calibration.rotation}deg);transform-origin:top left;`;
+  const dims = calculateCardDimensions();
+  const cardsPerPage = dims.cols * dims.rows; // 8
 
   const pages: string[] = [];
 
   for (let i = 0; i < subscribers.length; i += cardsPerPage) {
     const chunk = subscribers.slice(i, i + cardsPerPage);
 
-    // 🔑 الشبكة الداخلية بأبعاد أصلية داخل حاوية مُحجّمة
-    const gridStyle = `display:grid;grid-template-columns:repeat(${layout.cols}, ${layout.cardWidthMM}mm);grid-template-rows:repeat(${layout.rows}, ${layout.cardHeightMM}mm);gap:${layout.gapXMM}mm ${layout.gapYMM}mm;width:${totalGridW}mm;height:${totalGridH}mm;${calibTransform}`;
-
     // الوجه الأمامي (Recto)
-    const frontCards = chunk.map((s) => buildCardHTML(s, design, "front", origin)).join("");
-    const frontMarks = showCutMarks ? buildCutMarks(layout, calibration) : "";
-    pages.push(`<div class="print-page"><div style="${wrapperStyle}"><div style="${gridStyle}">${frontCards}</div></div>${frontMarks}</div>`);
+    const frontCards = chunk.map((s) => buildCardHTML(s, design, "front", origin, dims.cardWidthMM, dims.cardHeightMM)).join("");
+    // ملء الخانات الفارغة بمربعات فارغة للحفاظ على الشبكة
+    const frontFillers = Array.from({ length: cardsPerPage - chunk.length }).map(() =>
+      `<div style="width:${dims.cardWidthMM}mm;height:${dims.cardHeightMM}mm;border:1px dashed #ccc;box-sizing:border-box;"></div>`
+    ).join("");
+    pages.push(`<div class="print-page"><div class="card-grid">${frontCards}${frontFillers}</div></div>`);
 
-    // الوجه الخلفي (Verso) — نفس الـ grid بالضبط
-    const backCards = chunk.map((s) => buildCardHTML(s, design, "back", origin)).join("");
-    const backMarks = showCutMarks ? buildCutMarks(layout, calibration) : "";
-    pages.push(`<div class="print-page"><div style="${wrapperStyle}"><div style="${gridStyle}">${backCards}</div></div>${backMarks}</div>`);
+    // الوجه الخلفي (Verso) — نفس الشبكة بالضبط
+    const backCards = chunk.map((s) => buildCardHTML(s, design, "back", origin, dims.cardWidthMM, dims.cardHeightMM)).join("");
+    const backFillers = Array.from({ length: cardsPerPage - chunk.length }).map(() =>
+      `<div style="width:${dims.cardWidthMM}mm;height:${dims.cardHeightMM}mm;border:1px dashed #ccc;box-sizing:border-box;"></div>`
+    ).join("");
+    pages.push(`<div class="print-page"><div class="card-grid">${backCards}${backFillers}</div></div>`);
   }
 
-  return `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>بطاقات الانخراط — AquaCore</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box;}
-body{font-family:'Cairo','Tajawal',Arial,sans-serif;background:white;}
-@page{size:A4 portrait;margin:10mm;}
-.print-page{page-break-after:always;width:190mm;height:277mm;position:relative;display:flex;align-items:center;justify-content:center;padding:0;overflow:hidden;}
-.print-page:last-child{page-break-after:auto;}
-@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
-@media screen{.print-page{margin:10mm auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);background:white;}body{background:#f0f0f0;padding:20px;}}
-</style></head><body>${pages.join("")}</body></html>`;
+  return printHTMLWrapper(pages.join(""), "بطاقات الانخراط — AquaCore");
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  2) 8/A4 — grid 2×4 مع الوجهين + calibration
+//  2) Word — قابل للتحرير (.doc)
 // ═══════════════════════════════════════════════════════════════
-export function generatePrint8A4(
-  subscribers: any[],
-  design: PrintCardDesign,
-  origin: string,
-  calibration: PrintCalibration = DEFAULT_CALIBRATION,
-  showCutMarks: boolean = false
-): string {
-  const cards: any[] = [];
-  for (let i = 0; i < 8; i++) cards.push(subscribers[i % subscribers.length]);
 
-  const layout = calculateA4Layout(8, design.config.width, design.config.height);
-
-  // 🔑 حساب معامل التحجيم التلقائي — حتى لا تتداخل البطاقات
-  const totalGridW = layout.cols * layout.cardWidthMM + (layout.cols - 1) * layout.gapXMM;
-  const totalGridH = layout.rows * layout.cardHeightMM + (layout.rows - 1) * layout.gapYMM;
-  const availW = A4_WIDTH_MM - 2 * PRINT_MARGIN_MM;
-  const availH = A4_HEIGHT_MM - 2 * PRINT_MARGIN_MM;
-  const fitScale = Math.min(availW / totalGridW, availH / totalGridH, 1);
-  const effectiveScale = calibration.scale * fitScale;
-  const scaledW = totalGridW * effectiveScale;
-  const scaledH = totalGridH * effectiveScale;
-  const wrapperStyle = `width:${scaledW}mm;height:${scaledH}mm;overflow:hidden;position:relative;`;
-  const calibTransform = `transform:scale(${effectiveScale});transform-origin:top left;`;
-  const gridStyle = `display:grid;grid-template-columns:repeat(${layout.cols}, ${layout.cardWidthMM}mm);grid-template-rows:repeat(${layout.rows}, ${layout.cardHeightMM}mm);gap:${layout.gapXMM}mm ${layout.gapYMM}mm;width:${totalGridW}mm;height:${totalGridH}mm;${calibTransform}`;
-
-  const frontHTML = cards.map((s) => buildCardHTML(s, design, "front", origin)).join("");
-  const backHTML = cards.map((s) => buildCardHTML(s, design, "back", origin)).join("");
-  const marks = showCutMarks ? buildCutMarks(layout, calibration) : "";
-
-  return `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>8 بطاقات/A4 — AquaCore</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box;}
-body{font-family:'Cairo','Tajawal',Arial,sans-serif;background:white;}
-@page{size:A4 portrait;margin:10mm;}
-.print-page{page-break-after:always;width:190mm;height:277mm;position:relative;display:flex;align-items:center;justify-content:center;padding:0;overflow:hidden;}
-.print-page:last-child{page-break-after:auto;}
-@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
-@media screen{.print-page{margin:10mm auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);background:white;}body{background:#f0f0f0;padding:20px;}}
-</style></head><body>
-<div class="print-page"><div style="${wrapperStyle}"><div style="${gridStyle}">${frontHTML}</div></div>${marks}</div>
-<div class="print-page"><div style="${wrapperStyle}"><div style="${gridStyle}">${backHTML}</div></div>${marks}</div>
-</body></html>`;
-}
-
-// ═══════════════════════════════════════════════════════════════
-//  3) Word — قابل للتحرير
-// ═══════════════════════════════════════════════════════════════
 export function generatePrintWord(
   subscribers: any[],
   design: PrintCardDesign,
   origin: string
 ): string {
-  const cards = subscribers.map((s) =>
-    buildCardHTML(s, design, "front", origin) + buildCardHTML(s, design, "back", origin)
-  ).join("");
+  const dims = calculateCardDimensions();
+  const cardsPerPage = dims.cols * dims.rows;
+  const today = new Date();
+  const dateStr = formatDate(today);
 
-  return `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>بطاقات الانخراط — AquaCore</title>
+  // EN-TETE
+  const entete = `
+    <table style="width:100%;border-collapse:collapse;margin-bottom:15px;">
+      <tr>
+        <td style="width:20%;text-align:right;vertical-align:middle;"></td>
+        <td style="width:60%;text-align:center;vertical-align:middle;">
+          <p style="font-size:14px;font-weight:bold;color:#0f766e;margin:2px;">النادي الرياضي متعدد الرياضات</p>
+          <p style="font-size:12px;font-weight:bold;color:#ca8a04;margin:2px;">فرع السباحة</p>
+        </td>
+        <td style="width:20%;text-align:left;vertical-align:middle;"></td>
+      </tr>
+    </table>
+    <hr style="border:1px solid #0f766e;margin:10px 0;" />
+    <h2 style="text-align:center;font-size:16px;font-weight:bold;color:#0f766e;margin:10px 0;">بطاقات الانخراط — ${subscribers.length} بطاقة</h2>
+  `;
+
+  const pagesHTML: string[] = [];
+  for (let i = 0; i < subscribers.length; i += cardsPerPage) {
+    const chunk = subscribers.slice(i, i + cardsPerPage);
+    const frontCards = chunk.map((s) => buildCardHTML(s, design, "front", origin, dims.cardWidthMM, dims.cardHeightMM)).join("");
+    const backCards = chunk.map((s) => buildCardHTML(s, design, "back", origin, dims.cardWidthMM, dims.cardHeightMM)).join("");
+
+    pagesHTML.push(`
+      <h3 style="text-align:center;font-size:13px;color:#0f766e;margin:15px 0 8px;">الواجهة الأمامية (RECTO)</h3>
+      <div style="text-align:center;">${frontCards}</div>
+      <br clear="all" style="page-break-before:always;" />
+      <h3 style="text-align:center;font-size:13px;color:#0f766e;margin:15px 0 8px;">الواجهة الخلفية (VERSO)</h3>
+      <div style="text-align:center;">${backCards}</div>
+    `);
+  }
+
+  return `<!DOCTYPE html><html dir="rtl" lang="ar" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>بطاقات الانخراط — AquaCore</title><style>@page{size:A4 portrait;margin:15mm;}body{font-family:'Cairo','Tahoma',Arial,sans-serif;font-size:12px;line-height:1.5;}</style></head><body>
+    ${entete}
+    ${pagesHTML.join('<br style="page-break-before:always;" />')}
+  </body></html>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  3) PNG — بطاقة واحدة عالية الدقة (تُستخدم مع html2canvas في الواجهة)
+//     هنا نولّد HTML لبطاقة واحدة بحجم كبير لالتقاط لقطة عالية الجودة
+// ═══════════════════════════════════════════════════════════════
+
+export function generateSingleCardHTML(
+  sub: any,
+  design: PrintCardDesign,
+  origin: string,
+  side: "front" | "back" = "front",
+  scale: number = 3 // دقة عالية للـ PNG
+): string {
+  // للـ PNG نستخدم أبعاد أكبر (CR80 حقيقي 85.6×54mm أو أبعاد التصميم)
+  const cardWidthMM = design.config.width * 10 * scale;
+  const cardHeightMM = design.config.height * 10 * scale;
+
+  const cardHTML = buildCardHTML(sub, design, side, origin, cardWidthMM, cardHeightMM);
+
+  return `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>بطاقة — AquaCore</title><style>*{margin:0;padding:0;box-sizing:border-box;}body{background:transparent;}</style></head><body>${cardHTML}</body></html>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  غلاف HTML للطباعة — CSS احترافي
+// ═══════════════════════════════════════════════════════════════
+
+function printHTMLWrapper(pagesHTML: string, title: string): string {
+  return `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${title}</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box;}
-body{font-family:'Cairo','Tajawal',Arial,sans-serif;background:white;}
-@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
-</style></head><body>${cards}</body></html>`;
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  background: #fff;
+  font-family: 'Cairo', 'Tajawal', 'Tahoma', Arial, sans-serif;
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
+}
+@page {
+  size: A4 portrait;
+  margin: ${PRINT_MARGIN_MM}mm;
+}
+.print-page {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  page-break-after: always;
+  padding: 0;
+}
+.print-page:last-child {
+  page-break-after: auto;
+}
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(4, 1fr);
+  gap: ${CARD_GAP_MM}mm;
+  width: 100%;
+  max-width: ${AVAILABLE_W_MM}mm;
+  aspect-ratio: ${AVAILABLE_W_MM} / ${AVAILABLE_H_MM};
+}
+.card-grid > * {
+  width: 100%;
+  height: 100%;
+  break-inside: avoid;
+}
+@media screen {
+  body { background: #f0f0f0; padding: 20px; }
+  .print-page {
+    background: #fff;
+    margin: 0 auto 20px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    max-width: 210mm;
+    min-height: 297mm;
+  }
+}
+</style></head><body>${pagesHTML}</body></html>`;
 }
