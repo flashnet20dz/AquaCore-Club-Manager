@@ -47,7 +47,6 @@ import { SyncIndicator } from "@/components/sync-indicator";
 import { UserManagement } from "@/components/user-management";
 import { WorkHoursPanel } from "@/components/work-hours-panel";
 import { ImportPanel } from "@/components/import-panel";
-import { CardsDesigner } from "@/components/cards-designer";
 import { CardDesignerPro } from "@/components/card-designer-pro";
 import { InsurancePanel } from "@/components/insurance-panel";
 import { CompoundPanel } from "@/components/compound-panel";
@@ -474,8 +473,7 @@ export default function Home() {
                  activeTab === "insurance" ? "التأمين" :
                  activeTab === "categories" ? "الفئات" :
                  activeTab === "analytics" ? "التحليلات" :
-                 activeTab === "cards-designer" ? "بطاقات الانخراط" :
-                 activeTab === "cards-pro" ? "مصمم احترافي" :
+                 activeTab === "cards-pro" ? "مصمم البطاقات" :
                  activeTab === "import" ? "الاستيراد" :
                  activeTab === "export" ? "التصدير" :
                  activeTab === "charges" ? "الأعباء" :
@@ -544,13 +542,8 @@ export default function Home() {
                 <TrendingUp className="h-4 w-4" /> التحليلات
               </TabsTrigger>
               {hasPermission(sessionUser.role, "cards") && (
-                <TabsTrigger value="cards-designer" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <Layers className="h-4 w-4" /> بطاقات الانخراط
-                </TabsTrigger>
-              )}
-              {hasPermission(sessionUser.role, "cards") && (
                 <TabsTrigger value="cards-pro" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <Sparkles className="h-4 w-4" /> مصمم احترافي
+                  <Sparkles className="h-4 w-4" /> مصمم البطاقات
                 </TabsTrigger>
               )}
               {hasPermission(sessionUser.role, "import") && (
@@ -1103,14 +1096,7 @@ export default function Home() {
             </TabsContent>
           )}
 
-          {/* CARDS DESIGNER TAB (classic) */}
-          {hasPermission(sessionUser.role, "cards") && (
-            <TabsContent value="cards-designer" className="mt-0">
-              <CardsDesigner subscribers={subscribers} onBack={() => window.location.href = "/"} />
-            </TabsContent>
-          )}
-
-          {/* CARDS DESIGNER PRO TAB (Canva-style — احترافي) */}
+          {/* CARD DESIGNER PRO TAB (unified — المصمم الوحيد) */}
           {hasPermission(sessionUser.role, "cards") && (
             <TabsContent value="cards-pro" className="mt-0">
               <CardDesignerPro subscribers={subscribers} onBack={() => window.location.href = "/"} />
@@ -1235,16 +1221,8 @@ export default function Home() {
             />
             {hasPermission(sessionUser.role, "cards") && (
               <MobileNavItem
-                icon={Layers}
-                label="بطاقات الانخراط"
-                active={activeTab === "cards-designer"}
-                onClick={() => { setActiveTab("cards-designer"); setMobileNavOpen(false); }}
-              />
-            )}
-            {hasPermission(sessionUser.role, "cards") && (
-              <MobileNavItem
                 icon={Sparkles}
-                label="مصمم احترافي"
+                label="مصمم البطاقات"
                 active={activeTab === "cards-pro"}
                 onClick={() => { setActiveTab("cards-pro"); setMobileNavOpen(false); }}
               />
