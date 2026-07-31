@@ -404,11 +404,11 @@ export function generatePrintPDF(
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 body{font-family:'Cairo','Tajawal',Arial,sans-serif;background:white;}
-@page{size:A4 portrait;margin:10mm;}
-.print-page{page-break-after:always;width:190mm;height:277mm;position:relative;display:flex;align-items:center;justify-content:center;padding:0 15mm;}
+@page{size:A4 portrait;margin:15mm;}
+.print-page{page-break-after:always;width:180mm;height:267mm;position:relative;display:flex;align-items:center;justify-content:center;padding:0;}
 .print-page:last-child{page-break-after:auto;}
 @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
-@media screen{.print-page{margin:10mm auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);background:white;}body{background:#f0f0f0;padding:20px;}}
+@media screen{.print-page{margin:15mm auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);background:white;}body{background:#f0f0f0;padding:20px;}}
 </style></head><body>${pages.join("")}</body></html>`;
 }
 
@@ -439,11 +439,11 @@ export function generatePrint8A4(
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 body{font-family:'Cairo','Tajawal',Arial,sans-serif;background:white;}
-@page{size:A4 portrait;margin:10mm;}
-.print-page{page-break-after:always;width:190mm;height:277mm;position:relative;display:flex;align-items:center;justify-content:center;padding:0 15mm;}
+@page{size:A4 portrait;margin:15mm;}
+.print-page{page-break-after:always;width:180mm;height:267mm;position:relative;display:flex;align-items:center;justify-content:center;padding:0;}
 .print-page:last-child{page-break-after:auto;}
 @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
-@media screen{.print-page{margin:10mm auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);background:white;}body{background:#f0f0f0;padding:20px;}}
+@media screen{.print-page{margin:15mm auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);background:white;}body{background:#f0f0f0;padding:20px;}}
 </style></head><body>
 <div class="print-page"><div style="${gridStyle}">${frontHTML}</div>${marks}</div>
 <div class="print-page"><div style="${gridStyle}">${backHTML}</div>${marks}</div>
