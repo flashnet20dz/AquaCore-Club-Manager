@@ -383,7 +383,6 @@ export function generatePrintPDF(
   const layout = calculateA4Layout(cardsPerPage, config.width, config.height);
 
   // 🔑 حساب معامل التحجيم التلقائي — حتى لا تتداخل البطاقات
-  // totalGridW = cols × cardW + (cols-1) × gap
   const totalGridW = layout.cols * layout.cardWidthMM + (layout.cols - 1) * layout.gapXMM;
   const totalGridH = layout.rows * layout.cardHeightMM + (layout.rows - 1) * layout.gapYMM;
   const availW = A4_WIDTH_MM - 2 * PRINT_MARGIN_MM;
@@ -391,26 +390,30 @@ export function generatePrintPDF(
   const fitScale = Math.min(availW / totalGridW, availH / totalGridH, 1);
   const effectiveScale = calibration.scale * fitScale;
 
-  // 🔑 calibration تطبق على الـ grid كله — نفس القيمة للوجهين
-  const calibTransform = `transform:translate(${calibration.offsetXMM}mm, ${calibration.offsetYMM}mm) scale(${effectiveScale}) rotate(${calibration.rotation}deg);transform-origin:center;`;
+  // 🔑 الحاوية الخارجية بأبعاد مُحجّمة فعلياً (وليس مجرد تحجيم بصري)
+  // الشبكة الداخلية بأبعادها الأصلية + transform:scale من أعلى يسار
+  const scaledW = totalGridW * effectiveScale;
+  const scaledH = totalGridH * effectiveScale;
+  const wrapperStyle = `width:${scaledW}mm;height:${scaledH}mm;overflow:hidden;position:relative;`;
+  const calibTransform = `transform:scale(${effectiveScale}) rotate(${calibration.rotation}deg);transform-origin:top left;`;
 
   const pages: string[] = [];
 
   for (let i = 0; i < subscribers.length; i += cardsPerPage) {
     const chunk = subscribers.slice(i, i + cardsPerPage);
 
-    // 🔑 نفس الـ grid للوجهين — لا حساب مرة ثانية
-    const gridStyle = `display:grid;grid-template-columns:repeat(${layout.cols}, ${layout.cardWidthMM}mm);grid-template-rows:repeat(${layout.rows}, ${layout.cardHeightMM}mm);gap:${layout.gapXMM}mm ${layout.gapYMM}mm;justify-content:center;align-content:center;width:100%;height:100%;${calibTransform}`;
+    // 🔑 الشبكة الداخلية بأبعاد أصلية داخل حاوية مُحجّمة
+    const gridStyle = `display:grid;grid-template-columns:repeat(${layout.cols}, ${layout.cardWidthMM}mm);grid-template-rows:repeat(${layout.rows}, ${layout.cardHeightMM}mm);gap:${layout.gapXMM}mm ${layout.gapYMM}mm;width:${totalGridW}mm;height:${totalGridH}mm;${calibTransform}`;
 
     // الوجه الأمامي (Recto)
     const frontCards = chunk.map((s) => buildCardHTML(s, design, "front", origin)).join("");
     const frontMarks = showCutMarks ? buildCutMarks(layout, calibration) : "";
-    pages.push(`<div class="print-page"><div style="${gridStyle}">${frontCards}</div>${frontMarks}</div>`);
+    pages.push(`<div class="print-page"><div style="${wrapperStyle}"><div style="${gridStyle}">${frontCards}</div></div>${frontMarks}</div>`);
 
     // الوجه الخلفي (Verso) — نفس الـ grid بالضبط
     const backCards = chunk.map((s) => buildCardHTML(s, design, "back", origin)).join("");
     const backMarks = showCutMarks ? buildCutMarks(layout, calibration) : "";
-    pages.push(`<div class="print-page"><div style="${gridStyle}">${backCards}</div>${backMarks}</div>`);
+    pages.push(`<div class="print-page"><div style="${wrapperStyle}"><div style="${gridStyle}">${backCards}</div></div>${backMarks}</div>`);
   }
 
   return `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>بطاقات الانخراط — AquaCore</title>
@@ -447,10 +450,11 @@ export function generatePrint8A4(
   const availH = A4_HEIGHT_MM - 2 * PRINT_MARGIN_MM;
   const fitScale = Math.min(availW / totalGridW, availH / totalGridH, 1);
   const effectiveScale = calibration.scale * fitScale;
-  const calibTransform = `transform:translate(${calibration.offsetXMM}mm, ${calibration.offsetYMM}mm) scale(${effectiveScale});transform-origin:center;`;
-
-  // 🔑 نفس الـ grid للوجهين
-  const gridStyle = `display:grid;grid-template-columns:repeat(${layout.cols}, ${layout.cardWidthMM}mm);grid-template-rows:repeat(${layout.rows}, ${layout.cardHeightMM}mm);gap:${layout.gapXMM}mm ${layout.gapYMM}mm;justify-content:center;align-content:center;width:100%;height:100%;${calibTransform}`;
+  const scaledW = totalGridW * effectiveScale;
+  const scaledH = totalGridH * effectiveScale;
+  const wrapperStyle = `width:${scaledW}mm;height:${scaledH}mm;overflow:hidden;position:relative;`;
+  const calibTransform = `transform:scale(${effectiveScale});transform-origin:top left;`;
+  const gridStyle = `display:grid;grid-template-columns:repeat(${layout.cols}, ${layout.cardWidthMM}mm);grid-template-rows:repeat(${layout.rows}, ${layout.cardHeightMM}mm);gap:${layout.gapXMM}mm ${layout.gapYMM}mm;width:${totalGridW}mm;height:${totalGridH}mm;${calibTransform}`;
 
   const frontHTML = cards.map((s) => buildCardHTML(s, design, "front", origin)).join("");
   const backHTML = cards.map((s) => buildCardHTML(s, design, "back", origin)).join("");
@@ -466,8 +470,8 @@ body{font-family:'Cairo','Tajawal',Arial,sans-serif;background:white;}
 @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
 @media screen{.print-page{margin:10mm auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);background:white;}body{background:#f0f0f0;padding:20px;}}
 </style></head><body>
-<div class="print-page"><div style="${gridStyle}">${frontHTML}</div>${marks}</div>
-<div class="print-page"><div style="${gridStyle}">${backHTML}</div>${marks}</div>
+<div class="print-page"><div style="${wrapperStyle}"><div style="${gridStyle}">${frontHTML}</div></div>${marks}</div>
+<div class="print-page"><div style="${wrapperStyle}"><div style="${gridStyle}">${backHTML}</div></div>${marks}</div>
 </body></html>`;
 }
 

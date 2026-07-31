@@ -294,7 +294,8 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
   // ── Core state ──
   const [design, setDesign] = useState<CardDesign>(() => {
     try {
-      const s = localStorage.getItem("aquacore-card-design-pro");
+      // 🔑 ترقية المفتاح لتحميل التصميم الافتراضي الجديد (صورة في اليسار)
+      const s = localStorage.getItem("aquacore-card-design-pro-v2");
       if (s) return JSON.parse(s);
     } catch { /* ignore */ }
     return DEFAULT_DESIGN;
@@ -371,7 +372,7 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
   // ── Persistence (debounced localStorage) ──
   useEffect(() => {
     const t = setTimeout(() => {
-      try { localStorage.setItem("aquacore-card-design-pro", JSON.stringify(design)); } catch { /* ignore */ }
+      try { localStorage.setItem("aquacore-card-design-pro-v2", JSON.stringify(design)); } catch { /* ignore */ }
     }, 500);
     return () => clearTimeout(t);
   }, [design]);
