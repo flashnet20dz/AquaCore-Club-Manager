@@ -84,7 +84,7 @@ export interface PrintCalibration {
 // ═══════════════════════════════════════════════════════════════
 export const A4_WIDTH_MM = 210;
 export const A4_HEIGHT_MM = 297;
-export const PRINT_MARGIN_MM = 15; // 1.5cm جميع الجهات (مطابق لإعدادات Word)
+export const PRINT_MARGIN_MM = 10; // 1cm جميع الجهات — يسمح بـ 8 بطاقات 10×7سم في A4
 export const CARD_GAP_MM = 5; // 5mm بين البطاقات
 export const PX_TO_MM = 0.265; // 1px = 0.265mm at 37.8 px/cm
 export const SAFE_MARGIN_MM = 2;
@@ -382,8 +382,17 @@ export function generatePrintPDF(
   const cardsPerPage = config.cols * config.rows;
   const layout = calculateA4Layout(cardsPerPage, config.width, config.height);
 
+  // 🔑 حساب معامل التحجيم التلقائي — حتى لا تتداخل البطاقات
+  // totalGridW = cols × cardW + (cols-1) × gap
+  const totalGridW = layout.cols * layout.cardWidthMM + (layout.cols - 1) * layout.gapXMM;
+  const totalGridH = layout.rows * layout.cardHeightMM + (layout.rows - 1) * layout.gapYMM;
+  const availW = A4_WIDTH_MM - 2 * PRINT_MARGIN_MM;
+  const availH = A4_HEIGHT_MM - 2 * PRINT_MARGIN_MM;
+  const fitScale = Math.min(availW / totalGridW, availH / totalGridH, 1);
+  const effectiveScale = calibration.scale * fitScale;
+
   // 🔑 calibration تطبق على الـ grid كله — نفس القيمة للوجهين
-  const calibTransform = `transform:translate(${calibration.offsetXMM}mm, ${calibration.offsetYMM}mm) scale(${calibration.scale}) rotate(${calibration.rotation}deg);transform-origin:center;`;
+  const calibTransform = `transform:translate(${calibration.offsetXMM}mm, ${calibration.offsetYMM}mm) scale(${effectiveScale}) rotate(${calibration.rotation}deg);transform-origin:center;`;
 
   const pages: string[] = [];
 
@@ -408,11 +417,11 @@ export function generatePrintPDF(
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 body{font-family:'Cairo','Tajawal',Arial,sans-serif;background:white;}
-@page{size:A4 portrait;margin:15mm;}
-.print-page{page-break-after:always;width:180mm;height:267mm;position:relative;display:flex;align-items:center;justify-content:center;padding:0;}
+@page{size:A4 portrait;margin:10mm;}
+.print-page{page-break-after:always;width:190mm;height:277mm;position:relative;display:flex;align-items:center;justify-content:center;padding:0;overflow:hidden;}
 .print-page:last-child{page-break-after:auto;}
 @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
-@media screen{.print-page{margin:15mm auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);background:white;}body{background:#f0f0f0;padding:20px;}}
+@media screen{.print-page{margin:10mm auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);background:white;}body{background:#f0f0f0;padding:20px;}}
 </style></head><body>${pages.join("")}</body></html>`;
 }
 
@@ -430,7 +439,15 @@ export function generatePrint8A4(
   for (let i = 0; i < 8; i++) cards.push(subscribers[i % subscribers.length]);
 
   const layout = calculateA4Layout(8, design.config.width, design.config.height);
-  const calibTransform = `transform:translate(${calibration.offsetXMM}mm, ${calibration.offsetYMM}mm) scale(${calibration.scale});transform-origin:center;`;
+
+  // 🔑 حساب معامل التحجيم التلقائي — حتى لا تتداخل البطاقات
+  const totalGridW = layout.cols * layout.cardWidthMM + (layout.cols - 1) * layout.gapXMM;
+  const totalGridH = layout.rows * layout.cardHeightMM + (layout.rows - 1) * layout.gapYMM;
+  const availW = A4_WIDTH_MM - 2 * PRINT_MARGIN_MM;
+  const availH = A4_HEIGHT_MM - 2 * PRINT_MARGIN_MM;
+  const fitScale = Math.min(availW / totalGridW, availH / totalGridH, 1);
+  const effectiveScale = calibration.scale * fitScale;
+  const calibTransform = `transform:translate(${calibration.offsetXMM}mm, ${calibration.offsetYMM}mm) scale(${effectiveScale});transform-origin:center;`;
 
   // 🔑 نفس الـ grid للوجهين
   const gridStyle = `display:grid;grid-template-columns:repeat(${layout.cols}, ${layout.cardWidthMM}mm);grid-template-rows:repeat(${layout.rows}, ${layout.cardHeightMM}mm);gap:${layout.gapXMM}mm ${layout.gapYMM}mm;justify-content:center;align-content:center;width:100%;height:100%;${calibTransform}`;
@@ -443,11 +460,11 @@ export function generatePrint8A4(
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 body{font-family:'Cairo','Tajawal',Arial,sans-serif;background:white;}
-@page{size:A4 portrait;margin:15mm;}
-.print-page{page-break-after:always;width:180mm;height:267mm;position:relative;display:flex;align-items:center;justify-content:center;padding:0;}
+@page{size:A4 portrait;margin:10mm;}
+.print-page{page-break-after:always;width:190mm;height:277mm;position:relative;display:flex;align-items:center;justify-content:center;padding:0;overflow:hidden;}
 .print-page:last-child{page-break-after:auto;}
 @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
-@media screen{.print-page{margin:15mm auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);background:white;}body{background:#f0f0f0;padding:20px;}}
+@media screen{.print-page{margin:10mm auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);background:white;}body{background:#f0f0f0;padding:20px;}}
 </style></head><body>
 <div class="print-page"><div style="${gridStyle}">${frontHTML}</div>${marks}</div>
 <div class="print-page"><div style="${gridStyle}">${backHTML}</div>${marks}</div>
