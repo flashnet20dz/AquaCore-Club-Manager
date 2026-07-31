@@ -474,7 +474,7 @@ export default function Home() {
                  activeTab === "insurance" ? "التأمين" :
                  activeTab === "categories" ? "الفئات" :
                  activeTab === "analytics" ? "التحليلات" :
-                 activeTab === "cards-designer" ? "البطائق" :
+                 activeTab === "cards-designer" ? "بطاقات الانخراط" :
                  activeTab === "cards-pro" ? "مصمم احترافي" :
                  activeTab === "import" ? "الاستيراد" :
                  activeTab === "export" ? "التصدير" :
@@ -545,7 +545,7 @@ export default function Home() {
               </TabsTrigger>
               {hasPermission(sessionUser.role, "cards") && (
                 <TabsTrigger value="cards-designer" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <Layers className="h-4 w-4" /> البطائق
+                  <Layers className="h-4 w-4" /> بطاقات الانخراط
                 </TabsTrigger>
               )}
               {hasPermission(sessionUser.role, "cards") && (
@@ -1236,7 +1236,7 @@ export default function Home() {
             {hasPermission(sessionUser.role, "cards") && (
               <MobileNavItem
                 icon={Layers}
-                label="البطائق"
+                label="بطاقات الانخراط"
                 active={activeTab === "cards-designer"}
                 onClick={() => { setActiveTab("cards-designer"); setMobileNavOpen(false); }}
               />
