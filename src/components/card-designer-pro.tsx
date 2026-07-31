@@ -1,5 +1,7 @@
 "use client";
 
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+
 /**
  * AquaCore Card Designer Pro
  * ─────────────────────────────────────────────────────────────────────────────
@@ -20,7 +22,6 @@
  * Self-contained — does not import from cards-designer.tsx.
  */
 
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   CreditCard, Download, Upload, Loader2, Layers, Check,
@@ -64,6 +65,8 @@ import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { useSubscriptionTypes } from "@/hooks/use-subscription-types";
 import type { SubscriberWithComputed } from "@/lib/rcs";
 import { generateProfessionalPrint, generateProfessionalWord, type PrintDesign, type PrintCardConfig, type PrintCardTexts } from "@/lib/print-engine";
+import { CardCanvas } from "@/components/card-canvas";
+import { exportCardPNG, exportCardJPG, exportCardPDF, exportA4PDF, exportCardWord } from "@/lib/card-export";
 
 // ──────────────────────────── Types ────────────────────────────
 
@@ -325,6 +328,8 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
+  // 🔑 WYSIWYG: صور مُحضّرة كـ data URLs للحاوية المخفية
+  const [preparedPhotos, setPreparedPhotos] = useState<Record<string, string>>({});
   // ── Mobile sheet state ──
   const [membersSheetOpen, setMembersSheetOpen] = useState(false);
   const [elementsSheetOpen, setElementsSheetOpen] = useState(false);
@@ -693,6 +698,7 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
   // ═══════════════════════════════════════════════════════════════
   const prepareSubsWithPhotos = async (subs: SubscriberWithComputed[]): Promise<any[]> => {
     const result: any[] = [];
+    const photosMap: Record<string, string> = {};
     for (const sub of subs) {
       const photoPath = (sub as unknown as { photoPath?: string | null }).photoPath;
       if (photoPath) {
@@ -706,6 +712,7 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
               reader.onerror = reject;
               reader.readAsDataURL(blob);
             });
+            photosMap[sub.id] = dataUrl;
             result.push({ ...sub, photoDataUrl: dataUrl });
           } else {
             result.push(sub);
@@ -717,6 +724,8 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
         result.push(sub);
       }
     }
+    // 🔑 حدّث الحالة لتغذية الحاوية المخفية (WYSIWYG)
+    setPreparedPhotos(photosMap);
     return result;
   };
 
@@ -763,109 +772,123 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
   };
 
   // ═══════════════════════════════════════════════════════════════
-  //  أزرار الطباعة الاحترافية (4 أوضاع)
+  //  🔑 WYSIWYG Print/Export — كل العمليات تلتقط CardCanvas من DOM
+  //  ما تراه = ما تطبعه. لا توليد HTML منفصل.
   // ═══════════════════════════════════════════════════════════════
 
-  // 1) طباعة مباشرة — يفتح نافذة طباعة المتصفح مباشرة
+  // حاوية طباعة مخفية تعرض CardCanvas لكل منخرط مُحدد (front + back)
+  const printContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // 1) طباعة مباشرة — يطبع CardCanvas من DOM الحالي
   const handlePrintDirect = async () => {
     const subs = getSelectedSubs();
     if (!subs) return;
     setGenerating(true);
     try {
-      const subsWithPhotos = await prepareSubsWithPhotos(subs);
-      const printDesign = buildPrintDesign();
-      const html = generateProfessionalPrint(subsWithPhotos, printDesign, window.location.origin);
+      await prepareSubsWithPhotos(subs);
+      // انتظر حتى تُعرض الحاوية المخفية مع الصور
+      await new Promise((r) => setTimeout(r, 300));
+      const container = printContainerRef.current;
+      if (!container) { toast.error("فشل الطباعة"); return; }
+      // التقط كل بطاقة كـ canvas (WYSIWYG)
+      const html2canvas = (await import("html2canvas")).default;
+      const cardEls = Array.from(container.querySelectorAll("[data-card]")) as HTMLElement[];
+      const canvases: HTMLCanvasElement[] = [];
+      for (const el of cardEls) {
+        const canvas = await html2canvas(el, { scale: 2, backgroundColor: "#fff", useCORS: true, logging: false });
+        canvases.push(canvas);
+      }
+      // بناء نافذة طباعة بصور الـ canvas (مضمّنة base64)
       const w = window.open("", "_blank");
       if (!w) { toast.error("اسمح بالنوافذ المنبثقة"); return; }
-      w.document.write(html);
+      const pagesHTML = Array.from({ length: Math.ceil(canvases.length / 16) }).map((_, pageIdx) => {
+        const pageCards = canvases.slice(pageIdx * 16, pageIdx * 16 + 16);
+        return `<div class="print-page">${pageCards.map((c) =>
+          `<img src="${c.toDataURL("image/png")}" style="width:93mm;height:66.25mm;object-fit:contain;" />`
+        ).join("")}</div>`;
+      }).join("");
+      w.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>طباعة بطاقات — AquaCore</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+@page{size:A4 portrait;margin:10mm;}
+body{font-family:'Cairo','Tajawal',Arial,sans-serif;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+.print-page{display:grid;grid-template-columns:repeat(2,93mm);grid-template-rows:repeat(4,66.25mm);gap:4mm;width:190mm;page-break-after:always;}
+.print-page:last-child{page-break-after:auto;}
+@media screen{body{background:#f0f0f0;padding:20px;}.print-page{margin:0 auto 20px;background:#fff;padding:10mm;box-shadow:0 4px 12px rgba(0,0,0,0.15);}}
+</style></head><body>${pagesHTML}</body></html>`);
       w.document.close();
       w.onload = () => setTimeout(() => w.print(), 600);
-      toast.success(`جاري تحضير ${subs.length} بطاقة للطباعة المباشرة`);
+      toast.success(`جاري تحضير ${subs.length} بطاقة للطباعة المباشرة (WYSIWYG)`);
     } catch (e) { console.error(e); toast.error("فشل الطباعة المباشرة"); }
     finally { setGenerating(false); }
   };
 
-  // 2) PDF — يحفظ كـ PDF (عبر نافذة الطباعة مع توجيه المستخدم لحفظ كـ PDF)
+  // 2) PDF (بطاقة واحدة) — jsPDF من صورة CardCanvas
   const handlePrintPDF = async () => {
-    const subs = getSelectedSubs();
-    if (!subs) return;
+    const cardEl = cardRef.current;
+    if (!cardEl) { toast.error("حدد بطاقة أولاً"); return; }
+    const previewSub = subscribers.find((s) => s.id === previewSubId) || subscribers[0];
+    if (!previewSub) { toast.error("لا يوجد منخرط"); return; }
     setGenerating(true);
     try {
-      const subsWithPhotos = await prepareSubsWithPhotos(subs);
-      const printDesign = buildPrintDesign();
-      const html = generateProfessionalPrint(subsWithPhotos, printDesign, window.location.origin);
-      const w = window.open("", "_blank");
-      if (!w) { toast.error("اسمح بالنوافذ المنبثقة"); return; }
-      w.document.write(html);
-      w.document.close();
-      w.onload = () => setTimeout(() => w.print(), 600);
-      toast.success(`جاري تحضير PDF — اختر "حفظ كـ PDF" في نافذة الطباعة`);
+      const fname = `بطاقة_${previewSub.fileNumber || previewSub.lastName}_${Date.now()}.pdf`;
+      await exportCardPDF(cardEl, fname);
+      toast.success("تم تصدير PDF (WYSIWYG)");
     } catch (e) { console.error(e); toast.error("فشل إنشاء PDF"); }
     finally { setGenerating(false); }
   };
 
-  // 3) Word — ملف .doc قابل للتحرير
+  // 3) Word — HTML من نفس CardDesign
   const handleExportWord = async () => {
     const subs = getSelectedSubs();
     if (!subs) return;
     setGenerating(true);
     try {
       const subsWithPhotos = await prepareSubsWithPhotos(subs);
-      const printDesign = buildPrintDesign();
-      const html = generateProfessionalWord(subsWithPhotos, printDesign, window.location.origin);
-      const blob = new Blob([html], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `AquaCore_بطاقات_${new Date().toISOString().split("T")[0]}.doc`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const fname = `AquaCore_بطاقات_${new Date().toISOString().split("T")[0]}.doc`;
+      exportCardWord(subsWithPhotos, design, window.location.origin, fname);
       toast.success(`تم تصدير ${subs.length} بطاقة بصيغة Word`);
     } catch (e) { console.error(e); toast.error("فشل تصدير Word"); }
     finally { setGenerating(false); }
   };
 
-  // 4) PNG — لقطة عالية الدقة للبطاقة المعروضة حالياً
+  // 4) PNG — لقطة CardCanvas من DOM (WYSIWYG تام)
   const handleExportPNG = async () => {
     const cardEl = cardRef.current;
-    if (!cardEl) { toast.error("لم يتم العثور على البطاقة — حدد بطاقة أولاً"); return; }
+    if (!cardEl) { toast.error("حدد بطاقة أولاً"); return; }
     const previewSub = subscribers.find((s) => s.id === previewSubId) || subscribers[0];
-    if (!previewSub) { toast.error("لا يوجد منخرط للتصدير"); return; }
+    if (!previewSub) { toast.error("لا يوجد منخرط"); return; }
     setGenerating(true);
     try {
-      let html2canvasFn: ((el: HTMLElement, opts?: any) => Promise<HTMLCanvasElement>) | null = null;
-      try {
-        const mod: any = await import("html2canvas");
-        html2canvasFn = mod.default || mod;
-      } catch { /* fallback below */ }
-
-      if (html2canvasFn) {
-        const canvas = await html2canvasFn(cardEl, {
-          scale: 3, // دقة عالية
-          backgroundColor: "#ffffff",
-          useCORS: true,
-          allowTaint: false,
-          logging: false,
-        });
-        const link = document.createElement("a");
-        link.download = `بطاقة_${previewSub.fileNumber || previewSub.lastName}_${Date.now()}.png`;
-        link.href = canvas.toDataURL("image/png");
-        link.click();
-        toast.success("تم تصدير PNG بدقة عالية");
-      } else {
-        toast.info("يتم استخدام طريقة بديلة — قد لا تشمل الصور الخارجية");
-        const w = cardEl.offsetWidth, h = cardEl.offsetHeight;
-        const canvas = document.createElement("canvas");
-        canvas.width = w * 3; canvas.height = h * 3;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) throw new Error("no ctx");
-        ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, w * 3, h * 3);
-        const link = document.createElement("a");
-        link.download = `بطاقة_${previewSub.fileNumber || previewSub.lastName}_${Date.now()}.png`;
-        link.href = canvas.toDataURL("image/png");
-        link.click();
-      }
+      const fname = `بطاقة_${previewSub.fileNumber || previewSub.lastName}_${Date.now()}.png`;
+      await exportCardPNG(cardEl, fname);
+      toast.success("تم تصدير PNG (WYSIWYG)");
     } catch (e) { console.error(e); toast.error("فشل تصدير PNG"); }
+    finally { setGenerating(false); }
+  };
+
+  // 5) A4 PDF (8 بطاقات) — يلتقط CardCanvas لكل منخرط ويرتبها في A4
+  const handleExportA4 = async () => {
+    const subs = getSelectedSubs();
+    if (!subs) return;
+    setGenerating(true);
+    try {
+      const subsWithPhotos = await prepareSubsWithPhotos(subs);
+      await new Promise((r) => setTimeout(r, 100));
+      const container = printContainerRef.current;
+      if (!container) { toast.error("فشل"); return; }
+      const cardEls = Array.from(container.querySelectorAll("[data-card]")) as HTMLElement[];
+      // التقط كل بطاقة (front + back) كـ canvas
+      const canvases: HTMLCanvasElement[] = [];
+      for (const el of cardEls) {
+        const html2canvas = (await import("html2canvas")).default;
+        const canvas = await html2canvas(el, { scale: 2, backgroundColor: "#fff", useCORS: true, logging: false });
+        canvases.push(canvas);
+      }
+      const fname = `AquaCore_8بطاقات_A4_${new Date().toISOString().split("T")[0]}.pdf`;
+      await exportA4PDF(canvases, fname, { cols: 2, rows: 4, cardWidthMM: 93, cardHeightMM: 66.25, gapMM: 4 });
+      toast.success(`تم تصدير ${subs.length} بطاقة في A4 (WYSIWYG)`);
+    } catch (e) { console.error(e); toast.error("فشل تصدير A4"); }
     finally { setGenerating(false); }
   };
 
@@ -1273,6 +1296,23 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">تصدير صورة PNG عالية الدقة (البطاقة المعروضة)</TooltipContent>
+              </Tooltip>
+
+              {/* 5) A4 (8 بطاقات) */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleExportA4}
+                    disabled={generating}
+                    className="h-8 gap-1 border-purple-300 text-purple-700 hover:bg-purple-50"
+                  >
+                    {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Grid3x3 className="h-4 w-4" />}
+                    <span className="text-xs">A4</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">تصدير 8 بطاقات في صفحة A4 (WYSIWYG)</TooltipContent>
               </Tooltip>
             </div>
 
@@ -1732,6 +1772,28 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
 
         {/* Hidden file inputs (desktop) */}
         <input ref={fileBgRef} type="file" accept="image/png,image/jpeg" onChange={(e) => handleImageUpload(e, "bg")} className="hidden" />
+
+        {/* ═══ WYSIWYG Print Container (مخفي) ═══
+            يعرض CardCanvas لكل منخرط مُحدد (front + back).
+            يُستخدم من: handlePrintDirect + handleExportA4.
+            نفس مكوّن React = نفس النتيجة في الطباعة والتصدير. */}
+        <div
+          ref={printContainerRef}
+          aria-hidden
+          style={{ position: "fixed", left: "-99999px", top: 0, pointerEvents: "none", opacity: 0 }}
+        >
+          {selectedSubIds.map((id) => {
+            const s = subscribers.find((x) => x.id === id);
+            if (!s) return null;
+            const sWithPhoto = preparedPhotos[id] ? { ...s, photoDataUrl: preparedPhotos[id] } : s;
+            return (
+              <React.Fragment key={id}>
+                <CardCanvas design={design} side="front" sub={sWithPhoto} origin={window.location.origin} scale={1} />
+                <CardCanvas design={design} side="back" sub={sWithPhoto} origin={window.location.origin} scale={1} />
+              </React.Fragment>
+            );
+          })}
+        </div>
       </div>
     </TooltipProvider>
   );
