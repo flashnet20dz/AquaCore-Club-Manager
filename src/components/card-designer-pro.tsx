@@ -63,6 +63,7 @@ import { toast } from "sonner";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { useSubscriptionTypes } from "@/hooks/use-subscription-types";
 import type { SubscriberWithComputed } from "@/lib/rcs";
+import { generatePrintPDF, generatePrint8A4, generatePrintWord } from "@/lib/print-engine";
 
 // ──────────────────────────── Types ────────────────────────────
 
@@ -690,12 +691,13 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
     if (!subs) return;
     setGenerating(true);
     try {
+      const html = generatePrintPDF(subs, design, window.location.origin);
       const w = window.open("", "_blank");
       if (!w) { toast.error("اسمح بالنوافذ المنبثقة"); return; }
-      w.document.write(generatePrintHTML(subs, design));
+      w.document.write(html);
       w.document.close();
       w.onload = () => setTimeout(() => w.print(), 800);
-      toast.success(`تم إنشاء ${subs.length} بطاقة (RECTO/VERSO)`);
+      toast.success(`تم إنشاء ${subs.length} بطاقة (Recto/Verso)`);
     } catch { toast.error("فشل التصدير"); }
     finally { setGenerating(false); }
   };
@@ -703,13 +705,12 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
   const handlePrint8 = () => {
     const subs = getSelectedSubs();
     if (!subs) return;
-    const cards: SubscriberWithComputed[] = [];
-    for (let i = 0; i < 8; i++) cards.push(subs[i % subs.length]);
     setGenerating(true);
     try {
+      const html = generatePrint8A4(subs, design, window.location.origin);
       const w = window.open("", "_blank");
       if (!w) { toast.error("اسمح بالنوافذ المنبثقة"); return; }
-      w.document.write(generatePrint8HTML(cards, design));
+      w.document.write(html);
       w.document.close();
       w.onload = () => setTimeout(() => w.print(), 800);
       toast.success("تم إنشاء 8 بطاقات/A4");
@@ -722,7 +723,7 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
     if (!subs) return;
     setGenerating(true);
     try {
-      const html = generateWordHTML(subs, design);
+      const html = generatePrintWord(subs, design, window.location.origin);
       const blob = new Blob([html], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");

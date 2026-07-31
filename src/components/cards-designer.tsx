@@ -28,6 +28,7 @@ import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { useScaleFit } from "@/hooks/use-scale-fit";
 import { useSubscriptionTypes } from "@/hooks/use-subscription-types";
 import type { SubscriberWithComputed } from "@/lib/rcs";
+import { generatePrintPDF, generatePrint8A4, generatePrintWord } from "@/lib/print-engine";
 
 // ──────────────── Types ────────────────
 
@@ -532,12 +533,11 @@ export function CardsDesigner({ subscribers, onBack }: { subscribers: Subscriber
   const handlePrint8 = () => {
     const subs = subscribers.filter((s) => selectedSubIds.includes(s.id));
     if (subs.length === 0) { toast.error("اختر منخرطاً واحداً على الأقل"); return; }
-    const cards: SubscriberWithComputed[] = [];
-    for (let i = 0; i < 8; i++) cards.push(subs[i % subs.length]);
     setGenerating(true);
     try {
+      const html = generatePrint8A4(subs, design, window.location.origin);
       const w = window.open("", "_blank"); if (!w) { toast.error("اسمح بالنوافذ المنبثقة"); return; }
-      w.document.write(generatePrint8HTML(cards, design)); w.document.close();
+      w.document.write(html); w.document.close();
       w.onload = () => setTimeout(() => w.print(), 800);
       toast.success("تم إنشاء 8 بطاقات/A4");
     } catch { toast.error("فشل"); } finally { setGenerating(false); }
@@ -548,10 +548,11 @@ export function CardsDesigner({ subscribers, onBack }: { subscribers: Subscriber
     if (subs.length === 0) { toast.error("اختر منخرطاً واحداً على الأقل"); return; }
     setGenerating(true);
     try {
+      const html = generatePrintPDF(subs, design, window.location.origin);
       const w = window.open("", "_blank"); if (!w) { toast.error("اسمح بالنوافذ المنبثقة"); return; }
-      w.document.write(generatePrintHTML(subs, design)); w.document.close();
+      w.document.write(html); w.document.close();
       w.onload = () => setTimeout(() => w.print(), 800);
-      toast.success(`تم إنشاء ${subs.length} بطاقة (RECTO/VERSO)`);
+      toast.success(`تم إنشاء ${subs.length} بطاقة (Recto/Verso)`);
     } catch { toast.error("فشل"); } finally { setGenerating(false); }
   };
 
@@ -560,9 +561,9 @@ export function CardsDesigner({ subscribers, onBack }: { subscribers: Subscriber
     if (subs.length === 0) { toast.error("اختر منخرطاً واحداً على الأقل"); return; }
     setGenerating(true);
     try {
-      const html = generateWordHTML(subs, design);
-      const blob = new Blob([html], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
-      const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `RCS_بطاقات_${new Date().toISOString().split("T")[0]}.doc`; a.click(); URL.revokeObjectURL(url);
+      const html = generatePrintWord(subs, design, window.location.origin);
+      const blob = new Blob([html], { type: "application/msword" });
+      const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `AquaCore_بطاقات_${new Date().toISOString().split("T")[0]}.doc`; a.click(); URL.revokeObjectURL(url);
       toast.success(`تم تصدير ${subs.length} بطاقة بصيغة Word`);
     } catch { toast.error("فشل التصدير"); } finally { setGenerating(false); }
   };
