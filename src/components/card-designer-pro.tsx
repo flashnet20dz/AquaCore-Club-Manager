@@ -779,38 +779,27 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
   // حاوية طباعة مخفية تعرض CardCanvas لكل منخرط مُحدد (front + back)
   const printContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // 🔑 دالة موحدة لالتقاط كل البطاقات من الحاوية المخفية
-  // تبني DOM مؤقتاً، تلتقطه، ثم تنظفه — تتجنب مشاكل الـ state
+  // 🔑 دالة موحدة لالتقاط كل البطاقات من الحاوية المخفية في JSX
+  // الحاوية معروضة ضمن شجرة React الطبيعية (كل contexts متوفرة).
+  // نحدّث preparedPhotos ثم ننتظر re-render قبل الالتقاط.
   const captureAllCards = useCallback(async (subs: SubscriberWithComputed[]): Promise<HTMLCanvasElement[]> => {
+    // 1) جلب الصور وتحديث الحاوية المخفية
     const subsWithPhotos = await prepareSubsWithPhotos(subs);
-    // بناء DOM مؤقت خارج React (لا يعتمد على state re-render)
-    const tempContainer = document.createElement("div");
-    tempContainer.style.cssText = "position:fixed;left:-99999px;top:0;pointer-events:none;opacity:0;";
-    document.body.appendChild(tempContainer);
-
-    const { createRoot } = await import("react-dom/client");
-    const React = (await import("react")).default;
-    const { CardCanvas } = await import("@/components/card-canvas");
-
-    const root = createRoot(tempContainer);
-    await new Promise<void>((resolve) => {
-      root.render(
-        React.createElement(
-          React.Fragment,
-          null,
-          subsWithPhotos.map((s: any) =>
-            React.createElement(React.Fragment, { key: s.id },
-              React.createElement(CardCanvas, { design, side: "front" as const, sub: s, origin: window.location.origin, scale: 1 }),
-              React.createElement(CardCanvas, { design, side: "back" as const, sub: s, origin: window.location.origin, scale: 1 })
-            )
-          )
-        )
-      );
-      // انتظر 直到 الصور تُحمّل
-      setTimeout(resolve, 500);
-    });
-
-    const cardEls = Array.from(tempContainer.querySelectorAll("[data-card]")) as HTMLElement[];
+    // 2) انتظر حتى يعيد React الرسم (state update + paint)
+    await new Promise((r) => setTimeout(r, 600));
+    // 3) التقط من الحاوية المخفية
+    const container = printContainerRef.current;
+    if (!container) {
+      console.error("printContainerRef is null");
+      return [];
+    }
+    const cardEls = Array.from(container.querySelectorAll("[data-card]")) as HTMLElement[];
+    console.log(`[captureAllCards] found ${cardEls.length} card elements`);
+    if (cardEls.length === 0) {
+      // fallback: حاوية فارغة — استخدم createRoot مؤقت
+      console.warn("No cards in hidden container, falling back to createRoot");
+      return captureAllCardsFallback(subsWithPhotos, design);
+    }
     const html2canvasMod = await import("html2canvas");
     const html2canvas = html2canvasMod.default;
     const canvases: HTMLCanvasElement[] = [];
@@ -820,10 +809,48 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
         canvases.push(canvas);
       } catch (e) { console.error("card capture failed", e); }
     }
+    return canvases;
+  }, [design]);
+
+  // Fallback: إذا فشلت الحاوية المخفية، استخدم createRoot مؤقت
+  const captureAllCardsFallback = async (subsWithPhotos: any[], designSnapshot: any): Promise<HTMLCanvasElement[]> => {
+    const tempContainer = document.createElement("div");
+    tempContainer.style.cssText = "position:fixed;left:-99999px;top:0;pointer-events:none;opacity:0;width:400px;";
+    document.body.appendChild(tempContainer);
+    const { createRoot } = await import("react-dom/client");
+    const ReactMod = (await import("react")).default;
+    const { CardCanvas } = await import("@/components/card-canvas");
+    const root = createRoot(tempContainer);
+    await new Promise<void>((resolve) => {
+      root.render(
+        ReactMod.createElement(
+          "div",
+          null,
+          subsWithPhotos.map((s: any) =>
+            ReactMod.createElement(ReactMod.Fragment, { key: s.id },
+              ReactMod.createElement(CardCanvas, { design: designSnapshot, side: "front" as const, sub: s, origin: window.location.origin, scale: 1 }),
+              ReactMod.createElement(CardCanvas, { design: designSnapshot, side: "back" as const, sub: s, origin: window.location.origin, scale: 1 })
+            )
+          )
+        )
+      );
+      setTimeout(resolve, 800);
+    });
+    const cardEls = Array.from(tempContainer.querySelectorAll("[data-card]")) as HTMLElement[];
+    console.log(`[fallback] found ${cardEls.length} card elements`);
+    const html2canvasMod = await import("html2canvas");
+    const html2canvas = html2canvasMod.default;
+    const canvases: HTMLCanvasElement[] = [];
+    for (const el of cardEls) {
+      try {
+        const canvas = await html2canvas(el, { scale: 2, backgroundColor: "#fff", useCORS: true, allowTaint: false, logging: false });
+        canvases.push(canvas);
+      } catch (e) { console.error("fallback card capture failed", e); }
+    }
     root.unmount();
     document.body.removeChild(tempContainer);
     return canvases;
-  }, [design]);
+  };
 
   // 1) طباعة مباشرة — يلتقط CardCanvas ويطبع
   const handlePrintDirect = async () => {
@@ -1804,7 +1831,7 @@ body{font-family:'Cairo','Tajawal',Arial,sans-serif;background:#fff;-webkit-prin
         <div
           ref={printContainerRef}
           aria-hidden
-          style={{ position: "fixed", left: "-99999px", top: 0, pointerEvents: "none", opacity: 0 }}
+          style={{ position: "fixed", left: "-99999px", top: 0, pointerEvents: "none" }}
         >
           {selectedSubIds.map((id) => {
             const s = subscribers.find((x) => x.id === id);
