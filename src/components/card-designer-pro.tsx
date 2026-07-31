@@ -688,16 +688,50 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
   };
 
   // ═══════════════════════════════════════════════════════════════
+  //  🔑 جلب صور المنخرطين كـ data URLs قبل الطباعة
+  //  هذا يضمن ظهور الصور في نافذة الطباعة (التي قد لا ترسل cookies)
+  // ═══════════════════════════════════════════════════════════════
+  const prepareSubsWithPhotos = async (subs: SubscriberWithComputed[]): Promise<any[]> => {
+    const result: any[] = [];
+    for (const sub of subs) {
+      const photoPath = (sub as unknown as { photoPath?: string | null }).photoPath;
+      if (photoPath) {
+        try {
+          const res = await fetch(`/api/subscribers/${sub.id}/photo?size=cropped&raw=1`);
+          if (res.ok) {
+            const blob = await res.blob();
+            const dataUrl = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            });
+            result.push({ ...sub, photoDataUrl: dataUrl });
+          } else {
+            result.push(sub);
+          }
+        } catch {
+          result.push(sub);
+        }
+      } else {
+        result.push(sub);
+      }
+    }
+    return result;
+  };
+
+  // ═══════════════════════════════════════════════════════════════
   //  أزرار الطباعة الاحترافية (4 أوضاع)
   // ═══════════════════════════════════════════════════════════════
 
   // 1) طباعة مباشرة — يفتح نافذة طباعة المتصفح مباشرة
-  const handlePrintDirect = () => {
+  const handlePrintDirect = async () => {
     const subs = getSelectedSubs();
     if (!subs) return;
     setGenerating(true);
     try {
-      const html = generatePrintPDF(subs, design, window.location.origin);
+      const subsWithPhotos = await prepareSubsWithPhotos(subs);
+      const html = generatePrintPDF(subsWithPhotos, design, window.location.origin);
       const w = window.open("", "_blank");
       if (!w) { toast.error("اسمح بالنوافذ المنبثقة"); return; }
       w.document.write(html);
@@ -709,12 +743,13 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
   };
 
   // 2) PDF — يحفظ كـ PDF (عبر نافذة الطباعة مع توجيه المستخدم لحفظ كـ PDF)
-  const handlePrintPDF = () => {
+  const handlePrintPDF = async () => {
     const subs = getSelectedSubs();
     if (!subs) return;
     setGenerating(true);
     try {
-      const html = generatePrintPDF(subs, design, window.location.origin);
+      const subsWithPhotos = await prepareSubsWithPhotos(subs);
+      const html = generatePrintPDF(subsWithPhotos, design, window.location.origin);
       const w = window.open("", "_blank");
       if (!w) { toast.error("اسمح بالنوافذ المنبثقة"); return; }
       w.document.write(html);
@@ -726,12 +761,13 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
   };
 
   // 3) Word — ملف .doc قابل للتحرير
-  const handleExportWord = () => {
+  const handleExportWord = async () => {
     const subs = getSelectedSubs();
     if (!subs) return;
     setGenerating(true);
     try {
-      const html = generatePrintWord(subs, design, window.location.origin);
+      const subsWithPhotos = await prepareSubsWithPhotos(subs);
+      const html = generatePrintWord(subsWithPhotos, design, window.location.origin);
       const blob = new Blob([html], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");

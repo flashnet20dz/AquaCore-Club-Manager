@@ -230,11 +230,12 @@ function buildElementHTML(el: PrintCardElement, sub: any, origin: string, config
   }
 
   // Member photo — object-fit:cover دائماً
+  // 🔑 نفضل photoDataUrl (data URL مُحمّل مسبقاً) لضمان ظهور الصورة في الطباعة
   if (el.type === "photo") {
-    const photoSrc = sub?.photoPath ? `${origin}/api/subscribers/${sub.id}/photo?size=cropped&raw=1` : "";
+    const photoSrc = sub?.photoDataUrl || (sub?.photoPath ? `${origin}/api/subscribers/${sub.id}/photo?size=cropped&raw=1` : "");
     const phStyle = `width:100%;height:100%;background:#e5e7eb;border-radius:${br};display:flex;align-items:center;justify-content:center;font-size:2.5mm;color:#999;`;
     const imgStyle = `position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:${br};`;
-    return `<div style="${base};overflow:hidden;border-radius:${br};position:relative;">${photoSrc ? `<img src="${photoSrc}" style="${imgStyle}" onerror="this.style.display='none'" /><div style="${phStyle}">صورة</div>` : `<div style="${phStyle}">صورة</div>`}</div>`;
+    return `<div style="${base};overflow:hidden;border-radius:${br};position:relative;">${photoSrc ? `<img src="${photoSrc}" style="${imgStyle}" /><div style="${phStyle}">صورة</div>` : `<div style="${phStyle}">صورة</div>`}</div>`;
   }
 
   // Shape
@@ -306,20 +307,30 @@ export function generatePrintPDF(
   for (let i = 0; i < subscribers.length; i += cardsPerPage) {
     const chunk = subscribers.slice(i, i + cardsPerPage);
 
-    // الوجه الأمامي (Recto)
+    // الوجه الأمامي (Recto) — ترتيب طبيعي
     const frontCards = chunk.map((s) => buildCardHTML(s, design, "front", origin, dims.cardWidthMM, dims.cardHeightMM)).join("");
-    // ملء الخانات الفارغة بمربعات فارغة للحفاظ على الشبكة
     const frontFillers = Array.from({ length: cardsPerPage - chunk.length }).map(() =>
       `<div style="width:${dims.cardWidthMM}mm;height:${dims.cardHeightMM}mm;border:1px dashed #ccc;box-sizing:border-box;"></div>`
     ).join("");
     pages.push(`<div class="print-page"><div class="card-grid">${frontCards}${frontFillers}</div></div>`);
 
-    // الوجه الخلفي (Verso) — نفس الشبكة بالضبط
-    const backCards = chunk.map((s) => buildCardHTML(s, design, "back", origin, dims.cardWidthMM, dims.cardHeightMM)).join("");
-    const backFillers = Array.from({ length: cardsPerPage - chunk.length }).map(() =>
-      `<div style="width:${dims.cardWidthMM}mm;height:${dims.cardHeightMM}mm;border:1px dashed #ccc;box-sizing:border-box;"></div>`
-    ).join("");
-    pages.push(`<div class="print-page"><div class="card-grid">${backCards}${backFillers}</div></div>`);
+    // الوجه الخلفي (Verso) — 🔑 عكس ترتيب البطاقات في كل صف
+    // عند الطباعة المزدوجة (قلب طولي مثل كتاب)، الوجه الخلفي يجب أن يكون
+    // معكوساً أفقياً ليطابق الوجه الأمامي عند القلب.
+    // نعكس ترتيب البطاقات في كل صف (كل بطاقتين نبدّل موقعهما).
+    const backChunkReversed: any[] = [];
+    for (let r = 0; r < dims.rows; r++) {
+      const rowStart = r * dims.cols;
+      const rowEnd = Math.min(rowStart + dims.cols, chunk.length);
+      const rowCards = chunk.slice(rowStart, rowEnd);
+      // عكس ترتيب الصف
+      backChunkReversed.push(...rowCards.reverse());
+      // ملء الفراغات في الصف إذا لم يكتمل
+      const fillCount = dims.cols - rowCards.length;
+      for (let f = 0; f < fillCount; f++) backChunkReversed.push(null);
+    }
+    const backCards = backChunkReversed.map((s) => s ? buildCardHTML(s, design, "back", origin, dims.cardWidthMM, dims.cardHeightMM) : `<div style="width:${dims.cardWidthMM}mm;height:${dims.cardHeightMM}mm;border:1px dashed #ccc;box-sizing:border-box;"></div>`).join("");
+    pages.push(`<div class="print-page"><div class="card-grid">${backCards}</div></div>`);
   }
 
   return printHTMLWrapper(pages.join(""), "بطاقات الانخراط — AquaCore");
