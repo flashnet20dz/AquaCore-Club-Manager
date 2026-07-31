@@ -66,7 +66,7 @@ import { useSubscriptionTypes } from "@/hooks/use-subscription-types";
 import type { SubscriberWithComputed } from "@/lib/rcs";
 import { generateProfessionalPrint, generateProfessionalWord, type PrintDesign, type PrintCardConfig, type PrintCardTexts } from "@/lib/print-engine";
 import { CardCanvas } from "@/components/card-canvas";
-import { exportCardPNG, exportCardJPG, exportCardPDF, exportA4PDF, exportCardWord } from "@/lib/card-export";
+import { exportCardPNG, exportCardWord } from "@/lib/card-export";
 
 // ──────────────────────────── Types ────────────────────────────
 
@@ -779,123 +779,111 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
   // حاوية طباعة مخفية تعرض CardCanvas لكل منخرط مُحدد (front + back)
   const printContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // 🔑 دالة موحدة لالتقاط كل البطاقات من الحاوية المخفية في JSX
-  // الحاوية معروضة ضمن شجرة React الطبيعية (كل contexts متوفرة).
-  // نحدّث preparedPhotos ثم ننتظر re-render قبل الالتقاط.
-  const captureAllCards = useCallback(async (subs: SubscriberWithComputed[]): Promise<HTMLCanvasElement[]> => {
-    // 1) جلب الصور وتحديث الحاوية المخفية
-    const subsWithPhotos = await prepareSubsWithPhotos(subs);
-    // 2) انتظر حتى يعيد React الرسم (state update + paint)
-    await new Promise((r) => setTimeout(r, 600));
-    // 3) التقط من الحاوية المخفية
-    const container = printContainerRef.current;
-    if (!container) {
-      console.error("printContainerRef is null");
-      return [];
-    }
-    const cardEls = Array.from(container.querySelectorAll("[data-card]")) as HTMLElement[];
-    console.log(`[captureAllCards] found ${cardEls.length} card elements`);
-    if (cardEls.length === 0) {
-      // fallback: حاوية فارغة — استخدم createRoot مؤقت
-      console.warn("No cards in hidden container, falling back to createRoot");
-      return captureAllCardsFallback(subsWithPhotos, design);
-    }
-    const html2canvasMod = await import("html2canvas");
-    const html2canvas = html2canvasMod.default;
-    const canvases: HTMLCanvasElement[] = [];
-    for (const el of cardEls) {
-      try {
-        const canvas = await html2canvas(el, { scale: 2, backgroundColor: "#fff", useCORS: true, allowTaint: false, logging: false });
-        canvases.push(canvas);
-      } catch (e) { console.error("card capture failed", e); }
-    }
-    return canvases;
+  // ═══════════════════════════════════════════════════════════════
+  //  🔑 مولّد HTML للبطاقة — نفس منطق المصمم (absolute positioning)
+  //  يولّد HTML مباشر من CardDesign — بسيط، موثوق، يعمل في كل المتصفحات.
+  // ═══════════════════════════════════════════════════════════════
+  const buildCardHTMLString = useCallback((sub: any, side: "front" | "back"): string => {
+    const c = design.config;
+    const els = side === "front" ? design.front : design.back;
+    const photoUrl = sub?.photoDataUrl || (sub?.photoPath ? `${window.location.origin}/api/subscribers/${sub.id}/photo?size=cropped&raw=1` : "");
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(sub?.fileNumber || "RCS")}&color=000000&bgcolor=ffffff`;
+
+    const elsHTML = els.filter((e) => e.visible).sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0)).map((el) => {
+      const br = el.shapeKind === "circle" ? "50%" : `${el.borderRadius || 0}px`;
+      const bgAlpha = el.bgOpacity != null ? Math.round(el.bgOpacity * 2.55).toString(16).padStart(2, "0") : "";
+      const leftPct = (el.x / c.width) * 100;
+      const topPct = (el.y / c.height) * 100;
+      const widthPct = (el.width / c.width) * 100;
+      const heightPct = (el.height / c.height) * 100;
+      const base = `position:absolute;left:${leftPct}%;top:${topPct}%;width:${widthPct}%;height:${heightPct}%;display:flex;align-items:center;justify-content:${el.textAlign === "center" ? "center" : el.textAlign === "left" ? "flex-start" : "flex-end"};direction:rtl;overflow:hidden;box-sizing:border-box;transform:rotate(${el.rotation || 0}deg);opacity:${(el.opacity ?? 100) / 100};z-index:${el.zIndex || 1};${el.bgColor ? `background-color:${el.bgColor}${bgAlpha};` : ""}${el.borderWidth ? `border:${el.borderWidth}px ${el.borderStyle || "solid"} ${el.borderColor || "#000"};` : ""}border-radius:${br};padding:0.5mm;`;
+
+      if (el.type === "qr") return `<div style="${base}"><img src="${qrUrl}" style="width:100%;height:100%;object-fit:contain;" /></div>`;
+      if (el.type === "barcode") return `<div style="${base}"><img src="https://api.qrserver.com/v1/create-barcode/?data=${encodeURIComponent(sub?.fileNumber || "RCS")}&type=code128" style="width:100%;height:100%;object-fit:contain;" /></div>`;
+      if (el.type === "logo") return `<div style="${base}display:flex;align-items:center;justify-content:center;font-size:8mm;color:#0f766e;font-weight:700;">ن</div>`;
+      if (el.type === "uploadedImage" && el.imageData) return `<div style="${base}"><img src="${el.imageData}" style="width:100%;height:100%;object-fit:contain;" /></div>`;
+      if (el.type === "photo") {
+        return `<div style="${base}background:#e5e7eb;border-radius:${br};overflow:hidden;">${photoUrl ? `<img src="${photoUrl}" style="width:100%;height:100%;object-fit:cover;" />` : ""}</div>`;
+      }
+      if (el.type === "shape") return `<div style="${base}"></div>`;
+      // Text
+      const content = getContent(el, sub as any);
+      const label = el.showLabel ? (el.labelText || "") : "";
+      const fullText = label + content;
+      const isLong = el.type === "fullName" || el.type === "customText" || (fullText.length > 20);
+      const overflow = isLong ? "white-space:normal;word-break:break-word;max-height:100%;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;" : "white-space:nowrap;text-overflow:ellipsis;overflow:hidden;";
+      return `<div style="${base}"><span style="font-family:${el.fontFamily || "Cairo"},Arial,sans-serif;font-size:${el.fontSize || 10}px;font-weight:${el.fontWeight || "normal"};color:${el.color || "#333"};text-align:${el.textAlign || "right"};width:100%;line-height:1.2;${overflow}">${escapeHtml(fullText)}</span></div>`;
+    }).join("");
+
+    const bg = c.bgImage
+      ? `background-image:url(${c.bgImage});background-size:cover;background-position:center;background-color:${c.bgColor};`
+      : c.gradientEnabled
+        ? `background:linear-gradient(${c.gradientDirection === "horizontal" ? "to right" : c.gradientDirection === "vertical" ? "to bottom" : "to bottom right"}, ${c.gradientStart || "#0f766e"}, ${c.gradientEnd || "#0369a1"});`
+        : `background-color:${c.bgColor};`;
+
+    return `<div style="width:${c.width}cm;height:${c.height}cm;${bg}border:${c.borderWidth}px ${c.borderStyle} ${c.borderColor};border-radius:${c.borderRadius}px;position:relative;overflow:hidden;direction:rtl;box-sizing:border-box;break-inside:avoid;">${elsHTML}</div>`;
   }, [design]);
 
-  // Fallback: إذا فشلت الحاوية المخفية، استخدم createRoot مؤقت
-  const captureAllCardsFallback = async (subsWithPhotos: any[], designSnapshot: any): Promise<HTMLCanvasElement[]> => {
-    const tempContainer = document.createElement("div");
-    tempContainer.style.cssText = "position:fixed;left:-99999px;top:0;pointer-events:none;opacity:0;width:400px;";
-    document.body.appendChild(tempContainer);
-    const { createRoot } = await import("react-dom/client");
-    const ReactMod = (await import("react")).default;
-    const { CardCanvas } = await import("@/components/card-canvas");
-    const root = createRoot(tempContainer);
-    await new Promise<void>((resolve) => {
-      root.render(
-        ReactMod.createElement(
-          "div",
-          null,
-          subsWithPhotos.map((s: any) =>
-            ReactMod.createElement(ReactMod.Fragment, { key: s.id },
-              ReactMod.createElement(CardCanvas, { design: designSnapshot, side: "front" as const, sub: s, origin: window.location.origin, scale: 1 }),
-              ReactMod.createElement(CardCanvas, { design: designSnapshot, side: "back" as const, sub: s, origin: window.location.origin, scale: 1 })
-            )
-          )
-        )
-      );
-      setTimeout(resolve, 800);
-    });
-    const cardEls = Array.from(tempContainer.querySelectorAll("[data-card]")) as HTMLElement[];
-    console.log(`[fallback] found ${cardEls.length} card elements`);
-    const html2canvasMod = await import("html2canvas");
-    const html2canvas = html2canvasMod.default;
-    const canvases: HTMLCanvasElement[] = [];
-    for (const el of cardEls) {
-      try {
-        const canvas = await html2canvas(el, { scale: 2, backgroundColor: "#fff", useCORS: true, allowTaint: false, logging: false });
-        canvases.push(canvas);
-      } catch (e) { console.error("fallback card capture failed", e); }
-    }
-    root.unmount();
-    document.body.removeChild(tempContainer);
-    return canvases;
-  };
-
-  // 1) طباعة مباشرة — يلتقط CardCanvas ويطبع
+  // 1) طباعة مباشرة — HTML مباشر في نافذة طباعة (بسيط وموثوق)
   const handlePrintDirect = async () => {
     const subs = getSelectedSubs();
     if (!subs) return;
     setGenerating(true);
     try {
-      const canvases = await captureAllCards(subs);
-      if (canvases.length === 0) { toast.error("لم يتم إنشاء أي بطاقة"); return; }
+      const subsWithPhotos = await prepareSubsWithPhotos(subs);
+      const cardsPerPage = 8;
+      const pagesHTML = Array.from({ length: Math.ceil(subsWithPhotos.length / cardsPerPage) }).map((_, pageIdx) => {
+        const pageSubs = subsWithPhotos.slice(pageIdx * cardsPerPage, pageIdx * cardsPerPage + cardsPerPage);
+        const cards = pageSubs.map((s: any) => buildCardHTMLString(s, "front")).join("");
+        const fillers = Array.from({ length: cardsPerPage - pageSubs.length }).map(() => `<div style="width:9.3cm;height:6.625cm;"></div>`).join("");
+        return `<div class="print-page">${cards}${fillers}</div>`;
+      }).join("");
       const w = window.open("", "_blank");
       if (!w) { toast.error("اسمح بالنوافذ المنبثقة للموقع"); return; }
-      const pagesHTML = Array.from({ length: Math.ceil(canvases.length / 8) }).map((_, pageIdx) => {
-        const pageCards = canvases.slice(pageIdx * 8, pageIdx * 8 + 8);
-        const imgs = pageCards.map((c) => `<img src="${c.toDataURL("image/png")}" style="width:93mm;height:66.25mm;object-fit:contain;" />`).join("");
-        return `<div class="print-page">${imgs}</div>`;
-      }).join("");
       w.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>طباعة بطاقات — AquaCore</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 @page{size:A4 portrait;margin:10mm;}
-body{font-family:'Cairo','Tajawal',Arial,sans-serif;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-.print-page{display:grid;grid-template-columns:repeat(2,93mm);grid-template-rows:repeat(4,66.25mm);gap:4mm;width:190mm;page-break-after:always;}
+body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important;}
+.print-page{display:grid;grid-template-columns:repeat(2,9.3cm);grid-template-rows:repeat(4,6.625cm);gap:4mm;width:19cm;page-break-after:always;}
 .print-page:last-child{page-break-after:auto;}
 @media screen{body{background:#f0f0f0;padding:20px;}.print-page{margin:0 auto 20px;background:#fff;padding:10mm;box-shadow:0 4px 12px rgba(0,0,0,0.15);}}
 </style></head><body>${pagesHTML}</body></html>`);
       w.document.close();
-      // 🔑 استخدم setTimeout بدلاً من onload (أكثر موثوقية)
-      setTimeout(() => { try { w.focus(); w.print(); } catch (e) { console.error(e); } }, 800);
-      toast.success(`جاري تحضير ${subs.length} بطاقة للطباعة (WYSIWYG)`);
-    } catch (e) { console.error(e); toast.error("فشل الطباعة — تأكد من السماح بالنوافذ المنبثقة"); }
+      setTimeout(() => { try { w.focus(); w.print(); } catch (e) { console.error(e); } }, 600);
+      toast.success(`جاري طباعة ${subs.length} بطاقة`);
+    } catch (e) { console.error(e); toast.error("فشل الطباعة — اسمح بالنوافذ المنبثقة"); }
     finally { setGenerating(false); }
   };
 
-  // 2) PDF (بطاقة واحدة) — jsPDF من صورة CardCanvas المرئي
+  // 2) PDF — نافذة طباعة باختيار "حفظ كـ PDF"
   const handlePrintPDF = async () => {
-    const cardEl = cardRef.current;
-    if (!cardEl) { toast.error("حدد بطاقة أولاً من المصمم"); return; }
-    const previewSub = subscribers.find((s) => s.id === previewSubId) || subscribers[0];
-    if (!previewSub) { toast.error("لا يوجد منخرط"); return; }
+    const subs = getSelectedSubs();
+    if (!subs) return;
     setGenerating(true);
     try {
-      const fname = `بطاقة_${previewSub.fileNumber || previewSub.lastName}_${Date.now()}.pdf`;
-      await exportCardPDF(cardEl, fname);
-      toast.success("تم تصدير PDF (WYSIWYG)");
-    } catch (e) { console.error(e); toast.error("فشل إنشاء PDF — تحقق من Console"); }
+      const subsWithPhotos = await prepareSubsWithPhotos(subs);
+      const cardsPerPage = 8;
+      const pagesHTML = Array.from({ length: Math.ceil(subsWithPhotos.length / cardsPerPage) }).map((_, pageIdx) => {
+        const pageSubs = subsWithPhotos.slice(pageIdx * cardsPerPage, pageIdx * cardsPerPage + cardsPerPage);
+        const cards = pageSubs.map((s: any) => buildCardHTMLString(s, "front")).join("");
+        const fillers = Array.from({ length: cardsPerPage - pageSubs.length }).map(() => `<div style="width:9.3cm;height:6.625cm;"></div>`).join("");
+        return `<div class="print-page">${cards}${fillers}</div>`;
+      }).join("");
+      const w = window.open("", "_blank");
+      if (!w) { toast.error("اسمح بالنوافذ المنبثقة للموقع"); return; }
+      w.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>PDF بطاقات — AquaCore</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+@page{size:A4 portrait;margin:10mm;}
+body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important;}
+.print-page{display:grid;grid-template-columns:repeat(2,9.3cm);grid-template-rows:repeat(4,6.625cm);gap:4mm;width:19cm;page-break-after:always;}
+.print-page:last-child{page-break-after:auto;}
+</style></head><body>${pagesHTML}</body></html>`);
+      w.document.close();
+      setTimeout(() => { try { w.focus(); w.print(); } catch (e) { console.error(e); } }, 600);
+      toast.success(`اختر "حفظ كـ PDF" في نافذة الطباعة`);
+    } catch (e) { console.error(e); toast.error("فشل إنشاء PDF"); }
     finally { setGenerating(false); }
   };
 
@@ -913,7 +901,7 @@ body{font-family:'Cairo','Tajawal',Arial,sans-serif;background:#fff;-webkit-prin
     finally { setGenerating(false); }
   };
 
-  // 4) PNG — لقطة CardCanvas من DOM (WYSIWYG تام)
+  // 4) PNG — لقطة البطاقة المرئية في المصمم
   const handleExportPNG = async () => {
     const cardEl = cardRef.current;
     if (!cardEl) { toast.error("حدد بطاقة أولاً من المصمم"); return; }
@@ -923,23 +911,39 @@ body{font-family:'Cairo','Tajawal',Arial,sans-serif;background:#fff;-webkit-prin
     try {
       const fname = `بطاقة_${previewSub.fileNumber || previewSub.lastName}_${Date.now()}.png`;
       await exportCardPNG(cardEl, fname);
-      toast.success("تم تصدير PNG (WYSIWYG)");
-    } catch (e) { console.error(e); toast.error("فشل تصدير PNG — تحقق من Console"); }
+      toast.success("تم تصدير PNG");
+    } catch (e) { console.error(e); toast.error("فشل تصدير PNG"); }
     finally { setGenerating(false); }
   };
 
-  // 5) A4 PDF (8 بطاقات) — يلتقط CardCanvas لكل منخرط ويرتبها في A4
+  // 5) A4 PDF (8 بطاقات) — HTML مباشر في نافذة طباعة
   const handleExportA4 = async () => {
     const subs = getSelectedSubs();
     if (!subs) return;
     setGenerating(true);
     try {
-      const canvases = await captureAllCards(subs);
-      if (canvases.length === 0) { toast.error("لم يتم إنشاء أي بطاقة"); return; }
-      const fname = `AquaCore_8بطاقات_A4_${new Date().toISOString().split("T")[0]}.pdf`;
-      await exportA4PDF(canvases, fname, { cols: 2, rows: 4, cardWidthMM: 93, cardHeightMM: 66.25, gapMM: 4 });
-      toast.success(`تم تصدير ${subs.length} بطاقة في A4 (WYSIWYG)`);
-    } catch (e) { console.error(e); toast.error("فشل تصدير A4 — تحقق من Console"); }
+      const subsWithPhotos = await prepareSubsWithPhotos(subs);
+      const cardsPerPage = 8;
+      const pagesHTML = Array.from({ length: Math.ceil(subsWithPhotos.length / cardsPerPage) }).map((_, pageIdx) => {
+        const pageSubs = subsWithPhotos.slice(pageIdx * cardsPerPage, pageIdx * cardsPerPage + cardsPerPage);
+        const cards = pageSubs.map((s: any) => buildCardHTMLString(s, "front")).join("");
+        const fillers = Array.from({ length: cardsPerPage - pageSubs.length }).map(() => `<div style="width:9.3cm;height:6.625cm;"></div>`).join("");
+        return `<div class="print-page">${cards}${fillers}</div>`;
+      }).join("");
+      const w = window.open("", "_blank");
+      if (!w) { toast.error("اسمح بالنوافذ المنبثقة للموقع"); return; }
+      w.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>A4 — AquaCore</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+@page{size:A4 portrait;margin:10mm;}
+body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important;}
+.print-page{display:grid;grid-template-columns:repeat(2,9.3cm);grid-template-rows:repeat(4,6.625cm);gap:4mm;width:19cm;page-break-after:always;}
+.print-page:last-child{page-break-after:auto;}
+</style></head><body>${pagesHTML}</body></html>`);
+      w.document.close();
+      setTimeout(() => { try { w.focus(); w.print(); } catch (e) { console.error(e); } }, 600);
+      toast.success(`جاري تصدير ${subs.length} بطاقة في A4`);
+    } catch (e) { console.error(e); toast.error("فشل تصدير A4"); }
     finally { setGenerating(false); }
   };
 
