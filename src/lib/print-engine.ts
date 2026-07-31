@@ -405,7 +405,7 @@ export function generatePrintPDF(
 *{margin:0;padding:0;box-sizing:border-box;}
 body{font-family:'Cairo','Tajawal',Arial,sans-serif;background:white;}
 @page{size:A4 portrait;margin:10mm;}
-.print-page{page-break-after:always;width:190mm;height:277mm;position:relative;display:flex;align-items:center;justify-content:center;}
+.print-page{page-break-after:always;width:190mm;height:277mm;position:relative;display:flex;align-items:center;justify-content:center;padding:0 15mm;}
 .print-page:last-child{page-break-after:auto;}
 @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
 @media screen{.print-page{margin:10mm auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);background:white;}body{background:#f0f0f0;padding:20px;}}
@@ -439,8 +439,8 @@ export function generatePrint8A4(
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 body{font-family:'Cairo','Tajawal',Arial,sans-serif;background:white;}
-@page{size:A4 portrait;margin:8mm;}
-.print-page{page-break-after:always;width:194mm;height:281mm;position:relative;display:flex;align-items:center;justify-content:center;}
+@page{size:A4 portrait;margin:10mm;}
+.print-page{page-break-after:always;width:190mm;height:277mm;position:relative;display:flex;align-items:center;justify-content:center;padding:0 15mm;}
 .print-page:last-child{page-break-after:auto;}
 @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
 @media screen{.print-page{margin:10mm auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);background:white;}body{background:#f0f0f0;padding:20px;}}
