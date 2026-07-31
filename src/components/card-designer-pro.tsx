@@ -1667,7 +1667,7 @@ function MembersSidebar({
         </div>
       </div>
 
-      <ScrollArea className="flex-1">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden" style={{ minHeight: "200px", maxHeight: "calc(100vh - 340px)" }}>
         {subscribers.length === 0 ? (
           <div className="p-4 text-center text-xs text-muted-foreground">
             <User className="h-8 w-8 mx-auto mb-2 opacity-30" />
@@ -1705,7 +1705,7 @@ function MembersSidebar({
             })}
           </div>
         )}
-      </ScrollArea>
+      </div>
     </div>
   );
 }
