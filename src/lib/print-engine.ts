@@ -84,8 +84,8 @@ export interface PrintCalibration {
 // ═══════════════════════════════════════════════════════════════
 export const A4_WIDTH_MM = 210;
 export const A4_HEIGHT_MM = 297;
-export const PRINT_MARGIN_MM = 10;
-export const CARD_GAP_MM = 4;
+export const PRINT_MARGIN_MM = 15; // 1.5cm جميع الجهات (مطابق لإعدادات Word)
+export const CARD_GAP_MM = 5; // 5mm بين البطاقات
 export const PX_TO_MM = 0.265; // 1px = 0.265mm at 37.8 px/cm
 export const SAFE_MARGIN_MM = 2;
 export const BLEED_MM = 1;
@@ -119,28 +119,30 @@ export function calculateA4Layout(
 ): A4Layout {
   const cardW = cardWidthCM * 10;
   const cardH = cardHeightCM * 10;
-  const availableW = A4_WIDTH_MM - 2 * PRINT_MARGIN_MM;
-  const availableH = A4_HEIGHT_MM - 2 * PRINT_MARGIN_MM;
+  const availableW = A4_WIDTH_MM - 2 * PRINT_MARGIN_MM; // 210 - 30 = 180mm
+  const availableH = A4_HEIGHT_MM - 2 * PRINT_MARGIN_MM; // 297 - 30 = 267mm
 
   const layouts = [
-    { cols: 2, rows: 4 },
-    { cols: 3, rows: 3 },
-    { cols: 2, rows: 5 },
-    { cols: 3, rows: 4 },
-    { cols: 2, rows: 3 },
-    { cols: 1, rows: 4 },
+    { cols: 2, rows: 4 }, // 8 cards
+    { cols: 3, rows: 3 }, // 9 cards
+    { cols: 2, rows: 5 }, // 10 cards
+    { cols: 3, rows: 4 }, // 12 cards
+    { cols: 2, rows: 3 }, // 6 cards
+    { cols: 1, rows: 4 }, // 4 cards
   ];
 
   let best: A4Layout | null = null;
 
   for (const l of layouts) {
     if (l.cols * l.rows < cardCount) continue;
-    const gapX = Math.max(2, (availableW - l.cols * cardW) / (l.cols + 1));
-    const gapY = Math.max(2, (availableH - l.rows * cardH) / (l.rows + 1));
-    if (gapX < 0 || gapY < 0) continue;
+    // 🔑 استخدم CARD_GAP_MM ثابت (5mm) بدل حساب متغير
+    const gapX = CARD_GAP_MM;
+    const gapY = CARD_GAP_MM;
+    const totalW = l.cols * cardW + (l.cols - 1) * gapX;
+    const totalH = l.rows * cardH + (l.rows - 1) * gapY;
+    if (totalW > availableW || totalH > availableH) continue;
 
-    const totalW = l.cols * cardW + (l.cols + 1) * gapX;
-    const totalH = l.rows * cardH + (l.rows + 1) * gapY;
+    // 🔑 مركزية البطاقات: offset = (مساحة متاحة - مساحة البطاقات) / 2
     const offsetX = (A4_WIDTH_MM - totalW) / 2;
     const offsetY = (A4_HEIGHT_MM - totalH) / 2;
 
@@ -156,14 +158,16 @@ export function calculateA4Layout(
   }
 
   if (!best) {
-    const gapX = Math.max(2, (availableW - 2 * cardW) / 3);
-    const gapY = Math.max(2, (availableH - 4 * cardH) / 5);
+    const gapX = CARD_GAP_MM;
+    const gapY = CARD_GAP_MM;
+    const totalW = 2 * cardW + gapX;
+    const totalH = 4 * cardH + 3 * gapY;
     best = {
       cols: 2, rows: 4,
       cardWidthMM: cardW, cardHeightMM: cardH,
       gapXMM: gapX, gapYMM: gapY,
-      offsetXMM: (A4_WIDTH_MM - 2 * cardW - 3 * gapX) / 2,
-      offsetYMM: (A4_HEIGHT_MM - 4 * cardH - 5 * gapY) / 2,
+      offsetXMM: (A4_WIDTH_MM - totalW) / 2,
+      offsetYMM: (A4_HEIGHT_MM - totalH) / 2,
       totalCards: 8,
     };
   }
