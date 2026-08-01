@@ -824,6 +824,32 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
     return `<div style="width:${c.width}cm;height:${c.height}cm;${bg}border:${c.borderWidth}px ${c.borderStyle} ${c.borderColor};border-radius:${c.borderRadius}px;position:relative;overflow:hidden;direction:rtl;box-sizing:border-box;break-inside:avoid;">${elsHTML}</div>`;
   }, [design]);
 
+  // 🔑 مولّد صفحات Recto/Verso — لكل 8 منخرطين: صفحة أمامية + صفحة خلفية
+  const buildRectoVersoPages = useCallback((subsWithPhotos: any[]): string => {
+    const cardsPerPage = 8;
+    const pages: string[] = [];
+    for (let i = 0; i < subsWithPhotos.length; i += cardsPerPage) {
+      const pageSubs = subsWithPhotos.slice(i, i + cardsPerPage);
+      const fillers = Array.from({ length: cardsPerPage - pageSubs.length }).map(() => `<div style="width:9.3cm;height:6.625cm;"></div>`).join("");
+      // الوجه الأمامي (Recto)
+      const frontCards = pageSubs.map((s: any) => buildCardHTMLString(s, "front")).join("");
+      pages.push(`<div class="print-page">${frontCards}${fillers}</div>`);
+      // الوجه الخلفي (Verso) — عكس ترتيب البطاقات في كل صف لمحاذاة القلب المزدوج
+      const backChunk: any[] = [];
+      for (let r = 0; r < 4; r++) {
+        const rowStart = r * 2;
+        const rowEnd = Math.min(rowStart + 2, pageSubs.length);
+        const rowCards = pageSubs.slice(rowStart, rowEnd);
+        backChunk.push(...rowCards.reverse());
+        const fillCount = 2 - rowCards.length;
+        for (let f = 0; f < fillCount; f++) backChunk.push(null);
+      }
+      const backCards = backChunk.map((s) => s ? buildCardHTMLString(s, "back") : `<div style="width:9.3cm;height:6.625cm;"></div>`).join("");
+      pages.push(`<div class="print-page">${backCards}</div>`);
+    }
+    return pages.join("");
+  }, [buildCardHTMLString]);
+
   // 1) طباعة مباشرة — HTML مباشر في نافذة طباعة (بسيط وموثوق)
   const handlePrintDirect = async () => {
     const subs = getSelectedSubs();
@@ -831,13 +857,7 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
     setGenerating(true);
     try {
       const subsWithPhotos = await prepareSubsWithPhotos(subs);
-      const cardsPerPage = 8;
-      const pagesHTML = Array.from({ length: Math.ceil(subsWithPhotos.length / cardsPerPage) }).map((_, pageIdx) => {
-        const pageSubs = subsWithPhotos.slice(pageIdx * cardsPerPage, pageIdx * cardsPerPage + cardsPerPage);
-        const cards = pageSubs.map((s: any) => buildCardHTMLString(s, "front")).join("");
-        const fillers = Array.from({ length: cardsPerPage - pageSubs.length }).map(() => `<div style="width:9.3cm;height:6.625cm;"></div>`).join("");
-        return `<div class="print-page">${cards}${fillers}</div>`;
-      }).join("");
+      const pagesHTML = buildRectoVersoPages(subsWithPhotos);
       const w = window.open("", "_blank");
       if (!w) { toast.error("اسمح بالنوافذ المنبثقة للموقع"); return; }
       w.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>طباعة بطاقات — AquaCore</title>
@@ -851,7 +871,7 @@ body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-we
 </style></head><body>${pagesHTML}</body></html>`);
       w.document.close();
       setTimeout(() => { try { w.focus(); w.print(); } catch (e) { console.error(e); } }, 600);
-      toast.success(`جاري طباعة ${subs.length} بطاقة`);
+      toast.success(`جاري طباعة ${subs.length} بطاقة (Recto/Verso)`);
     } catch (e) { console.error(e); toast.error("فشل الطباعة — اسمح بالنوافذ المنبثقة"); }
     finally { setGenerating(false); }
   };
@@ -863,13 +883,7 @@ body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-we
     setGenerating(true);
     try {
       const subsWithPhotos = await prepareSubsWithPhotos(subs);
-      const cardsPerPage = 8;
-      const pagesHTML = Array.from({ length: Math.ceil(subsWithPhotos.length / cardsPerPage) }).map((_, pageIdx) => {
-        const pageSubs = subsWithPhotos.slice(pageIdx * cardsPerPage, pageIdx * cardsPerPage + cardsPerPage);
-        const cards = pageSubs.map((s: any) => buildCardHTMLString(s, "front")).join("");
-        const fillers = Array.from({ length: cardsPerPage - pageSubs.length }).map(() => `<div style="width:9.3cm;height:6.625cm;"></div>`).join("");
-        return `<div class="print-page">${cards}${fillers}</div>`;
-      }).join("");
+      const pagesHTML = buildRectoVersoPages(subsWithPhotos);
       const w = window.open("", "_blank");
       if (!w) { toast.error("اسمح بالنوافذ المنبثقة للموقع"); return; }
       w.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>PDF بطاقات — AquaCore</title>
@@ -882,7 +896,7 @@ body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-we
 </style></head><body>${pagesHTML}</body></html>`);
       w.document.close();
       setTimeout(() => { try { w.focus(); w.print(); } catch (e) { console.error(e); } }, 600);
-      toast.success(`اختر "حفظ كـ PDF" في نافذة الطباعة`);
+      toast.success(`اختر "حفظ كـ PDF" في نافذة الطباعة (Recto/Verso)`);
     } catch (e) { console.error(e); toast.error("فشل إنشاء PDF"); }
     finally { setGenerating(false); }
   };
@@ -916,20 +930,14 @@ body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-we
     finally { setGenerating(false); }
   };
 
-  // 5) A4 PDF (8 بطاقات) — HTML مباشر في نافذة طباعة
+  // 5) A4 PDF (8 بطاقات) — HTML مباشر في نافذة طباعة (Recto/Verso)
   const handleExportA4 = async () => {
     const subs = getSelectedSubs();
     if (!subs) return;
     setGenerating(true);
     try {
       const subsWithPhotos = await prepareSubsWithPhotos(subs);
-      const cardsPerPage = 8;
-      const pagesHTML = Array.from({ length: Math.ceil(subsWithPhotos.length / cardsPerPage) }).map((_, pageIdx) => {
-        const pageSubs = subsWithPhotos.slice(pageIdx * cardsPerPage, pageIdx * cardsPerPage + cardsPerPage);
-        const cards = pageSubs.map((s: any) => buildCardHTMLString(s, "front")).join("");
-        const fillers = Array.from({ length: cardsPerPage - pageSubs.length }).map(() => `<div style="width:9.3cm;height:6.625cm;"></div>`).join("");
-        return `<div class="print-page">${cards}${fillers}</div>`;
-      }).join("");
+      const pagesHTML = buildRectoVersoPages(subsWithPhotos);
       const w = window.open("", "_blank");
       if (!w) { toast.error("اسمح بالنوافذ المنبثقة للموقع"); return; }
       w.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>A4 — AquaCore</title>
@@ -942,7 +950,7 @@ body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-we
 </style></head><body>${pagesHTML}</body></html>`);
       w.document.close();
       setTimeout(() => { try { w.focus(); w.print(); } catch (e) { console.error(e); } }, 600);
-      toast.success(`جاري تصدير ${subs.length} بطاقة في A4`);
+      toast.success(`جاري تصدير ${subs.length} بطاقة في A4 (Recto/Verso)`);
     } catch (e) { console.error(e); toast.error("فشل تصدير A4"); }
     finally { setGenerating(false); }
   };
