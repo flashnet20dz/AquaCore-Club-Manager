@@ -1427,70 +1427,155 @@ function ModulesTab() {
 function PermissionsTab() {
   const [features, setFeatures] = useState<FeatureFlag[]>([]);
   const [loading, setLoading] = useState(true);
-  const [matrix, setMatrix] = useState<Record<string, Record<string, boolean>>>(
-    {}
-  );
+  const [saving, setSaving] = useState(false);
+  // overrides map: featureId -> { allowEdit, allowDelete, allowPrint, allowExport }
+  const [overrides, setOverrides] = useState<Record<string, { allowEdit: boolean; allowDelete: boolean; allowPrint: boolean; allowExport: boolean }>>({});
+  // تعقّب الميزات المُعدّلة لإرسالها فقط
+  const [dirty, setDirty] = useState<Set<string>>(new Set());
 
-  const fetchFeatures = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/super-admin/feature-flags", {
-        cache: "no-store",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const feats: FeatureFlag[] = data.features || [];
+      // 1) جلب الميزات
+      const [featuresRes, accessRes] = await Promise.all([
+        fetch("/api/super-admin/feature-flags", { cache: "no-store" }),
+        fetch("/api/super-admin/feature-access?scope=ALL_CLUBS", { cache: "no-store" }),
+      ]);
+      let feats: FeatureFlag[] = [];
+      if (featuresRes.ok) {
+        const fdata = await featuresRes.json();
+        feats = fdata.features || [];
         setFeatures(feats);
-        // تهيئة افتراضية: admin=الكل، assistant=معظم، lifeguard/observer=عرض
-        const init: Record<string, Record<string, boolean>> = {};
-        for (const f of feats) {
-          init[f.id] = {
-            admin: true,
-            assistant: !f.readOnly,
-            lifeguard: false,
-            observer: false,
-          };
+      }
+      // 2) جلب overrides الموجودة
+      if (accessRes.ok) {
+        const adata = await accessRes.json();
+        const accessList: FeatureAccess[] = adata.access || [];
+        const ovMap: Record<string, { allowEdit: boolean; allowDelete: boolean; allowPrint: boolean; allowExport: boolean }> = {};
+        for (const a of accessList) {
+          if (a.scope === "ALL_CLUBS") {
+            ovMap[a.featureId] = {
+              allowEdit: a.allowEdit ?? false,
+              allowDelete: a.allowDelete ?? false,
+              allowPrint: a.allowPrint ?? false,
+              allowExport: a.allowExport ?? false,
+            };
+          }
         }
-        setMatrix(init);
+        setOverrides(ovMap);
       }
     } catch {
-      toast.error("فشل تحميل الميزات");
+      toast.error("فشل تحميل الميزات والصلاحيات");
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchFeatures();
-  }, [fetchFeatures]);
+    fetchData();
+  }, [fetchData]);
 
-  const toggle = (featureId: string, role: string, value: boolean) => {
-    setMatrix((prev) => ({
-      ...prev,
-      [featureId]: { ...(prev[featureId] || {}), [role]: value },
-    }));
+  const getPerm = (featureId: string, key: "allowEdit" | "allowDelete" | "allowPrint" | "allowExport"): boolean => {
+    const ov = overrides[featureId];
+    if (ov) return ov[key];
+    // fallback: قيمة الميزة الأصلية
+    const f = features.find((x) => x.id === featureId);
+    return f ? f[key] : false;
   };
 
-  const handleSave = () => {
-    // ملاحظة: لا يوجد API مخصص للصلاحيات حالياً — يُحفظ محلياً
-    toast.success("تم حفظ مصفوفة الصلاحيات محلياً");
+  const toggle = (featureId: string, key: "allowEdit" | "allowDelete" | "allowPrint" | "allowExport", value: boolean) => {
+    setOverrides((prev) => {
+      const existing = prev[featureId] || {
+        allowEdit: getPerm(featureId, "allowEdit"),
+        allowDelete: getPerm(featureId, "allowDelete"),
+        allowPrint: getPerm(featureId, "allowPrint"),
+        allowExport: getPerm(featureId, "allowExport"),
+      };
+      return { ...prev, [featureId]: { ...existing, [key]: value } };
+    });
+    setDirty((prev) => new Set(prev).add(featureId));
   };
 
-  if (loading) return <Loader label="تحميل الميزات..." />;
+  const handleSave = async () => {
+    if (dirty.size === 0) {
+      toast.info("لا توجد تغييرات للحفظ");
+      return;
+    }
+    setSaving(true);
+    try {
+      let saved = 0;
+      let failed = 0;
+      for (const featureId of dirty) {
+        const ov = overrides[featureId];
+        if (!ov) continue;
+        try {
+          const res = await fetch("/api/super-admin/feature-access", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              featureId,
+              scope: "ALL_CLUBS",
+              clubId: null,
+              clubGroupId: null,
+              overrides: {
+                allowEdit: ov.allowEdit,
+                allowDelete: ov.allowDelete,
+                allowPrint: ov.allowPrint,
+                allowExport: ov.allowExport,
+              },
+            }),
+          });
+          if (res.ok) saved++;
+          else failed++;
+        } catch {
+          failed++;
+        }
+      }
+      if (failed === 0) {
+        toast.success(`تم حفظ صلاحيات ${saved} ميزة بنجاح`);
+      } else {
+        toast.warning(`تم حفظ ${saved} ميزة، فشل ${failed} ميزة`);
+      }
+      setDirty(new Set());
+    } catch (e) {
+      console.error(e);
+      toast.error("فشل حفظ الصلاحيات");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <Loader label="تحميل الميزات والصلاحيات..." />;
+
+  const PERM_COLS: { key: "allowEdit" | "allowDelete" | "allowPrint" | "allowExport"; label: string }[] = [
+    { key: "allowEdit", label: "تعديل" },
+    { key: "allowDelete", label: "حذف" },
+    { key: "allowPrint", label: "طباعة" },
+    { key: "allowExport", label: "تصدير" },
+  ];
 
   return (
     <SectionCard
       title="مصفوفة الصلاحيات"
-      description="تحكم في وصول كل دور إلى كل ميزة"
+      description="تحكم في صلاحيات (تعديل/حذف/طباعة/تصدير) لكل ميزة — تُطبّق على كل النوادي"
       icon={Lock}
       action={
-        <Button
-          size="sm"
-          onClick={handleSave}
-          className="h-8 bg-gradient-to-l from-teal-500 to-sky-500 border-0"
-        >
-          <Save className="h-3.5 w-3.5 ml-1" /> حفظ
-        </Button>
+        <div className="flex items-center gap-2">
+          {dirty.size > 0 && (
+            <Badge variant="outline" className="text-[10px] bg-amber-500/10 text-amber-700 border-amber-500/30">
+              {dirty.size} تغيير غير محفوظ
+            </Badge>
+          )}
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={saving || dirty.size === 0}
+            className="h-8 bg-gradient-to-l from-teal-500 to-sky-500 border-0"
+          >
+            {saving ? <Loader2 className="h-3.5 w-3.5 ml-1 animate-spin" /> : <Save className="h-3.5 w-3.5 ml-1" />}
+            {saving ? "جاري الحفظ..." : "حفظ"}
+          </Button>
+        </div>
       }
     >
       {features.length === 0 ? (
@@ -1502,37 +1587,36 @@ function PermissionsTab() {
               <TableHeader className="sticky top-0 bg-muted/60 backdrop-blur z-10">
                 <TableRow>
                   <TableHead className="min-w-[200px]">الميزة</TableHead>
-                  {ROLES.map((r) => (
-                    <TableHead key={r.key} className="text-center">
-                      {r.label}
-                    </TableHead>
+                  {PERM_COLS.map((c) => (
+                    <TableHead key={c.key} className="text-center min-w-[80px]">{c.label}</TableHead>
                   ))}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {features.map((f) => (
-                  <TableRow key={f.id}>
+                  <TableRow key={f.id} className={dirty.has(f.id) ? "bg-amber-500/5" : ""}>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Badge
                           variant="outline"
-                          className={cn(
-                            "text-[9px]",
-                            CATEGORY_COLORS[f.category]
-                          )}
+                          className={cn("text-[9px]", CATEGORY_COLORS[f.category])}
                         >
                           {CATEGORY_LABELS[f.category] || f.category}
                         </Badge>
-                        <span className="text-sm font-semibold">
-                          {f.name}
-                        </span>
+                        <span className="text-sm font-semibold">{f.name}</span>
+                        {f.readOnly && (
+                          <Badge variant="outline" className="text-[8px] bg-slate-500/10 text-slate-600 border-slate-500/30">
+                            للقراءة فقط
+                          </Badge>
+                        )}
                       </div>
                     </TableCell>
-                    {ROLES.map((r) => (
-                      <TableCell key={r.key} className="text-center">
+                    {PERM_COLS.map((c) => (
+                      <TableCell key={c.key} className="text-center">
                         <Checkbox
-                          checked={matrix[f.id]?.[r.key] || false}
-                          onCheckedChange={(v) => toggle(f.id, r.key, !!v)}
+                          checked={getPerm(f.id, c.key)}
+                          onCheckedChange={(v) => toggle(f.id, c.key, !!v)}
+                          disabled={f.readOnly && c.key !== "allowPrint"}
                         />
                       </TableCell>
                     ))}
