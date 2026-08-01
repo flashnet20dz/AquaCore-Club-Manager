@@ -238,9 +238,6 @@ const TAB_LIST = [
   { value: "default-config", label: "الإعداد الافتراضي", icon: FileText },
   { value: "plans", label: "خطط الاشتراك", icon: Crown },
   { value: "branding", label: "الهوية", icon: Palette },
-  { value: "security", label: "الأمان", icon: Shield },
-  { value: "integrations", label: "التكاملات", icon: Zap },
-  { value: "backup", label: "النسخ الاحتياطي", icon: HardDrive },
   { value: "audit", label: "سجل التدقيق", icon: Activity },
 ] as const;
 
@@ -2707,15 +2704,6 @@ export function SuperAdminControlCenter() {
         </TabsContent>
         <TabsContent value="branding" className="mt-2">
           <BrandingTab />
-        </TabsContent>
-        <TabsContent value="security" className="mt-2">
-          <SecurityTab />
-        </TabsContent>
-        <TabsContent value="integrations" className="mt-2">
-          <IntegrationsTab />
-        </TabsContent>
-        <TabsContent value="backup" className="mt-2">
-          <BackupTab />
         </TabsContent>
         <TabsContent value="audit" className="mt-2">
           <AuditLogsTab />
