@@ -76,6 +76,25 @@ interface PreviewResult {
     totalCompound: number;
     totalRevenue: number;
   };
+  renewalPreview?: {
+    found: boolean;
+    totalRows: number;
+    renewedCount: number;
+    sample: Array<{ fileNumber: string; name: string; renewalDate: string | null; amount: number; status: string }>;
+  };
+}
+
+interface ImportResult {
+  success: boolean;
+  imported: number;
+  skipped: number;
+  duplicates: number;
+  conflictedCount?: number;
+  renewalsImported?: number;
+  renewalsSkipped?: number;
+  renewalErrors?: Array<{ row: number; name: string; error: string }>;
+  totalRows: number;
+  errors: Array<{ row: number; name: string; error: string }>;
 }
 
 type TabKey = "all" | "valid" | "warnings" | "errors";
@@ -268,7 +287,8 @@ export function ImportPanel() {
 
       setImportProgress({ done: data.imported, total: rowsToImportCount, errors: data.skipped });
       const dupMsg = data.duplicates > 0 ? ` • ${data.duplicates} مكرر تم تجاهله` : "";
-      toast.success(`تم استيراد ${data.imported} منخرط بنجاح!${dupMsg}${data.skipped > 0 ? ` (${data.skipped} صف تم تجاوزه)` : ""}`);
+      const renewalMsg = data.renewalsImported > 0 ? ` • ${data.renewalsImported} تجديد تم استيراده` : "";
+      toast.success(`تم استيراد ${data.imported} منخرط بنجاح!${dupMsg}${renewalMsg}${data.skipped > 0 ? ` (${data.skipped} صف تم تجاوزه)` : ""}`);
 
       setTimeout(() => {
         setFile(null);
@@ -279,7 +299,7 @@ export function ImportPanel() {
         setImportProgress(null);
         if (inputRef.current) inputRef.current.value = "";
         window.location.reload();
-      }, 2000);
+      }, 3000);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "فشل الاستيراد";
       toast.error(msg);
@@ -651,6 +671,52 @@ export function ImportPanel() {
                 <StatCard label="الإيرادات المتوقعة" value={`${stats.totalRevenue.toLocaleString()} دج`} icon={TrendingUp} color="from-amber-500/15 to-amber-500/5 border-amber-500/30 text-amber-700" small />
               </div>
             </div>
+
+            {/* ═══ معاينة ورقة التجديد ═══ */}
+            {preview?.renewalPreview?.found && (
+              <div className="rounded-xl border-2 border-sky-500/30 bg-sky-500/5 p-3 space-y-2">
+                <h4 className="font-bold text-xs text-sky-800 dark:text-sky-200 flex items-center gap-1.5">
+                  <RefreshCw className="h-4 w-4" /> ورقة التجديد
+                </h4>
+                <div className="flex flex-wrap gap-3 text-xs">
+                  <span className="text-sky-700">
+                    <strong>{preview.renewalPreview.totalRows}</strong> إجمالي السجلات
+                  </span>
+                  <span className="text-emerald-700">
+                    <strong>{preview.renewalPreview.renewedCount}</strong> منخرط مجدد
+                  </span>
+                  <span className="text-muted-foreground">
+                    سيتم إنشاء سجلات تجديد تلقائياً عند الاستيراد
+                  </span>
+                </div>
+                {preview.renewalPreview.sample.length > 0 && (
+                  <div className="mt-2 rounded-lg border border-sky-500/20 overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead className="bg-sky-500/10">
+                        <tr>
+                          <th className="p-1.5 text-right">رقم الملف</th>
+                          <th className="p-1.5 text-right">الاسم</th>
+                          <th className="p-1.5 text-right">تاريخ التجديد</th>
+                          <th className="p-1.5 text-right">المبلغ</th>
+                          <th className="p-1.5 text-right">الحالة</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {preview.renewalPreview.sample.map((s, i) => (
+                          <tr key={i} className="border-t border-sky-500/10">
+                            <td className="p-1.5 font-mono">{s.fileNumber}</td>
+                            <td className="p-1.5">{s.name}</td>
+                            <td className="p-1.5">{s.renewalDate || "—"}</td>
+                            <td className="p-1.5">{s.amount > 0 ? `${s.amount} دج` : "—"}</td>
+                            <td className="p-1.5">{s.status || "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* ═══ 2. Tabs (الكل / صالحة / تحذيرات / أخطاء) ═══ */}
             <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabKey)}>

@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
         targetClubId = firstClub?.id || null;
       }
     } else {
-      targetClubId = currentUser.clubId;
+      targetClubId = currentUser.clubId || null;
     }
 
     if (!targetClubId) {
@@ -577,6 +577,8 @@ export async function POST(req: NextRequest) {
           totalCompound: financialCheck.reduce((s, r) => s + (r.computed.compoundRights ?? 0), 0),
           totalRevenue: financialCheck.reduce((s, r) => s + (r.computed.totalAmount ?? 0), 0),
         },
+        // 🔑 معاينة ورقة التجديد
+        renewalPreview: analyzeRenewalSheet(wb),
       });
     }
 
@@ -691,30 +693,164 @@ export async function POST(req: NextRequest) {
     let skipped = 0;
     const importErrors: { row: number; name: string; error: string }[] = [];
 
-    // Try batch insert first (much faster)
-    try {
-      const result = await db.subscriber.createMany({
-        data: records,
-        skipDuplicates: true,
-      });
-      imported = result.count;
-      skipped = records.length - imported;
-    } catch (batchError) {
-      // Fallback: insert one by one if batch fails (e.g., duplicate detection)
-      console.warn("Batch insert failed, falling back to individual inserts:", batchError);
-      for (let i = 0; i < newRows.length; i++) {
-        const r = newRows[i];
-        try {
-          await db.subscriber.create({ data: records[i] });
-          imported++;
-        } catch (e) {
-          skipped++;
-          importErrors.push({
-            row: r.row,
-            name: `${r.lastName} ${r.firstName}`,
-            error: e instanceof Error ? e.message : "خطأ غير معروف",
-          });
+    // 🔑 دعم أكثر من 1000 منخرط: batch processing على دفعات
+    const BATCH_SIZE = 500;
+    for (let i = 0; i < records.length; i += BATCH_SIZE) {
+      const batch = records.slice(i, i + BATCH_SIZE);
+      try {
+        const result = await db.subscriber.createMany({
+          data: batch,
+          skipDuplicates: true,
+        });
+        imported += result.count;
+      } catch (batchError) {
+        // Fallback: إدراج فردي لكل سجل في الدفعة
+        console.warn(`Batch ${i / BATCH_SIZE + 1} failed, falling back:`, batchError);
+        for (let j = 0; j < newRows.slice(i, i + BATCH_SIZE).length; j++) {
+          const r = newRows[i + j];
+          try {
+            await db.subscriber.create({ data: records[i + j] });
+            imported++;
+          } catch (e) {
+            skipped++;
+            importErrors.push({
+              row: r.row,
+              name: `${r.lastName} ${r.firstName}`,
+              error: e instanceof Error ? e.message : "خطأ غير معروف",
+            });
+          }
         }
+      }
+    }
+
+    // ═══ استيراد ورقة التجديد (إن وُجدت في الملف) ═══
+    // اقرأ ورقة "التجديد" وأنشئ سجلات Renewal لكل منخرط مجدد
+    let renewalsImported = 0;
+    let renewalsSkipped = 0;
+    const renewalErrors: { row: number; name: string; error: string }[] = [];
+
+    const renewalSheetName = wb.SheetNames.find((n) => n.includes("التجديد"));
+    if (renewalSheetName) {
+      try {
+        const renewalWs = wb.Sheets[renewalSheetName];
+        const renewalAllRows = XLSX.utils.sheet_to_json<unknown[]>(renewalWs, { defval: "", raw: true, header: 1 });
+
+        // ابحث عن صف العناوين
+        let renewalHeaderIdx = -1;
+        for (let i = 0; i < Math.min(5, renewalAllRows.length); i++) {
+          const row = renewalAllRows[i].map((c) => String(c || "").trim().replace(/\r?\n/g, " ").replace(/\s+/g, " "));
+          if (row.some((c) => c === "رقم الملف") && row.some((c) => c.includes("تاريخ التجديد") || c.includes("التجديد"))) {
+            renewalHeaderIdx = i;
+            break;
+          }
+        }
+
+        if (renewalHeaderIdx >= 0) {
+          const renewalHeaderRow = renewalAllRows[renewalHeaderIdx].map((c) => String(c || "").trim().replace(/\r?\n/g, " ").replace(/\s+/g, " "));
+          const renewalRows: Record<string, unknown>[] = [];
+          for (let i = renewalHeaderIdx + 1; i < renewalAllRows.length; i++) {
+            const row = renewalAllRows[i];
+            if (!row || row.every((c) => !c || String(c).trim() === "")) continue;
+            const obj: Record<string, unknown> = {};
+            for (let j = 0; j < renewalHeaderRow.length; j++) {
+              if (renewalHeaderRow[j]) obj[renewalHeaderRow[j]] = row[j];
+            }
+            renewalRows.push(obj);
+          }
+
+          // ابحث عن الأعمدة
+          const findRenewalKey = (row: Record<string, unknown>, candidates: string[]): string | null => {
+            const keys = Object.keys(row);
+            for (const candidate of candidates) {
+              const found = keys.find((k) => {
+                const normalized = k.trim().replace(/\s+/g, " ");
+                return normalized === candidate || normalized.includes(candidate);
+              });
+              if (found) return found;
+            }
+            return null;
+          };
+
+          if (renewalRows.length > 0) {
+            const firstRenewalRow = renewalRows[0];
+            const fnKey = findRenewalKey(firstRenewalRow, ["رقم الملف", "رقم"]);
+            const renewalDateKey = findRenewalKey(firstRenewalRow, ["تاريخ التجديد", "التجديد"]);
+            const amountKey = findRenewalKey(firstRenewalRow, ["مبلغ التجديد", "المبلغ", "مبلغ"]);
+            const paymentStatusKeyR = findRenewalKey(firstRenewalRow, ["حالة الدفع", "الدفع"]);
+            const renewalStatusKey = findRenewalKey(firstRenewalRow, ["حالة التجديد", "الحالة"]);
+
+            if (fnKey) {
+              // جلب جميع المنخرطين الموجودين (بما فيهم المستوردين حديثاً)
+              const allSubscribers = await db.subscriber.findMany({
+                where: { clubId: targetClubId },
+                select: { id: true, fileNumber: true, lastName: true, firstName: true },
+              });
+              const subByFileNumber = new Map(allSubscribers.map(s => [s.fileNumber, s]));
+
+              const renewalRecords: any[] = [];
+              for (let i = 0; i < renewalRows.length; i++) {
+                const row = renewalRows[i];
+                const fileNumber = String(row[fnKey] || "").trim();
+                if (!fileNumber) { renewalsSkipped++; continue; }
+
+                // فقط الصفوف التي لها تاريخ تجديد = منخرط مجدد
+                const renewalDateRaw = renewalDateKey ? row[renewalDateKey] : null;
+                const renewalStatus = renewalStatusKey ? String(row[renewalStatusKey] || "") : "";
+                // تخطّي الصفوف التي لا تحتوي على تاريخ تجديد (لم تُجدّد)
+                if (!renewalDateRaw || !String(renewalDateRaw).trim()) {
+                  renewalsSkipped++;
+                  continue;
+                }
+
+                const sub = subByFileNumber.get(fileNumber);
+                if (!sub) {
+                  renewalsSkipped++;
+                  renewalErrors.push({
+                    row: i + 2,
+                    name: fileNumber,
+                    error: "لم يتم العثور على المنخرط",
+                  });
+                  continue;
+                }
+
+                const renewalDate = parseDate(renewalDateRaw);
+                if (!renewalDate) { renewalsSkipped++; continue; }
+
+                const amount = amountKey ? Number(row[amountKey] || 0) : 0;
+                const paymentStatus = paymentStatusKeyR ? String(row[paymentStatusKeyR] || "مدفوع") : "مدفوع";
+
+                // تاريخ انتهاء الاشتراك الجديد
+                const expiryDate = new Date(renewalDate);
+                expiryDate.setDate(expiryDate.getDate() + 30);
+
+                renewalRecords.push({
+                  clubId: targetClubId,
+                  subscriberId: sub.id,
+                  renewalDate,
+                  expiryDate,
+                  months: 1,
+                  amount,
+                  paymentStatus,
+                  note: renewalStatus || null,
+                });
+              }
+
+              // إدراج التجديدات على دفعات
+              for (let i = 0; i < renewalRecords.length; i += BATCH_SIZE) {
+                const batch = renewalRecords.slice(i, i + BATCH_SIZE);
+                try {
+                  const result = await db.renewal.createMany({ data: batch, skipDuplicates: true });
+                  renewalsImported += result.count;
+                } catch (e) {
+                  console.warn(`Renewal batch ${i / BATCH_SIZE + 1} failed:`, e);
+                  renewalsSkipped += batch.length;
+                }
+              }
+            }
+          }
+        }
+      } catch (renewalErr) {
+        console.error("Renewal import error:", renewalErr);
       }
     }
 
@@ -723,7 +859,7 @@ export async function POST(req: NextRequest) {
       data: {
         clubId: targetClubId,
         type: "import",
-        description: `تم استيراد ${imported} منخرط جديد، ${duplicateRows.length} مكرر تم تجاهله`,
+        description: `تم استيراد ${imported} منخرط جديد و ${renewalsImported} تجديد، ${duplicateRows.length} مكرر تم تجاهله`,
       },
     });
 
@@ -742,6 +878,10 @@ export async function POST(req: NextRequest) {
         insuranceMismatch: r.insuranceMismatch,
         totalMismatch: r.totalMismatch,
       })).slice(0, 50),
+      // 🔑 إحصائيات التجديدات
+      renewalsImported,
+      renewalsSkipped,
+      renewalErrors: renewalErrors.slice(0, 50),
       totalRows: rows.length,
       errors: importErrors,
     });
@@ -749,4 +889,84 @@ export async function POST(req: NextRequest) {
     console.error("Import error:", e);
     return NextResponse.json({ error: "خطأ داخلي: " + (e instanceof Error ? e.message : "") }, { status: 500 });
   }
+}
+
+// ═══ تحليل ورقة التجديد للمعاينة (dryRun) ═══
+function analyzeRenewalSheet(wb: XLSX.WorkBook): {
+  found: boolean;
+  totalRows: number;
+  renewedCount: number;
+  sample: Array<{ fileNumber: string; name: string; renewalDate: string | null; amount: number; status: string }>;
+} {
+  const sheetName = wb.SheetNames.find((n) => n.includes("التجديد"));
+  if (!sheetName) {
+    return { found: false, totalRows: 0, renewedCount: 0, sample: [] };
+  }
+  const ws = wb.Sheets[sheetName];
+  const allRows = XLSX.utils.sheet_to_json<unknown[]>(ws, { defval: "", raw: true, header: 1 });
+
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(5, allRows.length); i++) {
+    const row = allRows[i].map((c) => String(c || "").trim().replace(/\r?\n/g, " ").replace(/\s+/g, " "));
+    if (row.some((c) => c === "رقم الملف") && row.some((c) => c.includes("تاريخ التجديد") || c.includes("التجديد"))) {
+      headerIdx = i;
+      break;
+    }
+  }
+  if (headerIdx === -1) {
+    return { found: true, totalRows: 0, renewedCount: 0, sample: [] };
+  }
+
+  const headerRow = allRows[headerIdx].map((c) => String(c || "").trim().replace(/\r?\n/g, " ").replace(/\s+/g, " "));
+  const findKey = (candidates: string[]): string | null => {
+    for (const candidate of candidates) {
+      const found = headerRow.find((k) => k === candidate || k.includes(candidate));
+      if (found) return found;
+    }
+    return null;
+  };
+
+  const fnKey = findKey(["رقم الملف", "رقم"]);
+  const lastNameKey = findKey(["اللقب"]);
+  const firstNameKey = findKey(["الاسم"]);
+  const renewalDateKey = findKey(["تاريخ التجديد", "التجديد"]);
+  const amountKey = findKey(["مبلغ التجديد", "المبلغ", "مبلغ"]);
+  const statusKey = findKey(["حالة التجديد", "الحالة"]);
+
+  if (!fnKey) {
+    return { found: true, totalRows: 0, renewedCount: 0, sample: [] };
+  }
+
+  const fnIdx = headerRow.indexOf(fnKey);
+  const lnIdx = lastNameKey ? headerRow.indexOf(lastNameKey) : -1;
+  const fn2Idx = firstNameKey ? headerRow.indexOf(firstNameKey) : -1;
+  const rdIdx = renewalDateKey ? headerRow.indexOf(renewalDateKey) : -1;
+  const amIdx = amountKey ? headerRow.indexOf(amountKey) : -1;
+  const stIdx = statusKey ? headerRow.indexOf(statusKey) : -1;
+
+  let totalRows = 0;
+  let renewedCount = 0;
+  const sample: any[] = [];
+
+  for (let i = headerIdx + 1; i < allRows.length; i++) {
+    const row = allRows[i];
+    if (!row || row.every((c) => !c || String(c).trim() === "")) continue;
+    totalRows++;
+    const fileNumber = String(row[fnIdx] || "").trim();
+    if (!fileNumber) continue;
+    const renewalDateRaw = rdIdx >= 0 ? row[rdIdx] : null;
+    const hasRenewal = renewalDateRaw && String(renewalDateRaw).trim();
+    if (hasRenewal) renewedCount++;
+    if (sample.length < 5) {
+      sample.push({
+        fileNumber,
+        name: `${lnIdx >= 0 ? String(row[lnIdx] || "") : ""} ${fn2Idx >= 0 ? String(row[fn2Idx] || "") : ""}`.trim(),
+        renewalDate: hasRenewal ? String(renewalDateRaw) : null,
+        amount: amIdx >= 0 ? Number(row[amIdx] || 0) : 0,
+        status: stIdx >= 0 ? String(row[stIdx] || "") : "",
+      });
+    }
+  }
+
+  return { found: true, totalRows, renewedCount, sample };
 }
