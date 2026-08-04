@@ -314,7 +314,7 @@ export async function POST(req: NextRequest) {
         addError("critical", "عمود تاريخ الميلاد غير موجود", "birthDate", "تاريخ الميلاد", "—", "العمود مطلوب");
       }
 
-      // Gender
+      // Gender — اختياري، افتراضي "ذكر"
       if (genderKey) {
         const g = String(row[genderKey] || "").trim();
         if (validGenders.includes(g)) {
@@ -322,8 +322,11 @@ export async function POST(req: NextRequest) {
         } else if (g) {
           addError("critical", `جنس غير صالح: "${g}"`, "gender", "الجنس", g, "ذكر / أنثى");
         } else {
-          addError("warning", "الجنس غير محدد", "gender", "الجنس", "—", "ذكر / أنثى");
+          // فارغ = افتراضي ذكر (لا تحذير)
+          r.gender = "ذكر";
         }
+      } else {
+        r.gender = "ذكر";
       }
 
       // Blood type (اختياري تماماً — لا يؤثر على صلاحية الصف ولا يُصنف كتحذير)
@@ -340,37 +343,38 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Subscription type
+      // Subscription type — "/" دائماً صالح (افتراضي)
       if (subscriptionTypeKey) {
         const t = String(row[subscriptionTypeKey] || "").trim();
-        if (t === "" || validSubscriptionTypes.includes(t)) {
+        if (t === "" || t === "/" || validSubscriptionTypes.includes(t)) {
           r.subscriptionType = t || "/";
         } else {
-          addError("critical", `نوع اشتراك غير صالح: "${t}"`, "subscriptionType", "نوع الاشتراك", t, "/, OPOW, DJS, FCS, RCS, POLICE, MJ");
+          // النوع غير معروف — استخدم "/" كافتراضي بدلاً من خطأ حرج
+          r.subscriptionType = "/";
+          addError("warning", `نوع اشتراك غير معروف "${t}" — تم استخدام "/"`, "subscriptionType", "نوع الاشتراك", t, "/, " + validSubscriptionTypes.join(", "));
         }
       } else {
         r.subscriptionType = "/";
       }
 
-      // Last payment date
+      // Last payment date — اختياري (لا تحذير عند الفشل)
       if (lastPaymentKey) {
         const lp = row[lastPaymentKey];
         r.lastPaymentRaw = lp ? String(lp) : "";
         if (lp && String(lp).trim()) {
           r.lastPaymentDate = parseDate(lp);
-          if (r.lastPaymentDate === null) {
-            addError("warning", `تاريخ دفعة غير صالح: "${lp}"`, "lastPaymentDate", "تاريخ آخر دفعة", String(lp), "DD/MM/YYYY أو YYYY/MM/DD");
-          }
+          // إذا فشل التحليل، نتجاهل بهدوء (لا تحذير)
         }
       }
 
-      // Payment status
+      // Payment status — افتراضي "مدفوع" إذا كانت القيمة غير صالحة
       if (paymentStatusKey) {
         const p = String(row[paymentStatusKey] || "").trim();
         if (validPaymentStatuses.includes(p)) {
           r.paymentStatus = p;
         } else if (p) {
-          addError("critical", `حالة دفع غير صالحة: "${p}"`, "paymentStatus", "حالة الدفع", p, "مدفوع / لم يدفع / تأمين فقط / اشتراك 300");
+          // قيمة غير معروفة — استخدم "مدفوع" كافتراضي (لا خطأ حرج)
+          r.paymentStatus = "مدفوع";
         } else {
           r.paymentStatus = "لم يدفع";
         }
@@ -378,31 +382,20 @@ export async function POST(req: NextRequest) {
         r.paymentStatus = "لم يدفع";
       }
 
-      // Swimming days (warning if missing)
+      // Swimming days — اختياري تماماً (لا تحذير)
       if (swimmingDaysKey) {
         r.swimmingDays = String(row[swimmingDaysKey] || "").trim() || null;
-        if (!r.swimmingDays) {
-          addError("warning", "أيام السباحة غير معرفة", "swimmingDays", "أيام السباحة", "—", "مثال: الأحد والأربعاء");
-        }
       }
 
-      // Time slot (warning if missing)
+      // Time slot — اختياري تماماً (لا تحذير)
       if (timeSlotKey) {
         r.timeSlot = String(row[timeSlotKey] || "").trim() || null;
-        if (!r.timeSlot) {
-          addError("warning", "التوقيت غير موجود", "timeSlot", "التوقيت", "—", "مثال: 10:00-11:00");
-        }
       }
 
-      // Phone (warning if missing or invalid)
+      // Phone — اختياري تماماً (لا تحذير)
       if (phoneKey) {
         const ph = String(row[phoneKey] || "").trim();
         r.phone = ph || null;
-        if (!ph) {
-          addError("warning", "رقم الهاتف غير موجود", "phone", "الهاتف", "—", "رقم هاتف صالح");
-        } else if (!/^[\d\s+\-()]{8,}$/.test(ph)) {
-          addError("warning", `رقم هاتف غير صالح: "${ph}"`, "phone", "الهاتف", ph, "أرقام فقط مع + و -");
-        }
       }
 
       // 🔑 رقم الملف من Excel (اختياري — إن وُجد يُستخدم مباشرة)
@@ -415,17 +408,16 @@ export async function POST(req: NextRequest) {
       parsed.push(r);
     });
 
-    // ════ صفر تسامح: صف صالح = لا أخطاء حرجة ولا تحذيرات ════
-    // سياسة الاستيراد: لا تسامح مع الأخطاء — أي خطأ أو تحذير يُستبعد الصف
-    const validRows = parsed.filter((r) =>
-      r.errorDetails.length === 0 &&
-      r.lastName &&
-      r.firstName &&
-      r.birthDate &&
-      r.gender &&
-      r.subscriptionType &&
-      r.paymentStatus
-    );
+    // ════ صف صالح = لا أخطاء حرجة (التحذيرات لا تُستبعد الصف) ════
+    // سياسة الاستيراد: الصف صالح طالما لا يحتوي على أخطاء حرجة
+    // الحقول الاختيارية (هاتف، أيام سباحة، توقيت، جنس) لها قيم افتراضية
+    const validRows = parsed.filter((r) => {
+      const hasCritical = r.errorDetails.some((e) => e.type === "critical");
+      return !hasCritical &&
+        r.lastName &&
+        r.firstName &&
+        r.birthDate;
+    });
 
     // ════ التحقق المالي: مطابقة الرسوم مع ملف المصدر ════
     // اقرأ أعمدة الرسوم من Excel إن وُجدت
