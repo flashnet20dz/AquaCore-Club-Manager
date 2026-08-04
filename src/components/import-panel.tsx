@@ -288,7 +288,16 @@ export function ImportPanel() {
       setImportProgress({ done: data.imported, total: rowsToImportCount, errors: data.skipped });
       const dupMsg = data.duplicates > 0 ? ` • ${data.duplicates} مكرر تم تجاهله` : "";
       const renewalMsg = data.renewalsImported > 0 ? ` • ${data.renewalsImported} تجديد تم استيراده` : "";
-      toast.success(`تم استيراد ${data.imported} منخرط بنجاح!${dupMsg}${renewalMsg}${data.skipped > 0 ? ` (${data.skipped} صف تم تجاوزه)` : ""}`);
+      const skipMsg = data.skipped > 0 ? ` • ${data.skipped} صف فشل` : "";
+      const errMsg = data.errors?.length > 0 ? ` • ${data.errors.length} خطأ` : "";
+      toast.success(`تم استيراد ${data.imported} منخرط${dupMsg}${renewalMsg}${skipMsg}${errMsg}`);
+
+      // اعرض أول 3 أخطاء إذا وجدت
+      if (data.errors?.length > 0) {
+        data.errors.slice(0, 3).forEach((err: { row: number; name: string; error: string }) => {
+          toast.error(`صف ${err.row}: ${err.name} — ${err.error}`);
+        });
+      }
 
       setTimeout(() => {
         setFile(null);

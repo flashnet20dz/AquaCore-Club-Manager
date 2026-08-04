@@ -686,29 +686,32 @@ export async function POST(req: NextRequest) {
     const importErrors: { row: number; name: string; error: string }[] = [];
 
     // 🔑 دعم أكثر من 1000 منخرط: batch processing على دفعات
+    // لا نستخدم skipDuplicates — فحص التكرار تم سابقاً عبر existingKeys/existingFileNumbers
+    // هذا يضمن التقاط أي خطأ إدراج وتقديم رسالة واضحة
     const BATCH_SIZE = 500;
     for (let i = 0; i < records.length; i += BATCH_SIZE) {
       const batch = records.slice(i, i + BATCH_SIZE);
+      const batchRows = newRows.slice(i, i + BATCH_SIZE);
       try {
         const result = await db.subscriber.createMany({
           data: batch,
-          skipDuplicates: true,
         });
         imported += result.count;
       } catch (batchError) {
-        // Fallback: إدراج فردي لكل سجل في الدفعة
-        console.warn(`Batch ${i / BATCH_SIZE + 1} failed, falling back:`, batchError);
-        for (let j = 0; j < newRows.slice(i, i + BATCH_SIZE).length; j++) {
-          const r = newRows[i + j];
+        // Fallback: إدراج فردي لكل سجل في الدفعة — يكشف الصف المعطوب بالضبط
+        console.warn(`Batch ${i / BATCH_SIZE + 1} failed, falling back to individual inserts:`, batchError);
+        for (let j = 0; j < batchRows.length; j++) {
+          const r = batchRows[j];
           try {
             await db.subscriber.create({ data: records[i + j] });
             imported++;
           } catch (e) {
             skipped++;
+            const errMsg = e instanceof Error ? e.message : "خطأ غير معروف";
             importErrors.push({
               row: r.row,
               name: `${r.lastName} ${r.firstName}`,
-              error: e instanceof Error ? e.message : "خطأ غير معروف",
+              error: errMsg,
             });
           }
         }
