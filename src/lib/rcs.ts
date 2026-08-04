@@ -361,6 +361,10 @@ export function computeSubscriberFields<T extends {
   paymentStatus: PaymentStatus;
   subscriptionType: SubscriptionType;
   lastPaymentDate: Date | null;
+  importSubscriptionFee?: number | null;
+  importInsuranceFee?: number | null;
+  importCompoundRights?: number | null;
+  importTotalAmount?: number | null;
 }>(sub: T): ReturnType<typeof computeSubscriberFieldsDynamic<T>> {
   return computeSubscriberFieldsDynamic(sub);
 }
