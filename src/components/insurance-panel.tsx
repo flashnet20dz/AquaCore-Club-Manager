@@ -30,6 +30,10 @@ export function InsurancePanel({ subscribers, onRefresh }: InsurancePanelProps) 
   const [loading, setLoading] = useState(true);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  // 🔑 فلاتر جديدة: شهر، من/إلى، حالة
+  const [monthFilter, setMonthFilter] = useState<string>(""); // YYYY-MM
+  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateTo, setDateTo] = useState<string>("");
 
   // Fetch insurance status from payments
   const fetchInsuranceStatus = useCallback(async () => {
@@ -59,6 +63,24 @@ export function InsurancePanel({ subscribers, onRefresh }: InsurancePanelProps) 
     const isInsured = !!insuranceStatus[s.id];
     if (filter === "insured" && !isInsured) return false;
     if (filter === "uninsured" && isInsured) return false;
+    // 🔑 فلتر الشهر: YYYY-MM
+    if (monthFilter && s.lastPaymentDate) {
+      const d = new Date(s.lastPaymentDate);
+      const subMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      if (subMonth !== monthFilter) return false;
+    }
+    // 🔑 فلتر من/إلى (تاريخ الميلاد)
+    if (dateFrom && s.birthDate) {
+      const bd = new Date(s.birthDate);
+      const from = new Date(dateFrom);
+      if (bd < from) return false;
+    }
+    if (dateTo && s.birthDate) {
+      const bd = new Date(s.birthDate);
+      const to = new Date(dateTo);
+      to.setHours(23, 59, 59);
+      if (bd > to) return false;
+    }
     if (!search) return true;
     const q = search.toLowerCase();
     return s.lastName.toLowerCase().includes(q) || s.firstName.toLowerCase().includes(q) || s.fileNumber.toLowerCase().includes(q);
@@ -159,19 +181,60 @@ export function InsurancePanel({ subscribers, onRefresh }: InsurancePanelProps) 
         <StatCard icon={ShieldOff} label="غير مؤمن" count={uninsuredCount} color="bg-rose-600" active={filter === "uninsured"} onClick={() => setFilter("uninsured")} />
       </div>
 
-      {/* Search + actions */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="بحث بالاسم أو رقم العضوية..." value={search} onChange={(e) => setSearch(e.target.value)} className="pr-10 h-10" />
+      {/* Search + filters + actions */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input placeholder="بحث بالاسم أو رقم العضوية..." value={search} onChange={(e) => setSearch(e.target.value)} className="pr-10 h-10" />
+          </div>
+          <Button size="sm" variant="outline" onClick={selectAllUninsured}>تحديد الكل</Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelectedIds([])}>إلغاء التحديد</Button>
+          {selectedIds.length > 0 && (
+            <Button size="sm" onClick={handleBulkInsure} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+              <ShieldCheck className="h-3.5 w-3.5 ml-1" /> تأمين المحدد ({selectedIds.length})
+            </Button>
+          )}
         </div>
-        <Button size="sm" variant="outline" onClick={selectAllUninsured}>تحديد الكل</Button>
-        <Button size="sm" variant="ghost" onClick={() => setSelectedIds([])}>إلغاء التحديد</Button>
-        {selectedIds.length > 0 && (
-          <Button size="sm" onClick={handleBulkInsure} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-            <ShieldCheck className="h-3.5 w-3.5 ml-1" /> تأمين المحدد ({selectedIds.length})
-          </Button>
-        )}
+        {/* 🔑 فلاتر الشهر، من/إلى، حالة */}
+        <div className="flex items-center gap-2 flex-wrap text-xs">
+          <span className="font-semibold text-muted-foreground">فلترة:</span>
+          {/* فلتر الشهر */}
+          <input
+            type="month"
+            value={monthFilter}
+            onChange={(e) => setMonthFilter(e.target.value)}
+            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+            title="فلترة حسب شهر الدفعة"
+          />
+          {/* فلتر تاريخ الميلاد من */}
+          <div className="flex items-center gap-1">
+            <span className="text-muted-foreground">الميلاد من:</span>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+            />
+          </div>
+          {/* فلتر تاريخ الميلاد إلى */}
+          <div className="flex items-center gap-1">
+            <span className="text-muted-foreground">إلى:</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+            />
+          </div>
+          {/* زر مسح الفلاتر */}
+          {(monthFilter || dateFrom || dateTo) && (
+            <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => { setMonthFilter(""); setDateFrom(""); setDateTo(""); }}>
+              مسح الفلاتر
+            </Button>
+          )}
+          <Badge variant="outline" className="text-[10px]">{filteredSubs.length} نتيجة</Badge>
+        </div>
       </div>
 
       {/* Table */}

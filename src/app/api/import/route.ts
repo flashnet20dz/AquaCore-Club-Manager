@@ -424,6 +424,7 @@ export async function POST(req: NextRequest) {
     const feeKey = findKey(firstRow, ["رسوم الاشتراك", "رسوم", "الرسوم"]);
     const insuranceFeeKey = findKey(firstRow, ["مصاريف التأمين", "التأمين", "مصاريف"]);
     const totalAmountKey = findKey(firstRow, ["المبلغ الإجمالي", "الإجمالي", "المبلغ"]);
+    const compoundRightsKey = findKey(firstRow, ["حقوق المركب", "المركب"]);
 
     // Compute financial summary for valid rows (verification)
     // ─── تحميل أنواع الاشتراك من قاعدة البيانات (خصائص ديناميكية) ───
@@ -664,6 +665,21 @@ export async function POST(req: NextRequest) {
         fileNumber = `${group}${String(groupCounters[group]).padStart(3, "0")}`;
       }
 
+      // 🔑 القيم المالية الفعلية من Excel (تتجاوز الحساب التلقائي)
+      const sourceRowIdx = validRows.indexOf(r as any);
+      const sourceRow = sourceRowIdx >= 0 ? rows[validRows.indexOf(r as any)] : null;
+      const importSubscriptionFee = feeKey && sourceRow ? Number(sourceRow[feeKey] || 0) || null : null;
+      const importInsuranceFee = insuranceFeeKey && sourceRow ? Number(sourceRow[insuranceFeeKey] || 0) || null : null;
+      const importCompoundRights = compoundRightsKey && sourceRow ? Number(sourceRow[compoundRightsKey] || 0) || null : null;
+      const importTotalAmount = totalAmountKey && sourceRow ? Number(sourceRow[totalAmountKey] || 0) || null : null;
+      // 🔑 حالة التأمين: مؤمن إذا insuranceFee > 0، غير مؤمن إذا = 0 و paymentStatus = مدفوع
+      let insuranceStatus: string | null = null;
+      if (importInsuranceFee !== null) {
+        if (importInsuranceFee > 0) insuranceStatus = "مؤمن";
+        else if (r.paymentStatus === "مدفوع") insuranceStatus = "غير مؤمن";
+        else insuranceStatus = "غير محدد";
+      }
+
       return {
         clubId: targetClubId,
         fileNumber,
@@ -678,6 +694,12 @@ export async function POST(req: NextRequest) {
         swimmingDays: (r.swimmingDays as SwimmingDays) || null,
         timeSlot: (r.timeSlot as TimeSlot) || null,
         phone: r.phone,
+        // 🔑 القيم المالية من Excel
+        importSubscriptionFee,
+        importInsuranceFee,
+        importCompoundRights,
+        importTotalAmount,
+        insuranceStatus,
       };
     });
 

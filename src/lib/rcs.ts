@@ -277,6 +277,10 @@ export function computeSubscriberFieldsDynamic<T extends {
   paymentStatus: PaymentStatus;
   subscriptionType: SubscriptionType;
   lastPaymentDate: Date | null;
+  importSubscriptionFee?: number | null;
+  importInsuranceFee?: number | null;
+  importCompoundRights?: number | null;
+  importTotalAmount?: number | null;
 }>(sub: T, typeConfig?: SubscriptionTypeConfig): {
   age: number;
   expiryDate: Date | null;
@@ -289,10 +293,20 @@ export function computeSubscriberFieldsDynamic<T extends {
   const config = typeConfig || getTypeConfig(sub.subscriptionType as string);
   const age = calculateAge(sub.birthDate);
   const expiryDate = calculateExpiryDate(sub.lastPaymentDate, config.durationDays);
-  const subscriptionFee = calculateSubscriptionFeeDynamic(sub.paymentStatus, config, age);
-  const insuranceFee = calculateInsuranceFeeDynamic(sub.paymentStatus, config);
-  const compoundRights = calculateCompoundRightsDynamic(sub.paymentStatus, config);
-  const totalAmount = calculateTotalAmountDynamic(sub.paymentStatus, subscriptionFee, insuranceFee);
+
+  // 🔑 إذا وُجدت قيم مستوردة من Excel، استخدمها مباشرة (تتجاوز الحساب التلقائي)
+  const subscriptionFee = sub.importSubscriptionFee != null
+    ? sub.importSubscriptionFee
+    : calculateSubscriptionFeeDynamic(sub.paymentStatus, config, age);
+  const insuranceFee = sub.importInsuranceFee != null
+    ? sub.importInsuranceFee
+    : calculateInsuranceFeeDynamic(sub.paymentStatus, config);
+  const compoundRights = sub.importCompoundRights != null
+    ? sub.importCompoundRights
+    : calculateCompoundRightsDynamic(sub.paymentStatus, config);
+  const totalAmount = sub.importTotalAmount != null
+    ? sub.importTotalAmount
+    : calculateTotalAmountDynamic(sub.paymentStatus, subscriptionFee, insuranceFee);
   const renewalStatus = calculateRenewalStatus(sub.paymentStatus, expiryDate);
 
   return {

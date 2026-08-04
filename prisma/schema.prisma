@@ -192,6 +192,12 @@ model Subscriber {
   phone           String?
   photoPath       String?                             // مسار الصورة الشخصية (uploads/subscribers/uuid.jpg)
   photoThumb      String?                             // مسار النسخة المصغّرة (300x300)
+  // 🔑 القيم المالية الفعلية من Excel (إن وُجدت — تتجاوز الحساب التلقائي)
+  importSubscriptionFee  Int?                           // رسوم الاشتراك من Excel
+  importInsuranceFee     Int?                           // رسوم التأمين من Excel
+  importCompoundRights   Int?                           // حقوق المركب من Excel
+  importTotalAmount      Int?                           // المبلغ الإجمالي من Excel
+  insuranceStatus        String? @default("غير محدد")   // مؤمن | غير مؤمن | غير محدد
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   deletedAt       DateTime?                             // حذف ناعم — يبقى محفوظاً للمزامنة
