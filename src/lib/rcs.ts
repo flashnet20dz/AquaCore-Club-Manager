@@ -207,7 +207,11 @@ export function calculateSubscriptionFeeDynamic(
   if (paymentStatus === "لم يدفع") return null;
   // إذا كان النوع مجاني — كل الرسوم = 0
   if (typeConfig.freeSubscription) return 0;
-  // إذا كان النوع معفى من رسوم الاشتراك (subscriptionFee = 0)
+  // 🔑 للاشتراك العادي ("/"): فرّق حسب العمر
+  // ≥ 14 سنة = 1500 دج، < 14 سنة = 1300 دج
+  if (typeConfig.code === "/" || (typeConfig.code !== "OPOW" && typeConfig.code !== "DJS" && typeConfig.code !== "FCS" && typeConfig.code !== "POLICE" && typeConfig.code !== "MJ")) {
+    return age >= 14 ? SUBSCRIPTION_FEE_REGULAR_OVER_14 : SUBSCRIPTION_FEE_REGULAR_UNDER_14;
+  }
   return typeConfig.subscriptionFee;
 }
 
