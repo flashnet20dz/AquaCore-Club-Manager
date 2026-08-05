@@ -391,8 +391,12 @@ export const RENEWAL_STATUS_COLORS: Record<string, string> = {
 export const SUBSCRIPTION_TYPES: SubscriptionType[] = ["/", "OPOW", "DJS", "FCS", "RCS", "POLICE", "MJ"];
 export const PAYMENT_STATUSES: PaymentStatus[] = ["مدفوع", "لم يدفع", "تأمين فقط", "اشتراك 300"];
 export const BLOOD_TYPES: BloodType[] = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"];
-export const SWIMMING_DAYS: SwimmingDays[] = ["الأحد والأربعاء", "الاثنين والخميس", "الثلاثاء والجمعة", "كل الأيام"];
-export const TIME_SLOTS: TimeSlot[] = ["09:00-10:00", "10:00-11:00", "19:00-20:00", "20:00-21:00"];
+export const SWIMMING_DAYS: SwimmingDays[] = ["الأحد والأربعاء", "الاثنين والخميس", "الثلاثاء والجمعة", "الثلاثاء والسبت", "كل الأيام"];
+export const TIME_SLOTS: TimeSlot[] = [
+  "09:00-10:00", "10:00-11:00", "11:00-12:00", "12:00-13:00",
+  "14:00-15:00", "15:00-16:00", "17:00-18:00", "18:00-19:00",
+  "19:00-20:00", "20:00-21:00", "21:00-22:00",
+];
 
 // === Age category system (strict 13 cutoff) ===
 export type AgeCategory = "males_under_13" | "females_under_13" | "males_13_plus" | "females_13_plus";

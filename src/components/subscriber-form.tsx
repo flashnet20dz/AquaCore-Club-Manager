@@ -369,6 +369,15 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
               value={form.timeSlot}
               onChange={(v) => setForm({ ...form, timeSlot: v })}
               columns={4}
+              hint="أو اكتب توقيتاً مخصصاً"
+            />
+            {/* 🔑 حقل توقيت مخصص — يظهر دائماً للسماح بإدخال توقيت غير موجود في القائمة */}
+            <Input
+              type="text"
+              placeholder="أو اكتب توقيتاً مخصصاً (مثال: 14:00-15:00)"
+              value={form.timeSlot && !TIME_SLOTS.includes(form.timeSlot) ? form.timeSlot : ""}
+              onChange={(e) => setForm({ ...form, timeSlot: e.target.value || null })}
+              className="h-9 text-sm"
             />
           </section>
 
