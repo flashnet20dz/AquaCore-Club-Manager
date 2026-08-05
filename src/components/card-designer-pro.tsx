@@ -2556,7 +2556,7 @@ function MobileTabButton({
 // ════════════════════════════ PRINT HTML GENERATORS ════════════════════════════
 
 function buildElementHTML(el: CardElement, sub: SubscriberWithComputed | null): string {
-  const base = `position:absolute;left:${el.x}cm;top:${el.y}cm;width:${el.width}cm;height:${el.height}cm;display:flex;align-items:center;justify-content:${el.textAlign === "center" ? "center" : el.textAlign === "left" ? "flex-start" : "flex-end"};direction:rtl;overflow:hidden;transform:rotate(${el.rotation}deg);opacity:${el.opacity / 100};z-index:${el.zIndex};${el.bgColor ? `background-color:${el.bgColor}${alphaHex(el.bgOpacity ?? 100)};` : ""}${el.borderWidth ? `border:${el.borderWidth}px ${el.borderStyle} ${el.borderColor};` : ""}border-radius:${el.shapeKind === "circle" ? "50%" : `${el.borderRadius || 0}px`};padding:0 4px;${el.shadow ? "box-shadow:0 2px 8px rgba(0,0,0,0.15);" : ""}`;
+  const base = `position:absolute;left:${el.x}cm;top:${el.y}cm;width:${el.width}cm;height:${el.height}cm;display:flex;align-items:center;justify-content:${el.textAlign === "center" ? "center" : el.textAlign === "left" ? "flex-start" : "flex-end"};direction:rtl;overflow:hidden;box-sizing:border-box;transform:rotate(${el.rotation}deg);opacity:${el.opacity / 100};z-index:${el.zIndex};${el.bgColor ? `background-color:${el.bgColor}${alphaHex(el.bgOpacity ?? 100)};` : ""}${el.borderWidth ? `border:${el.borderWidth}px ${el.borderStyle} ${el.borderColor};` : ""}border-radius:${el.shapeKind === "circle" ? "50%" : `${el.borderRadius || 0}px`};padding:1mm;${el.shadow ? "box-shadow:0 2px 8px rgba(0,0,0,0.15);" : ""}`;
   if (el.type === "qr") return `<div style="${base}"><img src="https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent(sub?.fileNumber || "RCS")}&color=000000&bgcolor=ffffff" style="width:100%;height:100%;object-fit:contain;" /></div>`;
   if (el.type === "barcode") return `<div style="${base}"><img src="https://api.qrserver.com/v1/create-barcode/?data=${encodeURIComponent(sub?.fileNumber || "RCS")}&type=code128" style="width:100%;height:100%;object-fit:contain;" /></div>`;
   if (el.type === "logo") return `<div style="${base}"><img src="/images/rcs-logo-official.png" style="width:100%;height:100%;object-fit:contain;" onerror="this.style.display='none'" /></div>`;
@@ -2592,12 +2592,20 @@ function generatePrintHTML(subscribers: SubscriberWithComputed[], design: CardDe
   const { config } = design;
   const cardsPerPage = config.cols * config.rows;
   let pagesHTML = "";
+  // ترتيب البطاقات بالوجه الخلفي لكل صف يُعكَس صراحة (يمين↔يسار) ليطابق
+  // قلب الورقة الفعلي على الحافة الطويلة — بدل خدعة CSS direction غير الموثوقة
+  const mirrorRowsForDuplex = (items: (SubscriberWithComputed | null)[], cols: number) => {
+    const rows: (SubscriberWithComputed | null)[][] = [];
+    for (let i = 0; i < items.length; i += cols) rows.push(items.slice(i, i + cols).reverse());
+    return rows.flat();
+  };
   for (let i = 0; i < subscribers.length; i += cardsPerPage) {
     const chunk = subscribers.slice(i, i + cardsPerPage);
-    pagesHTML += `<div class="print-page" style="width:21cm;min-height:297mm;padding:10mm;direction:rtl;"><div style="display:grid;grid-template-columns:repeat(${config.cols},1fr);gap:${config.gap}mm;">${chunk.map((s) => buildCardHTML(s, design, "front")).join("")}</div></div>`;
-    pagesHTML += `<div class="print-page" style="width:21cm;min-height:297mm;padding:10mm;direction:ltr;"><div style="display:grid;grid-template-columns:repeat(${config.cols},1fr);gap:${config.gap}mm;">${chunk.map((s) => buildCardHTML(s, design, "back")).join("")}</div></div>`;
+    const backChunk = mirrorRowsForDuplex(chunk, config.cols);
+    pagesHTML += `<div class="print-page" style="width:21cm;min-height:297mm;padding:10mm;direction:rtl;box-sizing:border-box;"><div style="display:grid;grid-template-columns:repeat(${config.cols},1fr);gap:${config.gap}mm;">${chunk.map((s) => buildCardHTML(s, design, "front")).join("")}</div></div>`;
+    pagesHTML += `<div class="print-page" style="width:21cm;min-height:297mm;padding:10mm;direction:rtl;box-sizing:border-box;"><div style="display:grid;grid-template-columns:repeat(${config.cols},1fr);gap:${config.gap}mm;">${backChunk.map((s) => buildCardHTML(s, design, "back")).join("")}</div></div>`;
   }
-  return `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>بطاقات الانخراط - AquaCore</title><style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:'Cairo','Tajawal',Arial,sans-serif;background:white;}@page{size:Letter portrait;margin:0 1.27cm;}.print-page{page-break-after:always;}.print-page:last-child{page-break-after:auto;}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}@media screen{.print-page{margin:10mm auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);}body{background:#f5f5f5;padding:20px;}}</style></head><body>${pagesHTML}</body></html>`;
+  return `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>بطاقات الانخراط - AquaCore</title><style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:'Cairo','Tajawal',Arial,sans-serif;background:white;}@page{size:A4 portrait;margin:0 1.27cm;}.print-page{page-break-after:always;}.print-page:last-child{page-break-after:auto;}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}@media screen{.print-page{margin:10mm auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);}body{background:#f5f5f5;padding:20px;}}</style></head><body>${pagesHTML}</body></html>`;
 }
 
 function generatePrint8HTML(subscribers: SubscriberWithComputed[], design: CardDesign): string {

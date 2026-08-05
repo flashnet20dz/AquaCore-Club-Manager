@@ -1358,12 +1358,21 @@ function generatePrintHTML(subscribers: SubscriberWithComputed[], design: CardDe
     return `<div style="width:${config.width}cm;height:${config.height}cm;${bgStyle}border:${config.borderWidth}px ${config.borderStyle} ${config.borderColor};border-radius:${config.borderRadius}px;position:relative;overflow:hidden;direction:rtl;box-sizing:border-box;break-inside:avoid;">${logoWatermark}${elsHTML}</div>`;
   };
   let pagesHTML = "";
+  // ترتيب البطاقات على الوجه الخلفي لكل صف يُعكَس صراحة (يمين↔يسار)
+  // ليطابق قلب الورقة الفعلي على الحافة الطويلة (recto/verso قياسي) —
+  // بدل الاعتماد على خدعة CSS direction غير الموثوقة.
+  const mirrorRowsForDuplex = (items: (SubscriberWithComputed | null)[], cols: number) => {
+    const rows: (SubscriberWithComputed | null)[][] = [];
+    for (let i = 0; i < items.length; i += cols) rows.push(items.slice(i, i + cols).reverse());
+    return rows.flat();
+  };
   for (let i = 0; i < subscribers.length; i += cardsPerPage) {
     const chunk = subscribers.slice(i, i + cardsPerPage);
-    pagesHTML += `<div class="print-page" style="width:21cm;min-height:297mm;padding:10mm;direction:rtl;"><div style="display:grid;grid-template-columns:repeat(${config.cols},1fr);gap:${config.gap}mm;">${chunk.map((s) => generateCard(s, "front")).join("")}</div></div>`;
-    pagesHTML += `<div class="print-page" style="width:21cm;min-height:297mm;padding:10mm;direction:ltr;"><div style="display:grid;grid-template-columns:repeat(${config.cols},1fr);gap:${config.gap}mm;">${chunk.map((s) => generateCard(s, "back")).join("")}</div></div>`;
+    const backChunk = mirrorRowsForDuplex(chunk, config.cols);
+    pagesHTML += `<div class="print-page" style="width:21cm;min-height:297mm;padding:10mm;direction:rtl;box-sizing:border-box;"><div style="display:grid;grid-template-columns:repeat(${config.cols},1fr);gap:${config.gap}mm;">${chunk.map((s) => generateCard(s, "front")).join("")}</div></div>`;
+    pagesHTML += `<div class="print-page" style="width:21cm;min-height:297mm;padding:10mm;direction:rtl;box-sizing:border-box;"><div style="display:grid;grid-template-columns:repeat(${config.cols},1fr);gap:${config.gap}mm;">${backChunk.map((s) => generateCard(s, "back")).join("")}</div></div>`;
   }
-  return `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>بطاقات الانخراط - نادي RCS</title><style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:'Cairo','Tajawal',Arial,sans-serif;background:white;}@page{size:Letter portrait;margin:0 1.27cm;}.print-page{page-break-after:always;}.print-page:last-child{page-break-after:auto;}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}@media screen{.print-page{margin:10mm auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);}body{background:#f5f5f5;padding:20px;}}</style></head><body>${pagesHTML}</body></html>`;
+  return `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>بطاقات الانخراط - نادي RCS</title><style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:'Cairo','Tajawal',Arial,sans-serif;background:white;}@page{size:A4 portrait;margin:0 1.27cm;}.print-page{page-break-after:always;}.print-page:last-child{page-break-after:auto;}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}@media screen{.print-page{margin:10mm auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);}body{background:#f5f5f5;padding:20px;}}</style></head><body>${pagesHTML}</body></html>`;
 }
 
 // ──────────────── Print 8 per A4 (2 cols × 4 rows) ────────────────
