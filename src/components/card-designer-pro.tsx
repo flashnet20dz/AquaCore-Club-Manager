@@ -1385,6 +1385,28 @@ body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-we
               </Tooltip>
             </div>
 
+            {/* 🔑 رفع صورة/شعار للبطاقة */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="sm" onClick={() => fileImageRef.current?.click()} className="h-8 w-8 p-0">
+                  <ImageIcon className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">رفع صورة/شعار (PNG, JPG)</TooltipContent>
+            </Tooltip>
+            <input ref={fileImageRef} type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml" onChange={(e) => handleImageUpload(e, "element")} className="hidden" />
+
+            {/* 🔑 رفع خلفية للبطاقة */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="sm" onClick={() => fileBgRef.current?.click()} className="h-8 w-8 p-0">
+                  <Palette className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">رفع صورة خلفية</TooltipContent>
+            </Tooltip>
+            <input ref={fileBgRef} type="file" accept="image/png,image/jpeg,image/jpg,image/webp" onChange={(e) => handleImageUpload(e, "bg")} className="hidden" />
+
             {/* Preview */}
             <Tooltip>
               <TooltipTrigger asChild>
