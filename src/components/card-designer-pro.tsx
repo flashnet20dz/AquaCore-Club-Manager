@@ -825,21 +825,22 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
   }, [design]);
 
   // 🔑 مولّد صفحات Recto/Verso — لكل 8 منخرطين: صفحة أمامية + صفحة خلفية
-  // الواجهة الخلفية معكوسة أفقياً في كل صف لمحاذاة القلب المزدوج (duplex flip)
-  // عندما تُقلب الورقة، ظهر البطاقة التي كانت يميناً يصبح يساراً
+  // الواجهة الخلفية معكوسة أفقياً لمحاذاة القلب المزدوج (duplex flip)
+  // 🔑 نستخدم direction:ltr للصفحة الخلفية لضمان العكس البصري الفعلي
   const buildRectoVersoPages = useCallback((subsWithPhotos: any[]): string => {
     const cardsPerPage = 8;
     const pages: string[] = [];
     for (let i = 0; i < subsWithPhotos.length; i += cardsPerPage) {
       const pageSubs = subsWithPhotos.slice(i, i + cardsPerPage);
       const fillers = Array.from({ length: cardsPerPage - pageSubs.length }).map(() => `<div style="width:9.3cm;height:6.625cm;"></div>`).join("");
-      // الوجه الأمامي (Recto) — ترتيب طبيعي
-      // [c1][c2]  [c3][c4]  [c5][c6]  [c7][c8]
+      // الوجه الأمامي (Recto) — ترتيب طبيعي، direction:rtl
+      // RTL grid: c1 يمين، c2 يسار
       const frontCards = pageSubs.map((s: any) => buildCardHTMLString(s, "front")).join("");
-      pages.push(`<div class="print-page">${frontCards}${fillers}</div>`);
-      // الوجه الخلفي (Verso) — عكس ترتيب البطاقات في كل صف
-      // عند قلب الورقة: ظهر c1 (يمين أمامي) يصبح يساراً، ظهر c2 (يسار أمامي) يصبح يميناً
-      // [c2][c1]  [c4][c3]  [c6][c5]  [c8][c7]
+      pages.push(`<div class="print-page" style="direction:rtl;">${frontCards}${fillers}</div>`);
+      // الوجه الخلفي (Verso) — عكس ترتيب الأعمدة + direction:ltr
+      // LTR grid: أول عنصر يسار، ثاني عنصر يمين
+      // نعكس ترتيب كل صف: [c2, c1] → c2 يسار، c1 يمين
+      // عند قلب الورقة: ظهر c1 (يمين أمامي) يصبح يساراً ✓
       const backChunk: any[] = [];
       for (let r = 0; r < 4; r++) {
         const rowStart = r * 2;
@@ -850,7 +851,7 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
         for (let f = 0; f < fillCount; f++) backChunk.push(null);
       }
       const backCards = backChunk.map((s) => s ? buildCardHTMLString(s, "back") : `<div style="width:9.3cm;height:6.625cm;"></div>`).join("");
-      pages.push(`<div class="print-page">${backCards}</div>`);
+      pages.push(`<div class="print-page" style="direction:ltr;">${backCards}</div>`);
     }
     return pages.join("");
   }, [buildCardHTMLString]);
