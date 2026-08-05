@@ -30,6 +30,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { motion } from "framer-motion";
+
 import { cn } from "@/lib/utils";
 import {
   processPhoto,
@@ -122,6 +124,8 @@ export function PhotoUploader({
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [cameraSaving, setCameraSaving] = useState(false);
   const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
+  // 🛂 Passport-mode countdown (3‑2‑1) — null means "not counting down"
+  const [countdown, setCountdown] = useState<number | null>(null);
 
   // Delete state
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -130,6 +134,9 @@ export function PhotoUploader({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  // 🛂 Refs for passport-mode frame measurement + countdown scheduling
+  const frameRef = useRef<HTMLDivElement>(null);
+  const countdownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Ref mirror of the displayed photo so async handlers can read the latest
   // value for optimistic-revert without stale-closure issues.
@@ -386,21 +393,129 @@ export function PhotoUploader({
     if (file) void handleProcessAndUpload(file);
   };
 
-  // ─── Camera capture ───────────────────────────────────────────────
-  const captureFrame = () => {
+  // ─── Camera capture (passport: 3:4 crop + brightness/contrast) ───
+  //  • Crops the source video to the visible 3:4 frame overlay area only
+  //    (measured via getBoundingClientRect so it matches the on-screen mask
+  //     even with object-cover scaling and any device pixel ratio).
+  //  • Outputs at 900×1200 (passport standard, 3:4 aspect).
+  //  • Applies basic enhancement: brightness +10%, contrast +10%.
+  //  • Mirrors horizontally for selfie ("user") mode so the captured photo
+  //    matches the mirrored preview the user sees.
+  const captureFrame = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
-    const w = video.videoWidth || 640;
-    const h = video.videoHeight || 480;
+    const vw = video.videoWidth || 640;
+    const vh = video.videoHeight || 480;
+
+    // ── Map the visible frame overlay → source-video crop rectangle.
+    // The <video> uses object-cover, so it's scaled to cover its box and
+    // centered; we invert that mapping to find which source pixels are
+    // currently visible inside the frame element.
+    let sx = 0;
+    let sy = 0;
+    let sw = vw;
+    let sh = vh;
+    const frameEl = frameRef.current;
+    if (frameEl) {
+      const videoRect = video.getBoundingClientRect();
+      const frameRect = frameEl.getBoundingClientRect();
+      if (
+        videoRect.width > 0 &&
+        videoRect.height > 0 &&
+        frameRect.width > 0 &&
+        frameRect.height > 0
+      ) {
+        const scale = Math.max(videoRect.width / vw, videoRect.height / vh);
+        const displayedVideoW = vw * scale;
+        const displayedVideoH = vh * scale;
+        const overflowX = (displayedVideoW - videoRect.width) / 2;
+        const overflowY = (displayedVideoH - videoRect.height) / 2;
+        const frameX = frameRect.left - videoRect.left + overflowX;
+        const frameY = frameRect.top - videoRect.top + overflowY;
+        sx = frameX / scale;
+        sy = frameY / scale;
+        sw = frameRect.width / scale;
+        sh = frameRect.height / scale;
+        // Clamp to valid source bounds (guard against sub-pixel drift)
+        sx = Math.max(0, Math.min(vw - 1, sx));
+        sy = Math.max(0, Math.min(vh - 1, sy));
+        sw = Math.max(1, Math.min(vw - sx, sw));
+        sh = Math.max(1, Math.min(vh - sy, sh));
+      }
+    } else {
+      // Fallback (no frame ref yet): centered 3:4 crop
+      if (vw / vh >= 3 / 4) {
+        sh = vh;
+        sw = Math.round((vh * 3) / 4);
+      } else {
+        sw = vw;
+        sh = Math.round((vw * 4) / 3);
+      }
+      sx = Math.max(0, Math.round((vw - sw) / 2));
+      sy = Math.max(0, Math.round((vh - sh) / 2));
+    }
+
+    // ── Draw cropped + enhanced frame to a 900×1200 canvas (3:4) ─────
+    const OUT_W = 900;
+    const OUT_H = 1200;
     const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
+    canvas.width = OUT_W;
+    canvas.height = OUT_H;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.drawImage(video, 0, 0, w, h);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+
+    // Basic enhancement: brightness +10%, contrast +10%
+    ctx.filter = "brightness(1.1) contrast(1.1)";
+
+    // Mirror horizontally for selfie cam (matches the user's mirrored preview)
+    if (facingMode === "user") {
+      ctx.translate(OUT_W, 0);
+      ctx.scale(-1, 1);
+    }
+
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, OUT_W, OUT_H);
+    ctx.filter = "none";
+
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
     setCapturedImage(dataUrl);
-  };
+  }, [facingMode]);
+
+  // ─── Countdown (3‑2‑1) before auto-capture ────────────────────────
+  // Instead of capturing immediately when the user clicks "التقاط", we show
+  // a 3‑2‑1 countdown and then call captureFrame() automatically.
+  const startCountdown = useCallback(() => {
+    if (cameraStarting || cameraError || countdown !== null) return;
+    let n = 3;
+    setCountdown(n);
+    const tick = () => {
+      n -= 1;
+      if (n <= 0) {
+        setCountdown(null);
+        // Small delay so the "1" has time to fade out before the capture
+        countdownTimerRef.current = setTimeout(() => {
+          captureFrame();
+        }, 180);
+        return;
+      }
+      setCountdown(n);
+      countdownTimerRef.current = setTimeout(tick, 1000);
+    };
+    countdownTimerRef.current = setTimeout(tick, 1000);
+  }, [cameraStarting, cameraError, countdown, captureFrame]);
+
+  // Cancel any pending countdown (used when the dialog closes / user cancels)
+  const cancelCountdown = useCallback(() => {
+    if (countdownTimerRef.current) {
+      clearTimeout(countdownTimerRef.current);
+      countdownTimerRef.current = null;
+    }
+    setCountdown(null);
+  }, []);
+
+  // Cancel pending countdown whenever the camera dialog closes (safety net)
+  useEffect(() => {
+    if (!cameraOpen) cancelCountdown();
+  }, [cameraOpen, cancelCountdown]);
 
   const saveCapture = async () => {
     if (!capturedImage) return;
@@ -640,7 +755,9 @@ export function PhotoUploader({
       <Dialog
         open={cameraOpen}
         onOpenChange={(o) => {
-          if (!cameraSaving) setCameraOpen(o);
+          if (cameraSaving) return;
+          if (!o) cancelCountdown();
+          setCameraOpen(o);
         }}
       >
         <DialogContent className="sm:max-w-lg">
@@ -654,12 +771,12 @@ export function PhotoUploader({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl border bg-black">
+          <div className="relative mx-auto aspect-[3/4] w-full max-w-[380px] overflow-hidden rounded-xl border bg-black">
             {capturedImage ? (
               <img
                 src={capturedImage}
                 alt="الصورة الملتقطة"
-                className="h-full w-full object-cover"
+                className="h-full w-full object-contain"
               />
             ) : (
               <>
@@ -670,14 +787,70 @@ export function PhotoUploader({
                   className="h-full w-full object-cover"
                   style={{ transform: facingMode === "user" ? "scaleX(-1)" : "none" }}
                 />
+
+                {/* 🛂 Passport frame overlay (pointer-events-none) */}
+                {!cameraStarting && !cameraError && (
+                  <div className="pointer-events-none absolute inset-0 z-10">
+                    <div className="absolute inset-0 flex items-center justify-center p-[6%]">
+                      <div
+                        ref={frameRef}
+                        className="relative aspect-[3/4] h-full max-h-full max-w-full rounded-md border-2 border-emerald-400/90"
+                        style={{ boxShadow: "0 0 0 9999px rgba(0,0,0,0.55)" }}
+                      >
+                        {/* Rule of thirds — vertical lines */}
+                        <div className="absolute bottom-0 left-1/3 top-0 w-px bg-emerald-300/25" />
+                        <div className="absolute bottom-0 left-2/3 top-0 w-px bg-emerald-300/25" />
+                        {/* Rule of thirds — horizontal lines */}
+                        <div className="absolute left-0 right-0 top-1/3 h-px bg-emerald-300/25" />
+                        <div className="absolute left-0 right-0 top-2/3 h-px bg-emerald-300/25" />
+
+                        {/* Face alignment guide — dashed oval silhouette */}
+                        <div className="absolute inset-0 flex items-start justify-center pt-[8%]">
+                          <div
+                            className="rounded-[50%] border-2 border-dashed border-white/70"
+                            style={{ width: "62%", height: "65%" }}
+                          />
+                        </div>
+
+                        {/* Hint text */}
+                        <div className="absolute inset-x-0 bottom-2 text-center">
+                          <span className="rounded-full bg-black/45 px-3 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
+                            ضع وجهك داخل الإطار
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ⏱ Countdown overlay */}
+                {countdown !== null && (
+                  <motion.div
+                    key={countdown}
+                    initial={{ opacity: 0, scale: 0.4 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.35, ease: "easeOut" }}
+                    className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
+                  >
+                    <div className="flex flex-col items-center">
+                      <span className="text-8xl font-bold tabular-nums text-white drop-shadow-[0_4px_12px_rgba(0,0,0,0.7)]">
+                        {countdown}
+                      </span>
+                      <span className="mt-2 rounded-full bg-black/45 px-3 py-1 text-xs font-medium text-white backdrop-blur-sm">
+                        استعد للالتقاط…
+                      </span>
+                    </div>
+                  </motion.div>
+                )}
+
                 {cameraStarting && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-white">
+                  <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 text-white">
                     <Loader2 className="h-8 w-8 animate-spin" />
                     <span className="text-xs">جاري تشغيل الكاميرا...</span>
                   </div>
                 )}
                 {cameraError && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center text-white">
+                  <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 p-4 text-center text-white">
                     <AlertCircle className="h-10 w-10 text-amber-400" />
                     <span className="text-sm">{cameraError}</span>
                   </div>
@@ -687,7 +860,7 @@ export function PhotoUploader({
                   <button
                     type="button"
                     onClick={switchCamera}
-                    className="absolute top-3 right-3 p-2 rounded-xl bg-black/50 backdrop-blur-sm text-white hover:bg-black/70 transition border border-white/20"
+                    className="absolute right-3 top-3 z-30 rounded-xl border border-white/20 bg-black/50 p-2 text-white backdrop-blur-sm transition hover:bg-black/70"
                     title={facingMode === "user" ? "الكاميرا الخلفية" : "الكاميرا الأمامية"}
                   >
                     <SwitchCamera className="h-5 w-5" />
@@ -695,7 +868,7 @@ export function PhotoUploader({
                 )}
                 {/* 🔑 مؤشر الكاميرا الحالية */}
                 {!cameraStarting && !cameraError && (
-                  <div className="absolute bottom-3 left-3 px-2 py-1 rounded-lg bg-black/50 backdrop-blur-sm text-white text-[10px] font-medium">
+                  <div className="absolute bottom-3 left-3 z-30 rounded-lg bg-black/50 px-2 py-1 text-[10px] font-medium text-white backdrop-blur-sm">
                     {facingMode === "user" ? "أمامية" : "خلفية"}
                   </div>
                 )}
@@ -713,7 +886,7 @@ export function PhotoUploader({
                   disabled={cameraSaving}
                 >
                   <RefreshCw className="h-4 w-4" />
-                  إعادة
+                  إعادة التصوير
                 </Button>
                 <Button
                   type="button"
@@ -726,7 +899,7 @@ export function PhotoUploader({
                   ) : (
                     <Check className="h-4 w-4" />
                   )}
-                  حفظ
+                  استخدام الصورة
                 </Button>
               </>
             ) : (
@@ -734,18 +907,25 @@ export function PhotoUploader({
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setCameraOpen(false)}
+                  onClick={() => {
+                    cancelCountdown();
+                    setCameraOpen(false);
+                  }}
                   disabled={cameraSaving || cameraStarting}
                 >
                   إلغاء
                 </Button>
                 <Button
                   type="button"
-                  onClick={captureFrame}
-                  disabled={cameraStarting || !!cameraError}
+                  onClick={startCountdown}
+                  disabled={cameraStarting || !!cameraError || countdown !== null}
                   className="bg-gradient-to-l from-teal-500 to-sky-500 text-white hover:opacity-90"
                 >
-                  <Camera className="h-4 w-4" />
+                  {countdown !== null ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Camera className="h-4 w-4" />
+                  )}
                   التقاط
                 </Button>
               </>
