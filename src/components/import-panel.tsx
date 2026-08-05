@@ -290,12 +290,13 @@ export function ImportPanel() {
       const renewalMsg = data.renewalsImported > 0 ? ` • ${data.renewalsImported} تجديد تم استيراده` : "";
       const skipMsg = data.skipped > 0 ? ` • ${data.skipped} صف فشل` : "";
       const errMsg = data.errors?.length > 0 ? ` • ${data.errors.length} خطأ` : "";
-      toast.success(`تم استيراد ${data.imported} منخرط${dupMsg}${renewalMsg}${skipMsg}${errMsg}`);
+      const updMsg = data.updated > 0 ? ` • ${data.updated} محدّث` : "";
+      toast.success(`تم استيراد ${data.imported} منخرط${updMsg}${dupMsg}${renewalMsg}${skipMsg}${errMsg}`);
 
-      // اعرض أول 3 أخطاء إذا وجدت
+      // اعرض أول 5 أخطاء إذا وجدت
       if (data.errors?.length > 0) {
-        data.errors.slice(0, 3).forEach((err: { row: number; name: string; error: string }) => {
-          toast.error(`صف ${err.row}: ${err.name} — ${err.error}`);
+        data.errors.slice(0, 5).forEach((err: { row: number; name: string; error: string }) => {
+          toast.error(`صف ${err.row}: ${err.name} — ${err.error}`, { duration: 8000 });
         });
       }
 

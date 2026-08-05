@@ -697,46 +697,31 @@ export async function POST(req: NextRequest) {
     let skipped = 0;
     const importErrors: { row: number; name: string; error: string }[] = [];
 
-    // ═══ المرحلة 2: إنشاء المنخرطين أولاً (قبل أي شيء آخر) ═══
-    // 🔑 نستخدم skipDuplicates لتجنب فشل الدفعة بالكامل بسبب صف مكرر واحد
-    // فحص التكرار تم سابقاً عبر existingKeys/existingFileNumbers — المكررات في duplicateRows
-    // لكن قد تفوت بعض المكررات، لذا skipDuplicates يضمن عدم فشل الدفعة
-    const BATCH_SIZE = 500;
-    for (let i = 0; i < records.length; i += BATCH_SIZE) {
-      const batch = records.slice(i, i + BATCH_SIZE);
+    // ═══ المرحلة 2: إنشاء المنخرطين — إدراج فردي لكل صف ═══
+    // 🔑 نستخدم إدراج فردي (وليس createMany) لضمان:
+    // 1. معرفة كل صف فشل وسبب الفشل
+    // 2. عدم تجاهل صفوف بصمت (skipDuplicates يتجاهل بصمت)
+    // 3. عدّ دقيق للمستورد والمتخطّى
+    for (let i = 0; i < records.length; i++) {
+      const r = newRows[i];
       try {
-        const result = await db.subscriber.createMany({ data: batch, skipDuplicates: true });
-        imported += result.count;
-      } catch (batchError) {
-        // Fallback: إدراج فردي
-        console.warn(`Batch ${i / BATCH_SIZE + 1} failed, falling back:`, batchError);
-        const batchRows = newRows.slice(i, i + BATCH_SIZE);
-        for (let j = 0; j < batchRows.length; j++) {
-          const r = batchRows[j];
-          try {
-            await db.subscriber.create({ data: records[i + j] });
-            imported++;
-          } catch (e) {
-            // إذا كان خطأ تكرار، لا نسجله كخطأ — فقط skip
-            const errMsg = e instanceof Error ? e.message : "خطأ غير معروف";
-            if (errMsg.includes("Unique constraint") || errMsg.includes("P2002")) {
-              skipped++;
-            } else {
-              skipped++;
-              importErrors.push({
-                row: r.row,
-                name: `${r.lastName} ${r.firstName}`,
-                error: errMsg,
-              });
-            }
-          }
-        }
+        await db.subscriber.create({ data: records[i] });
+        imported++;
+      } catch (e) {
+        const errMsg = e instanceof Error ? e.message : "خطأ غير معروف";
+        skipped++;
+        importErrors.push({
+          row: r.row,
+          name: `${r.lastName} ${r.firstName} (${r.fileNumber || "بدون رقم"})`,
+          error: errMsg,
+        });
       }
     }
 
     // ═══ المرحلة 2.5: تحديث المنخرطين الموجودين (upsert) ═══
     // 🔑 بدلاً من تجاهل المكررات، حدّث بياناتهم من Excel
     let updated = 0;
+    const BATCH_SIZE = 500;
     for (const { row: r, existingId } of existingToUpdate) {
       try {
         await db.subscriber.update({
