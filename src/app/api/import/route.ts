@@ -668,41 +668,20 @@ export async function POST(req: NextRequest) {
         fileNumber = `${group}${String(groupCounters[group]).padStart(3, "0")}`;
       }
 
-      // 🔑 القيم المالية الفعلية من Excel (تتجاوز الحساب التلقائي)
-      const sourceRowIdx = validRows.indexOf(r as any);
-      const sourceRow = sourceRowIdx >= 0 ? rows[validRows.indexOf(r as any)] : null;
-      const importSubscriptionFee = feeKey && sourceRow ? Number(sourceRow[feeKey] || 0) || null : null;
-      const importInsuranceFee = insuranceFeeKey && sourceRow ? Number(sourceRow[insuranceFeeKey] || 0) || null : null;
-      const importCompoundRights = compoundRightsKey && sourceRow ? Number(sourceRow[compoundRightsKey] || 0) || null : null;
-      const importTotalAmount = totalAmountKey && sourceRow ? Number(sourceRow[totalAmountKey] || 0) || null : null;
-      // 🔑 حالة التأمين: مؤمن إذا insuranceFee > 0، غير مؤمن إذا = 0 و paymentStatus = مدفوع
-      let insuranceStatus: string | null = null;
-      if (importInsuranceFee !== null) {
-        if (importInsuranceFee > 0) insuranceStatus = "مؤمن";
-        else if (r.paymentStatus === "مدفوع") insuranceStatus = "غير مؤمن";
-        else insuranceStatus = "غير محدد";
-      }
-
       return {
         clubId: targetClubId,
         fileNumber,
         lastName: r.lastName,
         firstName: r.firstName,
         birthDate: r.birthDate!,
-        gender: (r.gender || "ذكر") as Gender,  // 🔑 افتراضي: ذكر
+        gender: (r.gender || "ذكر") as Gender,
         bloodType: (r.bloodType as BloodType) || null,
-        subscriptionType: (r.subscriptionType || "/") as SubscriptionType,  // 🔑 افتراضي: /
+        subscriptionType: (r.subscriptionType || "/") as SubscriptionType,
         lastPaymentDate: r.lastPaymentDate,
-        paymentStatus: (r.paymentStatus || "لم يدفع") as PaymentStatus,  // 🔑 افتراضي: لم يدفع
+        paymentStatus: (r.paymentStatus || "لم يدفع") as PaymentStatus,
         swimmingDays: (r.swimmingDays as SwimmingDays) || null,
         timeSlot: (r.timeSlot as TimeSlot) || null,
         phone: r.phone,
-        // 🔑 القيم المالية من Excel
-        importSubscriptionFee,
-        importInsuranceFee,
-        importCompoundRights,
-        importTotalAmount,
-        insuranceStatus,
       };
     });
 
@@ -710,21 +689,17 @@ export async function POST(req: NextRequest) {
     let skipped = 0;
     const importErrors: { row: number; name: string; error: string }[] = [];
 
-    // 🔑 دعم أكثر من 1000 منخرط: batch processing على دفعات
-    // لا نستخدم skipDuplicates — فحص التكرار تم سابقاً عبر existingKeys/existingFileNumbers
-    // هذا يضمن التقاط أي خطأ إدراج وتقديم رسالة واضحة
+    // ═══ المرحلة 2: إنشاء المنخرطين أولاً (قبل أي شيء آخر) ═══
     const BATCH_SIZE = 500;
     for (let i = 0; i < records.length; i += BATCH_SIZE) {
       const batch = records.slice(i, i + BATCH_SIZE);
       const batchRows = newRows.slice(i, i + BATCH_SIZE);
       try {
-        const result = await db.subscriber.createMany({
-          data: batch,
-        });
+        const result = await db.subscriber.createMany({ data: batch });
         imported += result.count;
       } catch (batchError) {
-        // Fallback: إدراج فردي لكل سجل في الدفعة — يكشف الصف المعطوب بالضبط
-        console.warn(`Batch ${i / BATCH_SIZE + 1} failed, falling back to individual inserts:`, batchError);
+        // Fallback: إدراج فردي
+        console.warn(`Batch ${i / BATCH_SIZE + 1} failed, falling back:`, batchError);
         for (let j = 0; j < batchRows.length; j++) {
           const r = batchRows[j];
           try {
@@ -732,26 +707,48 @@ export async function POST(req: NextRequest) {
             imported++;
           } catch (e) {
             skipped++;
-            const errMsg = e instanceof Error ? e.message : "خطأ غير معروف";
             importErrors.push({
               row: r.row,
               name: `${r.lastName} ${r.firstName}`,
-              error: errMsg,
+              error: e instanceof Error ? e.message : "خطأ غير معروف",
             });
           }
         }
       }
     }
 
-    // ═══ استيراد ورقة التجديد (إن وُجدت في الملف) ═══
-    // 🔑 محسّن: يستخدم records المُنشأة بالفعل بدلاً من جلب كل المنخرطين من DB
+    // ═══ المرحلة 3: انتظر حتى تُعكس المنخرطين في DB، ثم اجلب IDs ═══
+    // 🔑 نحتاج IDs الفعلية للمنخرطين المستوردين حديثاً لربط التجديدات
     let renewalsImported = 0;
     let renewalsSkipped = 0;
     const renewalErrors: { row: number; name: string; error: string }[] = [];
 
     const renewalSheetName = wb.SheetNames.find((n) => n.includes("التجديد"));
-    if (renewalSheetName) {
+    if (renewalSheetName && imported > 0) {
       try {
+        // 🔑 انتظر قليلاً حتى تكتمل المعاملة في DB
+        await new Promise((r) => setTimeout(r, 500));
+
+        // 🔑 اجلب IDs للمنخرطين المستوردين حديثاً فقط (بأرقام ملفاتهم)
+        const newFileNumbers = records.map(r => r.fileNumber);
+        const newlyCreatedSubs = await db.subscriber.findMany({
+          where: {
+            clubId: targetClubId,
+            fileNumber: { in: newFileNumbers },
+          },
+          select: { id: true, fileNumber: true },
+        });
+        const fileNumberToId = new Map<string, string>();
+        // أضف الموجودين مسبقاً
+        for (const s of existingSubscribers) {
+          fileNumberToId.set(s.fileNumber, s.id);
+        }
+        // أضف المستوردين حديثاً
+        for (const s of newlyCreatedSubs) {
+          fileNumberToId.set(s.fileNumber, s.id);
+        }
+
+        // اقرأ ورقة التجديد
         const renewalWs = wb.Sheets[renewalSheetName];
         const renewalAllRows = XLSX.utils.sheet_to_json<unknown[]>(renewalWs, { defval: "", raw: true, header: 1 });
 
@@ -798,30 +795,6 @@ export async function POST(req: NextRequest) {
             const renewalStatusKey = findRenewalKey(firstRenewalRow, ["حالة التجديد", "الحالة"]);
 
             if (fnKey) {
-              // 🔑 محسّن: استخدم records المُنشأة بالفعل + existingSubscribers
-              // بدلاً من جلب كل المنخرطين مرة أخرى من DB
-              const fileNumberToId = new Map<string, string>();
-              // من المستوردين الجدد (records)
-              for (const r of records) {
-                fileNumberToId.set(r.fileNumber, r.fileNumber); // placeholder — ستحل عبر DB
-              }
-              // من الموجودين مسبقاً
-              for (const s of existingSubscribers) {
-                fileNumberToId.set(s.fileNumber, s.id);
-              }
-
-              // 🔑 جلب واحد فقط: IDs للمنخرطين المستوردين حديثاً (بأرقام ملفاتهم)
-              const newFileNumbers = records.map(r => r.fileNumber);
-              if (newFileNumbers.length > 0) {
-                const newlyCreated = await db.subscriber.findMany({
-                  where: { clubId: targetClubId, fileNumber: { in: newFileNumbers } },
-                  select: { id: true, fileNumber: true },
-                });
-                for (const s of newlyCreated) {
-                  fileNumberToId.set(s.fileNumber, s.id);
-                }
-              }
-
               const renewalRecords: any[] = [];
               for (let i = 0; i < renewalRows.length; i++) {
                 const row = renewalRows[i];
@@ -829,12 +802,12 @@ export async function POST(req: NextRequest) {
                 if (!fileNumber) { renewalsSkipped++; continue; }
 
                 const renewalDateRaw = renewalDateKey ? row[renewalDateKey] : null;
-                const renewalStatus = renewalStatusKey ? String(row[renewalStatusKey] || "") : "";
                 if (!renewalDateRaw || !String(renewalDateRaw).trim()) {
                   renewalsSkipped++;
                   continue;
                 }
 
+                // 🔑 تأكد أن المنخرط موجود قبل إنشاء التجديد
                 const subId = fileNumberToId.get(fileNumber);
                 if (!subId) {
                   renewalsSkipped++;
@@ -846,6 +819,7 @@ export async function POST(req: NextRequest) {
 
                 const amount = amountKey ? Number(row[amountKey] || 0) : 0;
                 const paymentStatus = paymentStatusKeyR ? String(row[paymentStatusKeyR] || "مدفوع") : "مدفوع";
+                const renewalStatus = renewalStatusKey ? String(row[renewalStatusKey] || "") : "";
 
                 const expiryDate = new Date(renewalDate);
                 expiryDate.setDate(expiryDate.getDate() + 30);
@@ -878,6 +852,7 @@ export async function POST(req: NextRequest) {
         }
       } catch (renewalErr) {
         console.error("Renewal import error:", renewalErr);
+        // 🔑 لا نرجع 500 هنا — الاستيراد الرئيسي نجح، التجديدات فشلت جزئياً
       }
     }
 
@@ -889,6 +864,16 @@ export async function POST(req: NextRequest) {
         description: `تم استيراد ${imported} منخرط جديد و ${renewalsImported} تجديد، ${duplicateRows.length} مكرر تم تجاهله`,
       },
     });
+
+    // 🔑 إذا فشل الاستيراد بالكامل (0 منخرط + أخطاء)، أرجع 500
+    if (imported === 0 && importErrors.length > 0) {
+      return NextResponse.json({
+        success: false,
+        error: `فشل الاستيراد: ${importErrors.length} خطأ. أول خطأ: ${importErrors[0]?.error || "غير معروف"}`,
+        errors: importErrors.slice(0, 50),
+        totalRows: rows.length,
+      }, { status: 500 });
+    }
 
     return NextResponse.json({
       success: true,
