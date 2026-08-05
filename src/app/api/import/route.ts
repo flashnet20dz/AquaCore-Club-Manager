@@ -605,16 +605,24 @@ export async function POST(req: NextRequest) {
     // تصفية الصفوف: استبعاد المكررين الموجودين مسبقاً
     const newRows: typeof rowsToImport = [];
     const duplicateRows: { row: number; name: string; reason: string }[] = [];
+    // 🔑 قائمة بالمنخرطين الموجودين مسبقاً لتحديثهم (upsert) بدلاً من تجاهلهم
+    const existingToUpdate: { row: typeof rowsToImport[0]; existingId: string }[] = [];
 
     for (const r of rowsToImport) {
       const key = `${r.lastName.trim().toLowerCase()}|${r.firstName.trim().toLowerCase()}|${r.birthDate ? new Date(r.birthDate).toISOString().split("T")[0] : ""}`;
-      // 🔑 فحص تكرار رقم الملف أيضاً
+      // 🔑 فحص تكرار رقم الملف — حدّث المنخرط الموجود بدلاً من تجاهله
       if (r.fileNumber && existingFileNumbers.has(r.fileNumber.trim())) {
-        duplicateRows.push({
-          row: r.row,
-          name: `${r.lastName} ${r.firstName}`,
-          reason: `رقم الملف "${r.fileNumber}" موجود مسبقاً`,
-        });
+        // ابحث عن ID المنخرط الموجود
+        const existingSub = existingSubscribers.find(s => s.fileNumber === (r.fileNumber?.trim() || ""));
+        if (existingSub) {
+          existingToUpdate.push({ row: r, existingId: existingSub.id });
+        } else {
+          duplicateRows.push({
+            row: r.row,
+            name: `${r.lastName} ${r.firstName}`,
+            reason: `رقم الملف "${r.fileNumber}" موجود مسبقاً`,
+          });
+        }
       } else if (existingKeys.has(key)) {
         duplicateRows.push({
           row: r.row,
@@ -723,6 +731,39 @@ export async function POST(req: NextRequest) {
             }
           }
         }
+      }
+    }
+
+    // ═══ المرحلة 2.5: تحديث المنخرطين الموجودين (upsert) ═══
+    // 🔑 بدلاً من تجاهل المكررات، حدّث بياناتهم من Excel
+    let updated = 0;
+    for (const { row: r, existingId } of existingToUpdate) {
+      try {
+        await db.subscriber.update({
+          where: { id: existingId },
+          data: {
+            lastName: r.lastName,
+            firstName: r.firstName,
+            birthDate: r.birthDate!,
+            gender: (r.gender || "ذكر") as Gender,
+            bloodType: (r.bloodType as BloodType) || null,
+            subscriptionType: (r.subscriptionType || "/") as SubscriptionType,
+            lastPaymentDate: r.lastPaymentDate,
+            paymentStatus: (r.paymentStatus || "لم يدفع") as PaymentStatus,
+            swimmingDays: (r.swimmingDays as SwimmingDays) || null,
+            timeSlot: (r.timeSlot as TimeSlot) || null,
+            phone: r.phone,
+          },
+        });
+        updated++;
+        imported++; // عدّ المحديثين ضمن المستوردين
+      } catch (e) {
+        skipped++;
+        importErrors.push({
+          row: r.row,
+          name: `${r.lastName} ${r.firstName}`,
+          error: e instanceof Error ? e.message : "فشل التحديث",
+        });
       }
     }
 
@@ -870,7 +911,7 @@ export async function POST(req: NextRequest) {
       data: {
         clubId: targetClubId,
         type: "import",
-        description: `تم استيراد ${imported} منخرط جديد و ${renewalsImported} تجديد، ${duplicateRows.length} مكرر تم تجاهله`,
+        description: `تم استيراد ${imported} منخرط (${updated} محدّث) و ${renewalsImported} تجديد، ${duplicateRows.length} مكرر تم تجاهله`,
       },
     });
 
@@ -887,6 +928,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       imported,
+      updated,
       skipped,
       duplicates: duplicateRows.length,
       duplicateDetails: duplicateRows.slice(0, 50),
