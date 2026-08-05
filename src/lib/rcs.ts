@@ -17,7 +17,9 @@ export type TimeSlot = "09:00-10:00" | "10:00-11:00" | "19:00-20:00" | "20:00-21
 export interface SubscriptionTypeConfig {
   code: string;
   name?: string;
-  subscriptionFee: number;
+  subscriptionFee: number;          // رسوم الاشتراك (للأقل من 14 سنة)
+  subscriptionFeeOver14?: number;   // رسوم الاشتراك (لـ 14 سنة فأكثر)
+  hasAgeBasedFee?: boolean;          // هل يستخدم رسوم حسب العمر؟
   insuranceFee: number;
   compoundRights: number;
   durationDays: number;
@@ -70,7 +72,9 @@ export const DEFAULT_TYPES_MAP: Record<string, SubscriptionTypeConfig> = {
   },
   "DJS": {
     code: "DJS",
-    subscriptionFee: 300,
+    subscriptionFee: 300,          // أقل من 14 سنة
+    subscriptionFeeOver14: 500,    // 14 سنة فأكثر
+    hasAgeBasedFee: true,
     insuranceFee: 500,
     compoundRights: 0,
     durationDays: 30,
@@ -205,13 +209,19 @@ export function calculateSubscriptionFeeDynamic(
   age: number
 ): number | null {
   if (paymentStatus === "لم يدفع") return null;
-  // إذا كان النوع مجاني — كل الرسوم = 0
   if (typeConfig.freeSubscription) return 0;
-  // 🔑 للاشتراك العادي ("/"): فرّق حسب العمر
+
+  // 🔑 إذا كان النوع يدعم رسوم حسب العمر (hasAgeBasedFee = true)
+  if (typeConfig.hasAgeBasedFee && typeConfig.subscriptionFeeOver14 != null) {
+    return age >= 14 ? typeConfig.subscriptionFeeOver14 : typeConfig.subscriptionFee;
+  }
+
+  // 🔑 للاشتراك العادي ("/"): فرّق حسب العمر افتراضياً
   // ≥ 14 سنة = 1500 دج، < 14 سنة = 1300 دج
   if (typeConfig.code === "/" || (typeConfig.code !== "OPOW" && typeConfig.code !== "DJS" && typeConfig.code !== "FCS" && typeConfig.code !== "POLICE" && typeConfig.code !== "MJ")) {
     return age >= 14 ? SUBSCRIPTION_FEE_REGULAR_OVER_14 : SUBSCRIPTION_FEE_REGULAR_UNDER_14;
   }
+
   return typeConfig.subscriptionFee;
 }
 
