@@ -825,7 +825,8 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
   }, [design]);
 
   // 🔑 مولّد صفحات Recto/Verso — لكل 8 منخرطين: صفحة أمامية + صفحة خلفية
-  // الواجهة الخلفية مطابقة للواجهة الأمامية في نفس المواضع — الطابعة تقلب الورقة تلقائياً
+  // الواجهة الخلفية معكوسة أفقياً في كل صف لمحاذاة القلب المزدوج (duplex flip)
+  // عندما تُقلب الورقة، ظهر البطاقة التي كانت يميناً يصبح يساراً
   const buildRectoVersoPages = useCallback((subsWithPhotos: any[]): string => {
     const cardsPerPage = 8;
     const pages: string[] = [];
@@ -833,12 +834,23 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
       const pageSubs = subsWithPhotos.slice(i, i + cardsPerPage);
       const fillers = Array.from({ length: cardsPerPage - pageSubs.length }).map(() => `<div style="width:9.3cm;height:6.625cm;"></div>`).join("");
       // الوجه الأمامي (Recto) — ترتيب طبيعي
+      // [c1][c2]  [c3][c4]  [c5][c6]  [c7][c8]
       const frontCards = pageSubs.map((s: any) => buildCardHTMLString(s, "front")).join("");
       pages.push(`<div class="print-page">${frontCards}${fillers}</div>`);
-      // الوجه الخلفي (Verso) — نفس الترتيب بالضبط (نفس المواضع)
-      // الطابعة تقلب الورقة تلقائياً عند الطباعة المزدوجة
-      const backCards = pageSubs.map((s: any) => buildCardHTMLString(s, "back")).join("");
-      pages.push(`<div class="print-page">${backCards}${fillers}</div>`);
+      // الوجه الخلفي (Verso) — عكس ترتيب البطاقات في كل صف
+      // عند قلب الورقة: ظهر c1 (يمين أمامي) يصبح يساراً، ظهر c2 (يسار أمامي) يصبح يميناً
+      // [c2][c1]  [c4][c3]  [c6][c5]  [c8][c7]
+      const backChunk: any[] = [];
+      for (let r = 0; r < 4; r++) {
+        const rowStart = r * 2;
+        const rowEnd = Math.min(rowStart + 2, pageSubs.length);
+        const rowCards = pageSubs.slice(rowStart, rowEnd);
+        backChunk.push(...rowCards.reverse());
+        const fillCount = 2 - rowCards.length;
+        for (let f = 0; f < fillCount; f++) backChunk.push(null);
+      }
+      const backCards = backChunk.map((s) => s ? buildCardHTMLString(s, "back") : `<div style="width:9.3cm;height:6.625cm;"></div>`).join("");
+      pages.push(`<div class="print-page">${backCards}</div>`);
     }
     return pages.join("");
   }, [buildCardHTMLString]);
