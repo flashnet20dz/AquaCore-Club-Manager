@@ -91,6 +91,9 @@ function formatDate(date: Date | null): string {
   return `${d}/${m}/${y}`;
 }
 
+// 🔑 زيادة مهلة الطلب لتجنب 504 Gateway Timeout
+export const maxDuration = 300; // 5 دقائق
+
 export async function POST(req: NextRequest) {
   try {
     const currentUser = await getCurrentUser();
@@ -741,7 +744,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ═══ استيراد ورقة التجديد (إن وُجدت في الملف) ═══
-    // اقرأ ورقة "التجديد" وأنشئ سجلات Renewal لكل منخرط مجدد
+    // 🔑 محسّن: يستخدم records المُنشأة بالفعل بدلاً من جلب كل المنخرطين من DB
     let renewalsImported = 0;
     let renewalsSkipped = 0;
     const renewalErrors: { row: number; name: string; error: string }[] = [];
@@ -752,7 +755,6 @@ export async function POST(req: NextRequest) {
         const renewalWs = wb.Sheets[renewalSheetName];
         const renewalAllRows = XLSX.utils.sheet_to_json<unknown[]>(renewalWs, { defval: "", raw: true, header: 1 });
 
-        // ابحث عن صف العناوين
         let renewalHeaderIdx = -1;
         for (let i = 0; i < Math.min(5, renewalAllRows.length); i++) {
           const row = renewalAllRows[i].map((c) => String(c || "").trim().replace(/\r?\n/g, " ").replace(/\s+/g, " "));
@@ -775,7 +777,6 @@ export async function POST(req: NextRequest) {
             renewalRows.push(obj);
           }
 
-          // ابحث عن الأعمدة
           const findRenewalKey = (row: Record<string, unknown>, candidates: string[]): string | null => {
             const keys = Object.keys(row);
             for (const candidate of candidates) {
@@ -797,12 +798,29 @@ export async function POST(req: NextRequest) {
             const renewalStatusKey = findRenewalKey(firstRenewalRow, ["حالة التجديد", "الحالة"]);
 
             if (fnKey) {
-              // جلب جميع المنخرطين الموجودين (بما فيهم المستوردين حديثاً)
-              const allSubscribers = await db.subscriber.findMany({
-                where: { clubId: targetClubId },
-                select: { id: true, fileNumber: true, lastName: true, firstName: true },
-              });
-              const subByFileNumber = new Map(allSubscribers.map(s => [s.fileNumber, s]));
+              // 🔑 محسّن: استخدم records المُنشأة بالفعل + existingSubscribers
+              // بدلاً من جلب كل المنخرطين مرة أخرى من DB
+              const fileNumberToId = new Map<string, string>();
+              // من المستوردين الجدد (records)
+              for (const r of records) {
+                fileNumberToId.set(r.fileNumber, r.fileNumber); // placeholder — ستحل عبر DB
+              }
+              // من الموجودين مسبقاً
+              for (const s of existingSubscribers) {
+                fileNumberToId.set(s.fileNumber, s.id);
+              }
+
+              // 🔑 جلب واحد فقط: IDs للمنخرطين المستوردين حديثاً (بأرقام ملفاتهم)
+              const newFileNumbers = records.map(r => r.fileNumber);
+              if (newFileNumbers.length > 0) {
+                const newlyCreated = await db.subscriber.findMany({
+                  where: { clubId: targetClubId, fileNumber: { in: newFileNumbers } },
+                  select: { id: true, fileNumber: true },
+                });
+                for (const s of newlyCreated) {
+                  fileNumberToId.set(s.fileNumber, s.id);
+                }
+              }
 
               const renewalRecords: any[] = [];
               for (let i = 0; i < renewalRows.length; i++) {
@@ -810,23 +828,16 @@ export async function POST(req: NextRequest) {
                 const fileNumber = String(row[fnKey] || "").trim();
                 if (!fileNumber) { renewalsSkipped++; continue; }
 
-                // فقط الصفوف التي لها تاريخ تجديد = منخرط مجدد
                 const renewalDateRaw = renewalDateKey ? row[renewalDateKey] : null;
                 const renewalStatus = renewalStatusKey ? String(row[renewalStatusKey] || "") : "";
-                // تخطّي الصفوف التي لا تحتوي على تاريخ تجديد (لم تُجدّد)
                 if (!renewalDateRaw || !String(renewalDateRaw).trim()) {
                   renewalsSkipped++;
                   continue;
                 }
 
-                const sub = subByFileNumber.get(fileNumber);
-                if (!sub) {
+                const subId = fileNumberToId.get(fileNumber);
+                if (!subId) {
                   renewalsSkipped++;
-                  renewalErrors.push({
-                    row: i + 2,
-                    name: fileNumber,
-                    error: "لم يتم العثور على المنخرط",
-                  });
                   continue;
                 }
 
@@ -836,13 +847,12 @@ export async function POST(req: NextRequest) {
                 const amount = amountKey ? Number(row[amountKey] || 0) : 0;
                 const paymentStatus = paymentStatusKeyR ? String(row[paymentStatusKeyR] || "مدفوع") : "مدفوع";
 
-                // تاريخ انتهاء الاشتراك الجديد
                 const expiryDate = new Date(renewalDate);
                 expiryDate.setDate(expiryDate.getDate() + 30);
 
                 renewalRecords.push({
                   clubId: targetClubId,
-                  subscriberId: sub.id,
+                  subscriberId: subId,
                   renewalDate,
                   expiryDate,
                   months: 1,
