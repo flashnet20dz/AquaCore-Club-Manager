@@ -17,9 +17,7 @@ export type TimeSlot = "09:00-10:00" | "10:00-11:00" | "19:00-20:00" | "20:00-21
 export interface SubscriptionTypeConfig {
   code: string;
   name?: string;
-  subscriptionFee: number;          // رسوم الاشتراك (للأقل من 14 سنة)
-  subscriptionFeeOver14?: number;   // رسوم الاشتراك (لـ 14 سنة فأكثر)
-  hasAgeBasedFee?: boolean;          // هل يستخدم رسوم حسب العمر؟
+  subscriptionFee: number;
   insuranceFee: number;
   compoundRights: number;
   durationDays: number;
@@ -72,9 +70,7 @@ export const DEFAULT_TYPES_MAP: Record<string, SubscriptionTypeConfig> = {
   },
   "DJS": {
     code: "DJS",
-    subscriptionFee: 300,          // أقل من 14 سنة
-    subscriptionFeeOver14: 500,    // 14 سنة فأكثر
-    hasAgeBasedFee: true,
+    subscriptionFee: 300,          // أقل من 14 سنة — ≥14 = 300+200=500 تلقائياً
     insuranceFee: 500,
     compoundRights: 0,
     durationDays: 30,
@@ -211,17 +207,18 @@ export function calculateSubscriptionFeeDynamic(
   if (paymentStatus === "لم يدفع") return null;
   if (typeConfig.freeSubscription) return 0;
 
-  // 🔑 إذا كان النوع يدعم رسوم حسب العمر (hasAgeBasedFee = true)
-  if (typeConfig.hasAgeBasedFee && typeConfig.subscriptionFeeOver14 != null) {
-    return age >= 14 ? typeConfig.subscriptionFeeOver14 : typeConfig.subscriptionFee;
+  // 🔑 حساب الرسوم حسب العمر لكل الأنواع
+  // ≥ 14 سنة: subscriptionFee + 200 (فرق البالغين)
+  // < 14 سنة: subscriptionFee كما هو
+  // هذا يطبيق منطق 1300/1500 لـ "/" و 300/500 لـ "DJS"
+  if (typeConfig.subscriptionFee > 0 && typeConfig.subscriptionFee < 1000) {
+    // الأنواع المخفّضة (DJS=300, OPOW=300): +200 للبالغين
+    return age >= 14 ? typeConfig.subscriptionFee + 200 : typeConfig.subscriptionFee;
   }
-
-  // 🔑 للاشتراك العادي ("/"): فرّق حسب العمر افتراضياً
-  // ≥ 14 سنة = 1500 دج، < 14 سنة = 1300 دج
-  if (typeConfig.code === "/" || (typeConfig.code !== "OPOW" && typeConfig.code !== "DJS" && typeConfig.code !== "FCS" && typeConfig.code !== "POLICE" && typeConfig.code !== "MJ")) {
-    return age >= 14 ? SUBSCRIPTION_FEE_REGULAR_OVER_14 : SUBSCRIPTION_FEE_REGULAR_UNDER_14;
+  if (typeConfig.subscriptionFee >= 1000) {
+    // الأنواع العادية (/=1300): +200 للبالغين = 1500
+    return age >= 14 ? typeConfig.subscriptionFee + 200 : typeConfig.subscriptionFee;
   }
-
   return typeConfig.subscriptionFee;
 }
 

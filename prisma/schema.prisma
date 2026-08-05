@@ -397,9 +397,7 @@ model SubscriptionType {
   description     String?
 
   // الرسوم
-  subscriptionFee       Int      @default(0)    // رسوم الاشتراك (للأقل من 14 سنة)
-  subscriptionFeeOver14 Int      @default(0)    // رسوم الاشتراك (لـ 14 سنة فأكثر)
-  hasAgeBasedFee        Boolean  @default(false) // هل يستخدم رسوم حسب العمر؟
+  subscriptionFee Int      @default(0)
   insuranceFee    Int      @default(500)
   compoundRights  Int      @default(1000)
   durationDays    Int      @default(30)

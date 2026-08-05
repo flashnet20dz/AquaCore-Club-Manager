@@ -417,7 +417,6 @@ export function SettingsPanel() {
 // ════════════ Subscription Types Manager (Dynamic v2.0) ════════════
 interface SubType {
   id: string; name: string; code: string; color: string; description?: string;
-  subscriptionFee: number; subscriptionFeeOver14?: number; hasAgeBasedFee?: boolean;
   insuranceFee: number; compoundRights: number;
   durationDays: number;
   givesMembershipNumber: boolean;
@@ -435,7 +434,6 @@ function SubscriptionTypesManager() {
   const [editing, setEditing] = useState<SubType | null>(null);
   const [form, setForm] = useState<any>({
     name: "", code: "", color: "#0d9488", description: "",
-    subscriptionFee: 0, subscriptionFeeOver14: 0, hasAgeBasedFee: false, insuranceFee: 500, compoundRights: 1000, durationDays: 30,
     givesMembershipNumber: true, requiresInsurance: true, requiresCompoundFee: true,
     renewableMonthly: true, freeSubscription: false, numberingGroup: "RCS", active: true, sortOrder: 0,
   });
@@ -486,7 +484,6 @@ function SubscriptionTypesManager() {
     setEditing(null);
     setForm({
       name: "", code: "", color: "#0d9488", description: "",
-      subscriptionFee: 0, subscriptionFeeOver14: 0, hasAgeBasedFee: false, insuranceFee: 500, compoundRights: 1000, durationDays: 30,
       givesMembershipNumber: true, requiresInsurance: true, requiresCompoundFee: true,
       renewableMonthly: true, freeSubscription: false, active: true, sortOrder: types.length,
     });
@@ -563,19 +560,13 @@ function SubscriptionTypesManager() {
 
             {/* الرسوم */}
             <div className="rounded-lg bg-muted/30 p-3 space-y-2">
-              <p className="text-xs font-bold text-muted-foreground">الرسوم (دج)</p>
+              <p className="text-xs font-bold text-muted-foreground">الرسوم (دج) — تُحسب تلقائياً +200 للبالغين (≥14 سنة)</p>
               <div className="grid grid-cols-2 gap-2">
-                <div><Label className="text-xs">رسم الاشتراك (&lt;14 سنة)</Label><Input type="number" value={form.subscriptionFee} onChange={e => setForm({...form, subscriptionFee: +e.target.value})} className="h-9" disabled={form.freeSubscription} /></div>
-                <div><Label className="text-xs">رسم الاشتراك (≥14 سنة)</Label><Input type="number" value={form.subscriptionFeeOver14 ?? 0} onChange={e => setForm({...form, subscriptionFeeOver14: +e.target.value})} className="h-9" disabled={form.freeSubscription || !form.hasAgeBasedFee} /></div>
+                <div><Label className="text-xs">رسم الاشتراك (أقل من 14 سنة)</Label><Input type="number" value={form.subscriptionFee} onChange={e => setForm({...form, subscriptionFee: +e.target.value})} className="h-9" disabled={form.freeSubscription} /></div>
                 <div><Label className="text-xs">مبلغ التأمين</Label><Input type="number" value={form.insuranceFee} onChange={e => setForm({...form, insuranceFee: +e.target.value})} className="h-9" disabled={form.freeSubscription} /></div>
                 <div><Label className="text-xs">حقوق المركب</Label><Input type="number" value={form.compoundRights} onChange={e => setForm({...form, compoundRights: +e.target.value})} className="h-9" disabled={form.freeSubscription} /></div>
                 <div><Label className="text-xs">المدة (أيام)</Label><Input type="number" value={form.durationDays} onChange={e => setForm({...form, durationDays: +e.target.value})} className="h-9" /></div>
               </div>
-              {/* 🔑 رسوم حسب العمر */}
-              <label className="flex items-center justify-between p-2 rounded bg-card border cursor-pointer mt-1">
-                <div><span className="text-xs font-semibold">📊 رسوم حسب العمر</span><p className="text-[10px] text-muted-foreground">رسمان: أقل من 14 سنة و 14 سنة فأكثر</p></div>
-                <Switch checked={form.hasAgeBasedFee ?? false} onCheckedChange={c => setForm({...form, hasAgeBasedFee: c})} disabled={form.freeSubscription} />
-              </label>
             </div>
 
             {/* الخيارات */}
