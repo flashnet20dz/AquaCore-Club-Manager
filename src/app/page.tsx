@@ -142,7 +142,8 @@ export default function Home() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   // Controlled tabs + mobile nav drawer
-  const [activeTab, setActiveTab] = useState<string>("dashboard");
+  // 🔑 حارس السباحة: التبويب الافتراضي = الحضور (لا لوحة تحكم)
+  const [activeTab, setActiveTab] = useState<string>(sessionUser?.role === "admin" || sessionUser?.role === "superadmin" ? "dashboard" : "attendance");
   // Hook موحد لجلب أنواع الاشتراك — Single Source of Truth
   // يجب استدعاؤه قبل أي early return (قواعد الـ Hooks)
   const { types: subscriptionTypes, refresh: refreshSubTypes } = useSubscriptionTypes();
@@ -371,7 +372,7 @@ export default function Home() {
     );
   }
 
-  const isAdmin = sessionUser.role === "admin";
+  const isAdmin = sessionUser.role === "admin" || sessionUser.role === "superadmin";
 
   return (
     <SubscriptionGate>
@@ -488,9 +489,12 @@ export default function Home() {
           {/* Desktop: horizontal scrollable tab bar (hidden on mobile) */}
           <div className="hidden sm:block overflow-x-auto pb-2 -mx-2 px-2">
             <TabsList className="bg-card border border-border/60 p-1 h-auto inline-flex">
-              <TabsTrigger value="dashboard" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                <Activity className="h-4 w-4" /> لوحة التحكم
-              </TabsTrigger>
+              {/* 🔑 لوحة التحكم والتحليلات: للمدير فقط (admin + superadmin) */}
+              {(sessionUser.role === "admin" || sessionUser.role === "superadmin") && (
+                <TabsTrigger value="dashboard" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
+                  <Activity className="h-4 w-4" /> لوحة التحكم
+                </TabsTrigger>
+              )}
               {hasPermission(sessionUser.role, "subscribers") && (
                 <TabsTrigger value="subscribers" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
                   <Users className="h-4 w-4" /> المنخرطون
@@ -538,9 +542,12 @@ export default function Home() {
                   <Crown className="h-4 w-4" /> الفئات
                 </TabsTrigger>
               )}
-              <TabsTrigger value="analytics" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                <TrendingUp className="h-4 w-4" /> التحليلات
-              </TabsTrigger>
+              {/* 🔑 التحليلات: للمدير فقط */}
+              {(sessionUser.role === "admin" || sessionUser.role === "superadmin") && (
+                <TabsTrigger value="analytics" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
+                  <TrendingUp className="h-4 w-4" /> التحليلات
+                </TabsTrigger>
+              )}
               {hasPermission(sessionUser.role, "cards") && (
                 <TabsTrigger value="cards-pro" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
                   <Sparkles className="h-4 w-4" /> مصمم البطاقات
@@ -1144,12 +1151,15 @@ export default function Home() {
             </SheetTitle>
           </SheetHeader>
           <nav className="p-2 overflow-y-auto h-[calc(100%-56px)]">
-            <MobileNavItem
-              icon={Activity}
-              label="لوحة التحكم"
-              active={activeTab === "dashboard"}
-              onClick={() => { setActiveTab("dashboard"); setMobileNavOpen(false); }}
-            />
+            {/* 🔑 لوحة التحكم: للمدير فقط */}
+            {isAdmin && (
+              <MobileNavItem
+                icon={Activity}
+                label="لوحة التحكم"
+                active={activeTab === "dashboard"}
+                onClick={() => { setActiveTab("dashboard"); setMobileNavOpen(false); }}
+              />
+            )}
             {hasPermission(sessionUser.role, "subscribers") && (
               <MobileNavItem
                 icon={Users}
@@ -1213,12 +1223,15 @@ export default function Home() {
                 onClick={() => { setActiveTab("categories"); setMobileNavOpen(false); }}
               />
             )}
-            <MobileNavItem
-              icon={TrendingUp}
-              label="التحليلات"
-              active={activeTab === "analytics"}
-              onClick={() => { setActiveTab("analytics"); setMobileNavOpen(false); }}
-            />
+            {/* 🔑 التحليلات: للمدير فقط */}
+            {isAdmin && (
+              <MobileNavItem
+                icon={TrendingUp}
+                label="التحليلات"
+                active={activeTab === "analytics"}
+                onClick={() => { setActiveTab("analytics"); setMobileNavOpen(false); }}
+              />
+            )}
             {hasPermission(sessionUser.role, "cards") && (
               <MobileNavItem
                 icon={Sparkles}

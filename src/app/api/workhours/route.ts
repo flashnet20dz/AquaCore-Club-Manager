@@ -55,9 +55,16 @@ export async function POST(req: NextRequest) {
     }
 
     const startDate = new Date(`${date}T${startTime}`);
-    const endDate = new Date(`${date}T${endTime}`);
+    let endDate = new Date(`${date}T${endTime}`);
+    // 🔑 دعم الورديات الليلية: إذا كان endTime قبل startTime، اعتبره في اليوم التالي
     if (endDate <= startDate) {
-      return NextResponse.json({ error: "وقت النهاية يجب أن يكون بعد وقت البداية" }, { status: 400 });
+      endDate = new Date(endDate);
+      endDate.setDate(endDate.getDate() + 1);
+    }
+    // تحقق نهائي: يجب أن يكون هناك فرق فعلي
+    const diffMs = endDate.getTime() - startDate.getTime();
+    if (diffMs < 15 * 60 * 1000) { // أقل من 15 دقيقة
+      return NextResponse.json({ error: "الفرق بين وقت البداية والنهاية قليل جداً (أقل من 15 دقيقة)" }, { status: 400 });
     }
 
     const workHour = await db.workHours.create({
