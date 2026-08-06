@@ -12,19 +12,17 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
     const status = url.searchParams.get("status");
     const userId = url.searchParams.get("userId");
-    const month = url.searchParams.get("month"); // YYYY-MM
+    const month = url.searchParams.get("month");
 
     const clubFilter = currentUser.role === "superadmin" ? {} : { clubId: currentUser.clubId! };
     const where: Record<string, unknown> = { ...clubFilter };
     if (status) where.status = status;
     if (userId) where.userId = userId;
 
-    // Lifeguard sees only their own; admin/assistant/superadmin sees all
     if (currentUser.role === "lifeguard") {
       where.userId = currentUser.id;
     }
 
-    // 🔑 فلتر الشهر
     if (month) {
       const [year, mon] = month.split("-").map(Number);
       const start = new Date(year, mon - 1, 1);
@@ -36,13 +34,39 @@ export async function GET(req: NextRequest) {
       where,
       include: {
         user: {
-          select: { id: true, name: true, email: true, role: true, avatar: true, position: true, hourlyRate: true },
+          select: { id: true, name: true, email: true, role: true },
         },
       },
       orderBy: { date: "desc" },
     });
 
-    return NextResponse.json({ workHours });
+    // 🔑 حقن الحقول الجديدة من note (JSON) إن وُجدت — لتجنب P2022
+    const enriched = workHours.map((w) => {
+      let breakMinutes = 0;
+      let workStatus = "present";
+      let absenceReason: string | null = null;
+      let hourlyRate = 0;
+      let position: string | null = null;
+      try {
+        if (w.note && w.note.startsWith("{")) {
+          const meta = JSON.parse(w.note);
+          breakMinutes = meta.breakMinutes || 0;
+          workStatus = meta.workStatus || "present";
+          absenceReason = meta.absenceReason || null;
+          hourlyRate = meta.hourlyRate || 0;
+          position = meta.position || null;
+        }
+      } catch {}
+      return {
+        ...w,
+        breakMinutes,
+        workStatus,
+        absenceReason,
+        user: { ...w.user, hourlyRate, position, avatar: null },
+      };
+    });
+
+    return NextResponse.json({ workHours: enriched });
   } catch (e) {
     console.error("GET workhours:", e);
     return NextResponse.json({ error: "Internal" }, { status: 500 });
@@ -63,8 +87,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "التاريخ مطلوب" }, { status: 400 });
     }
 
-    // 🔑 إذا كانت الحالة غياب، لا نحتاج أوقات
-    if (workStatus === "absent" || workStatus === "leave" || workStatus === "sick" || workStatus === "vacation") {
+    const isAbsence = workStatus === "absent" || workStatus === "leave" || workStatus === "sick" || workStatus === "vacation";
+
+    // 🔑 خزّن الحقول الإضافية في note كـ JSON — لتجنب P2022
+    const noteMeta = JSON.stringify({
+      breakMinutes: breakMinutes || 0,
+      workStatus: workStatus || "present",
+      absenceReason: absenceReason || null,
+      textNote: note || "",
+    });
+
+    if (isAbsence) {
       const workHour = await db.workHours.create({
         data: {
           clubId: currentUser.clubId!,
@@ -72,36 +105,31 @@ export async function POST(req: NextRequest) {
           date: new Date(date),
           startTime: new Date(`${date}T00:00`),
           endTime: new Date(`${date}T00:00`),
-          breakMinutes: 0,
-          workStatus: workStatus || "absent",
-          absenceReason: absenceReason || null,
-          note: note || null,
+          note: noteMeta,
           status: currentUser.role === "admin" || currentUser.role === "superadmin" ? "approved" : "pending",
           approvedById: (currentUser.role === "admin" || currentUser.role === "superadmin") ? currentUser.id : null,
           approvedAt: (currentUser.role === "admin" || currentUser.role === "superadmin") ? new Date() : null,
         },
         include: {
-          user: { select: { id: true, name: true, email: true, role: true, avatar: true, position: true, hourlyRate: true } },
+          user: { select: { id: true, name: true, email: true, role: true } },
         },
       });
       return NextResponse.json({ workHour }, { status: 201 });
     }
 
-    // 🔑 للحضور: startTime و endTime مطلوبان
     if (!startTime || !endTime) {
       return NextResponse.json({ error: "وقت البداية والنهاية مطلوبان" }, { status: 400 });
     }
 
     const startDate = new Date(`${date}T${startTime}`);
     let endDate = new Date(`${date}T${endTime}`);
-    // 🔑 دعم الورديات الليلية
     if (endDate <= startDate) {
       endDate = new Date(endDate);
       endDate.setDate(endDate.getDate() + 1);
     }
     const diffMs = endDate.getTime() - startDate.getTime();
     if (diffMs < 15 * 60 * 1000) {
-      return NextResponse.json({ error: "الفرق بين وقت البداية والنهاية قليل جداً (أقل من 15 دقيقة)" }, { status: 400 });
+      return NextResponse.json({ error: "الفرق بين وقت البداية والنهاية قليل جداً" }, { status: 400 });
     }
 
     const workHour = await db.workHours.create({
@@ -111,16 +139,13 @@ export async function POST(req: NextRequest) {
         date: new Date(date),
         startTime: startDate,
         endTime: endDate,
-        breakMinutes: breakMinutes || 0,
-        workStatus: workStatus || "present",
-        absenceReason: absenceReason || null,
-        note: note || null,
+        note: noteMeta,
         status: currentUser.role === "admin" || currentUser.role === "superadmin" ? "approved" : "pending",
         approvedById: (currentUser.role === "admin" || currentUser.role === "superadmin") ? currentUser.id : null,
         approvedAt: (currentUser.role === "admin" || currentUser.role === "superadmin") ? new Date() : null,
       },
       include: {
-        user: { select: { id: true, name: true, email: true, role: true, avatar: true, position: true, hourlyRate: true } },
+        user: { select: { id: true, name: true, email: true, role: true } },
       },
     });
 
