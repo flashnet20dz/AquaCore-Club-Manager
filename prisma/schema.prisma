@@ -61,6 +61,7 @@ model Club {
   contracts       EmploymentContract[]
   contractTemplates ContractTemplate[]
   activationCodes ActivationCode[]                  // الأكواد المُفعَّلة لهذا النادي
+  guardAssignments GuardAssignment[]                // تعيينات الحراس
   clubSettings    ClubSettings?                      // إعدادات النادي (سوبر أدمن)
   uiConfigurations UIConfiguration[]                 // إعدادات الواجهات المخصصة
   groupMemberships ClubGroupMember[]                 // عضوية في مجموعات النوادي
@@ -271,6 +272,7 @@ model User {
   payments        Payment[]
   sessions        Session[]
   employees       Employee[]
+  guardAssignments GuardAssignment[]
   codeBatches     CodeBatch[]                       // الدفعات التي ولّدها هذا المستخدم
 }
 
@@ -502,6 +504,41 @@ model Employee {
   @@unique([clubId, nationalId])
   @@index([clubId])
   @@index([clubId, position])
+}
+
+// ═══════════════════════════════════════════════════════════
+// GUARD ASSIGNMENTS (تعيين الحراس على الحصص) — Pointage System
+// ═══════════════════════════════════════════════════════════
+model GuardAssignment {
+  id              String   @id @default(cuid())
+  clubId          String
+  club            Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  userId          String   // الحارس (User with role=lifeguard)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // الحصة المعيَّن عليها
+  dayOfWeek       String   // "الأحد والأربعاء" | "الاثنين والخميس" | "الثلاثاء والجمعة" | "كل الأيام"
+  timeSlot        String   // "09:00-10:00" | etc.
+  groupName       String?  // اسم الفوج (اختياري)
+
+  // نوع التعيين
+  assignmentType  String   @default("primary") // primary | assistant | substitute
+  isActive        Boolean  @default(true)
+  startDate       DateTime @default(now())
+  endDate         DateTime?
+
+  // توقيت حضور الحارس الفعلي (يُملأ عند بدء/إنهاء الحصة)
+  actualStartTime DateTime?
+  actualEndTime   DateTime?
+  attendanceStatus String  @default("scheduled") // scheduled|started|completed|absent|late
+  note            String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([clubId, userId])
+  @@index([clubId, dayOfWeek, timeSlot])
+  @@index([clubId, attendanceStatus])
 }
 
 // ═══════════════════════════════════════════════════════════
