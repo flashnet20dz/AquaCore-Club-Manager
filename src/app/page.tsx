@@ -46,6 +46,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { SyncIndicator } from "@/components/sync-indicator";
 import { UserManagement } from "@/components/user-management";
 import { WorkHoursPanel } from "@/components/work-hours-panel";
+import { WorkHoursManagement } from "@/components/work-hours-management";
 import { ImportPanel } from "@/components/import-panel";
 import { CardDesignerPro } from "@/components/card-designer-pro";
 import { InsurancePanel } from "@/components/insurance-panel";
@@ -1099,7 +1100,7 @@ export default function Home() {
           {/* WORK HOURS TAB */}
           {hasPermission(sessionUser.role, "workHours") && (
             <TabsContent value="workhours" className="mt-0">
-              <WorkHoursPanel userRole={sessionUser.role} currentUserId={sessionUser.id} />
+              {isAdmin ? <WorkHoursManagement /> : <WorkHoursPanel userRole={sessionUser.role} currentUserId={sessionUser.id} />}
             </TabsContent>
           )}
 

@@ -260,6 +260,8 @@ model User {
   role            String   @default("lifeguard")    // superadmin/admin/assistant/lifeguard/observer
   phone           String?
   avatar          String?
+  hourlyRate      Int      @default(0)              // أجر الساعة (دج)
+  position        String?                            // الوظيفة
   active          Boolean  @default(true)
   pending         Boolean  @default(false)
   createdAt       DateTime @default(now())
@@ -281,7 +283,10 @@ model WorkHours {
   date            DateTime
   startTime       DateTime
   endTime         DateTime
-  status          String   @default("pending")
+  breakMinutes    Int      @default(0)              // مدة الاستراحة بالدقائق
+  workStatus      String   @default("present")      // present|absent|leave|sick|vacation|half-day
+  absenceReason   String?                            // سبب الغياب
+  status          String   @default("pending")      // pending|approved|rejected
   note            String?
   approvedById    String?
   approvedAt      DateTime?
