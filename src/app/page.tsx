@@ -42,6 +42,7 @@ import { RenewalPanel } from "@/components/renewal-panel";
 import { ExportPanel } from "@/components/export-panel";
 import { ReportViewer } from "@/components/reports";
 import { SettingsPanel } from "@/components/settings-panel";
+import { ThemeManager } from "@/components/theme-manager";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SyncIndicator } from "@/components/sync-indicator";
 import { UserManagement } from "@/components/user-management";
@@ -1135,7 +1136,8 @@ export default function Home() {
 
           {/* SETTINGS TAB (admin only) */}
           {isAdmin && (
-            <TabsContent value="settings" className="mt-0">
+            <TabsContent value="settings" className="space-y-4 mt-0">
+              <ThemeManager />
               <SettingsPanel />
             </TabsContent>
           )}

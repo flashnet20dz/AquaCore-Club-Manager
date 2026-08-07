@@ -767,12 +767,25 @@ model ClubSettings {
   defaultCurrency String   @default("DZD")
   subscriptionModel String @default("monthly")
   emailNotifications Boolean @default(true)
-  // ألوان الواجهة
-  primaryColor    String   @default("#0f766e")
-  secondaryColor  String   @default("#0369a1")
+  // ألوان الواجهة (Theme Manager)
+  primaryColor    String   @default("#0F4C81")
+  secondaryColor  String   @default("#00B4D8")
+  accentColor     String   @default("#10B981")
+  backgroundColor String?  // null = use default
+  cardColor       String?
+  sidebarColor    String?
+  textColor       String?
+  borderColor     String?
+  successColor    String   @default("#22C55E")
+  warningColor    String   @default("#F59E0B")
+  dangerColor     String   @default("#EF4444")
+  infoColor       String   @default("#3B82F6")
+  borderRadius    String   @default("0.625rem")
+  fontFamily      String   @default("Cairo")
+  themeMode       String   @default("light") // light | dark | auto
+  themeName       String   @default("Ocean Blue")
   // ميزات
   features        String?  // JSON: { whatsapp: true, qr: true, ... }
-  // القالب المطبّق
   appliedTemplate String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
