@@ -33,36 +33,46 @@ export async function GET(req: NextRequest) {
     const workHours = await db.workHours.findMany({
       where,
       include: {
-        user: {
-          select: { id: true, name: true, email: true, role: true },
-        },
+        user: { select: { id: true, name: true, email: true, role: true } },
       },
       orderBy: { date: "desc" },
     });
 
-    // 🔑 حقن الحقول الجديدة من note (JSON) إن وُجدت — لتجنب P2022
+    // 🔑 جلب Employees لربط hourlyRate و position
+    const clubId = currentUser.clubId;
+    const employees = clubId
+      ? await db.employee.findMany({
+          where: { clubId },
+          select: { userId: true, position: true, hourRate: true },
+        })
+      : [];
+    const empMap = new Map(employees.map((e) => [e.userId, { hourlyRate: e.hourRate, position: e.position }]));
+
+    // 🔑 حقن الحقول الإضافية من note (JSON) إن وُجدت
     const enriched = workHours.map((w) => {
       let breakMinutes = 0;
       let workStatus = "present";
       let absenceReason: string | null = null;
-      let hourlyRate = 0;
-      let position: string | null = null;
       try {
         if (w.note && w.note.startsWith("{")) {
           const meta = JSON.parse(w.note);
           breakMinutes = meta.breakMinutes || 0;
           workStatus = meta.workStatus || "present";
           absenceReason = meta.absenceReason || null;
-          hourlyRate = meta.hourlyRate || 0;
-          position = meta.position || null;
         }
       } catch {}
+      const emp = empMap.get(w.userId);
       return {
         ...w,
         breakMinutes,
         workStatus,
         absenceReason,
-        user: { ...w.user, hourlyRate, position, avatar: null },
+        user: {
+          ...w.user,
+          hourlyRate: emp?.hourlyRate || 0,
+          position: emp?.position || null,
+          avatar: null,
+        },
       };
     });
 
@@ -89,7 +99,7 @@ export async function POST(req: NextRequest) {
 
     const isAbsence = workStatus === "absent" || workStatus === "leave" || workStatus === "sick" || workStatus === "vacation";
 
-    // 🔑 خزّن الحقول الإضافية في note كـ JSON — لتجنب P2022
+    // 🔑 خزّن الحقول الإضافية في note كـ JSON
     const noteMeta = JSON.stringify({
       breakMinutes: breakMinutes || 0,
       workStatus: workStatus || "present",

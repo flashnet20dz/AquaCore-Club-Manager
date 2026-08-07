@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getCurrentUser, ensureDefaultAdmin } from "@/lib/session";
+import { getCurrentUser } from "@/lib/session";
 
 export async function GET() {
   try {
@@ -9,29 +9,34 @@ export async function GET() {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
     }
 
-    // Self-heal: ensure admin exists
-    await ensureDefaultAdmin();
-
+    // 🔑 جلب كل العمال (Users) + Employees
     const clubFilter = currentUser.role === "superadmin" ? {} : { clubId: currentUser.clubId! };
+
     const users = await db.user.findMany({
-      where: {
-        role: { not: "superadmin" },
-        ...clubFilter,
-      },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        phone: true,
-        active: true,
-        pending: true,
-        createdAt: true,
-      },
+      where: { role: { not: "superadmin" }, ...clubFilter },
+      select: { id: true, email: true, name: true, role: true, phone: true, active: true, pending: true, createdAt: true },
       orderBy: { createdAt: "asc" },
     });
 
-    return NextResponse.json({ users });
+    // 🔑 جلب Employees (فيهم hourRate و position)
+    const employees = await db.employee.findMany({
+      where: clubFilter,
+      select: { id: true, userId: true, position: true, hourRate: true, firstName: true, lastName: true },
+    });
+
+    // 🔑 دمج: لكل User، ابحث عن Employee المرتبط به
+    const empMap = new Map(employees.map((e) => [e.userId, e]));
+    const enriched = users.map((u) => {
+      const emp = empMap.get(u.id);
+      return {
+        ...u,
+        position: emp?.position || null,
+        hourlyRate: emp?.hourRate || 0,
+        employeeId: emp?.id || null,
+      };
+    });
+
+    return NextResponse.json({ users: enriched });
   } catch (e) {
     console.error("GET users:", e);
     return NextResponse.json({ error: "Internal" }, { status: 500 });
@@ -45,25 +50,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
     }
 
-    const body = await req.json();
-    const { email, password, name, role, phone } = body;
+    const { name, email, password, role, phone } = await req.json();
 
-    if (!email || !password || !name || !role) {
-      return NextResponse.json({ error: "بيانات ناقصة" }, { status: 400 });
-    }
-
-    if (password.length < 6) {
-      return NextResponse.json({ error: "كلمة المرور يجب أن تكون 6 أحرف على الأقل" }, { status: 400 });
-    }
-
-    const validRoles = ["admin", "assistant", "lifeguard", "observer"];
-    if (!validRoles.includes(role)) {
-      return NextResponse.json({ error: "دور غير صالح" }, { status: 400 });
-    }
-
-    const existing = await db.user.findUnique({ where: { email: email.toLowerCase().trim() } });
+    // Check if email already exists
+    const existing = await db.user.findUnique({ where: { email } });
     if (existing) {
-      return NextResponse.json({ error: "هذا البريد مسجل بالفعل" }, { status: 409 });
+      return NextResponse.json({ error: "البريد الإلكتروني مستخدم بالفعل" }, { status: 400 });
     }
 
     const bcrypt = await import("bcryptjs");
@@ -71,7 +63,7 @@ export async function POST(req: NextRequest) {
 
     const user = await db.user.create({
       data: {
-        email: email.toLowerCase().trim(),
+        email,
         name,
         passwordHash,
         role,

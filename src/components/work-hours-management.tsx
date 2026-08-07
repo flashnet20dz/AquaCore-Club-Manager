@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import {
   Clock, Plus, Search, Download, Printer, RefreshCw, Users, CheckCircle2,
   XCircle, Calendar, Wallet, TrendingUp, FileText, Loader2, ChevronLeft, ChevronRight,
-  User, Trash2, Check, X,
+  User, Trash2, Check, X, Settings2, DollarSign, Save,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -113,7 +113,10 @@ export function WorkHoursManagement() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [rateDialogOpen, setRateDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [rateSaving, setRateSaving] = useState(false);
+  const [editingRate, setEditingRate] = useState<{ userId: string; name: string; hourlyRate: number; position: string } | null>(null);
 
   // Form state
   const [form, setForm] = useState({
@@ -270,6 +273,54 @@ export function WorkHoursManagement() {
     }
   };
 
+  // 🔑 تحديد سعر الساعة لكل عامل
+  const handleSaveRate = async () => {
+    if (!editingRate) return;
+    setRateSaving(true);
+    try {
+      const res = await fetch(`/api/users/${editingRate.userId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          hourlyRate: editingRate.hourlyRate,
+          position: editingRate.position,
+        }),
+      });
+      if (!res.ok) throw new Error("فشل");
+      toast.success("تم حفظ سعر الساعة");
+      setRateDialogOpen(false);
+      setEditingRate(null);
+      fetchStaff();
+    } catch {
+      toast.error("فشل الحفظ");
+    } finally {
+      setRateSaving(false);
+    }
+  };
+
+  // 🔑 جدول ملخص ساعات العمل والراتب لكل عامل
+  const staffSummary = useMemo(() => {
+    return staff.map((s) => {
+      const records = workHours.filter((w) => w.userId === s.id && w.workStatus === "present");
+      const totalHours = records.reduce((sum, w) => sum + calcWorkHours(w.startTime, w.endTime, w.breakMinutes), 0);
+      const overtime = records.reduce((sum, w) => {
+        const h = calcWorkHours(w.startTime, w.endTime, w.breakMinutes);
+        return sum + Math.max(0, h - 8);
+      }, 0);
+      const totalWage = totalHours * (s.hourlyRate || 0);
+      const presentDays = records.length;
+      const absentDays = workHours.filter((w) => w.userId === s.id && w.workStatus === "absent").length;
+      return {
+        ...s,
+        totalHours: Math.round(totalHours * 10) / 10,
+        overtime: Math.round(overtime * 10) / 10,
+        totalWage: Math.round(totalWage),
+        presentDays,
+        absentDays,
+      };
+    });
+  }, [staff, workHours]);
+
   const goToPrevMonth = () => {
     const [y, m] = currentMonth.split("-").map(Number);
     const d = new Date(y, m - 2, 1);
@@ -304,6 +355,9 @@ export function WorkHoursManagement() {
           <div className="flex gap-2 flex-wrap">
             <Button size="sm" onClick={() => setDialogOpen(true)} className="bg-teal-600 hover:bg-teal-700 text-white">
               <Plus className="h-4 w-4 ml-1" /> إضافة سجل
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setRateDialogOpen(true)} className="border-amber-400 text-amber-700 hover:bg-amber-50">
+              <DollarSign className="h-4 w-4 ml-1" /> أسعار الساعة
             </Button>
             <Button size="sm" variant="outline" onClick={fetchWorkHours}>
               <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
@@ -577,6 +631,119 @@ export function WorkHoursManagement() {
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4 ml-1" />}
               تسجيل
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 🔑 جدول ملخص ساعات العمل والراتب */}
+      <div className="rounded-2xl border border-amber-500/30 bg-amber-50/30 overflow-hidden">
+        <div className="p-4 border-b border-amber-500/20">
+          <h3 className="font-bold text-sm flex items-center gap-2 text-amber-900">
+            <Wallet className="h-4 w-4 text-amber-600" /> ملخص ساعات العمل والراتب — {monthName}
+          </h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-amber-500/10 text-amber-900">
+                <th className="p-2 text-right w-8">#</th>
+                <th className="p-2 text-right min-w-[120px]">العامل</th>
+                <th className="p-2 text-right">الوظيفة</th>
+                <th className="p-2 text-center">سعر الساعة</th>
+                <th className="p-2 text-center">أيام الحضور</th>
+                <th className="p-2 text-center">أيام الغياب</th>
+                <th className="p-2 text-center">مجموع الساعات</th>
+                <th className="p-2 text-center">ساعات إضافية</th>
+                <th className="p-2 text-center font-bold">الراتب الإجمالي</th>
+              </tr>
+            </thead>
+            <tbody>
+              {staffSummary.length === 0 ? (
+                <tr><td colSpan={9} className="text-center py-8 text-muted-foreground">لا يوجد عمال</td></tr>
+              ) : (
+                staffSummary.map((s, i) => (
+                  <tr key={s.id} className={cn("border-b border-amber-500/10 hover:bg-amber-50/40", i % 2 === 0 ? "bg-white" : "bg-amber-50/20")}>
+                    <td className="p-2 text-center text-muted-foreground">{i + 1}</td>
+                    <td className="p-2 font-semibold">{s.name}</td>
+                    <td className="p-2 text-xs text-muted-foreground">{s.position || s.role}</td>
+                    <td className="p-2 text-center font-semibold text-amber-700">
+                      {s.hourlyRate > 0 ? `${s.hourlyRate} دج` : <span className="text-rose-500 text-xs">غير محدد</span>}
+                    </td>
+                    <td className="p-2 text-center font-semibold text-emerald-600">{s.presentDays}</td>
+                    <td className="p-2 text-center font-semibold text-rose-500">{s.absentDays}</td>
+                    <td className="p-2 text-center font-bold text-teal-700">{s.totalHours > 0 ? `${s.totalHours} سا` : "—"}</td>
+                    <td className="p-2 text-center font-semibold text-violet-600">{s.overtime > 0 ? `+${s.overtime} سا` : "—"}</td>
+                    <td className="p-2 text-center font-bold text-amber-700 text-base">
+                      {s.totalWage > 0 ? `${s.totalWage.toLocaleString()} دج` : "—"}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+            {staffSummary.length > 0 && (
+              <tfoot>
+                <tr className="bg-amber-500/15 font-bold text-amber-900">
+                  <td colSpan={5} className="p-2 text-right">الإجمالي</td>
+                  <td className="p-2 text-center">{staffSummary.reduce((s, x) => s + x.absentDays, 0)}</td>
+                  <td className="p-2 text-center text-teal-700">{staffSummary.reduce((s, x) => s + x.totalHours, 0).toFixed(1)} سا</td>
+                  <td className="p-2 text-center text-violet-600">+{staffSummary.reduce((s, x) => s + x.overtime, 0).toFixed(1)} سا</td>
+                  <td className="p-2 text-center text-amber-700 text-base">{staffSummary.reduce((s, x) => s + x.totalWage, 0).toLocaleString()} دج</td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      </div>
+
+      {/* 🔑 نافذة تحديد سعر الساعة */}
+      <Dialog open={rateDialogOpen} onOpenChange={setRateDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <DollarSign className="h-5 w-5 text-amber-600" /> تحديد سعر الساعة لكل عامل
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+            {staff.map((s) => (
+              <div key={s.id} className="flex items-center gap-2 p-3 rounded-lg border bg-card hover:bg-accent/40 transition">
+                <div className="w-10 h-10 rounded-full bg-teal-500/15 flex items-center justify-center text-teal-700 font-bold shrink-0">
+                  {s.name.charAt(0)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-sm truncate">{s.name}</p>
+                  <p className="text-[10px] text-muted-foreground">{s.position || s.role}</p>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Input
+                    type="number"
+                    value={s.hourlyRate || 0}
+                    onChange={(e) => {
+                      const rate = +e.target.value;
+                      setStaff((prev) => prev.map((x) => x.id === s.id ? { ...x, hourlyRate: rate } : x));
+                    }}
+                    className="h-8 w-24 text-center text-sm"
+                    min={0}
+                    step={50}
+                  />
+                  <span className="text-xs text-muted-foreground shrink-0">دج/سا</span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 shrink-0"
+                  onClick={async () => {
+                    setEditingRate({ userId: s.id, name: s.name, hourlyRate: s.hourlyRate || 0, position: s.position || "" });
+                    await handleSaveRate();
+                  }}
+                  disabled={rateSaving}
+                >
+                  <Save className="h-3.5 w-3.5 ml-1" /> حفظ
+                </Button>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRateDialogOpen(false)}>إغلاق</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
