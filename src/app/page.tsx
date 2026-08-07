@@ -52,7 +52,6 @@ import { ImportPanel } from "@/components/import-panel";
 import { CardDesignerPro } from "@/components/card-designer-pro";
 import { InsurancePanel } from "@/components/insurance-panel";
 import { CompoundPanel } from "@/components/compound-panel";
-import { StaffRightsPanel } from "@/components/staff-rights-panel";
 import { CompensationsPanel } from "@/components/compensations-panel";
 import { WaitlistPanel } from "@/components/waitlist-panel";
 import { useSubscriptionTypes } from "@/hooks/use-subscription-types";
@@ -1018,7 +1017,7 @@ export default function Home() {
           {/* COMPOUND RIGHTS TAB */}
           {hasPermission(sessionUser.role, "subscribers") && (
             <TabsContent value="compound" className="mt-0">
-              {isAdmin ? <StaffRightsPanel /> : <CompoundPanel />}
+              <CompoundPanel />
             </TabsContent>
           )}
 
