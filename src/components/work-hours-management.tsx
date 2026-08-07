@@ -455,7 +455,7 @@ export function WorkHoursManagement() {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       transition={{ delay: Math.min(i * 0.01, 0.3) }}
-                      className={cn("border-b transition hover:bg-accent/40", i % 2 === 0 ? "bg-white" : "bg-gray-50/50")}
+                      className={cn("border-b transition hover:bg-teal-50/40 bg-slate-50")}
                     >
                       <td className="p-2 text-center text-muted-foreground">{i + 1}</td>
                       <td className="p-2">
@@ -662,7 +662,7 @@ export function WorkHoursManagement() {
                 <tr><td colSpan={9} className="text-center py-8 text-muted-foreground">لا يوجد عمال</td></tr>
               ) : (
                 staffSummary.map((s, i) => (
-                  <tr key={s.id} className={cn("border-b border-amber-500/10 hover:bg-amber-50/40", i % 2 === 0 ? "bg-white" : "bg-amber-50/20")}>
+                  <tr key={s.id} className={cn("border-b border-amber-500/10 hover:bg-amber-50/40 bg-amber-50/10")}>
                     <td className="p-2 text-center text-muted-foreground">{i + 1}</td>
                     <td className="p-2 font-semibold">{s.name}</td>
                     <td className="p-2 text-xs text-muted-foreground">{s.position || s.role}</td>
