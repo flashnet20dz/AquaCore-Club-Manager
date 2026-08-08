@@ -30,7 +30,7 @@ import { toast } from "sonner";
 import { useSubscriptionTypes } from "@/hooks/use-subscription-types";
 import { UnifiedReportHeader, unifiedReportHeaderHTML } from "@/components/unified-report-header";
 import type { EnteteConfig } from "@/components/unified-report-header";
-import type { SubscriberWithComputed } from "@/lib/rcs";
+import { type SubscriberWithComputed, isExemptStatus } from "@/lib/rcs";
 
 // ──────────────── Shared utilities ────────────────
 
@@ -711,8 +711,10 @@ export function CompoundRightsReport() {
 
   // مطابقة لملف Excel: جميع المنخرطين الذين رسمهم ≥ 1300 دج واشتراكهم ساري
   // في Excel المبلغ ثابت 1000 دج (حقوق المركب)، لكن المنظومة تحسب ديناميكياً
+  // ★ Exclude exempt subscribers from the 1300+ paid list (they have fee=0)
   const filtered = subscribers.filter((s) =>
     (s.subscriptionFee ?? 0) >= 1300 &&
+    !isExemptStatus(s.paymentStatus) &&
     s.paymentStatus !== "لم يدفع"
   );
 
@@ -960,7 +962,8 @@ export function FinancialReport() {
 
   const stats = {
     totalSubs: subscribers.length,
-    paid: subscribers.filter((s) => s.paymentStatus !== "لم يدفع").length,
+    // ★ Exclude exempt from paid count (they are a separate category)
+    paid: subscribers.filter((s) => !isExemptStatus(s.paymentStatus) && s.paymentStatus !== "لم يدفع").length,
     totalSubscriptionFees: subscribers.reduce((sum, s) => sum + (s.subscriptionFee || 0), 0),
     totalInsuranceFees: subscribers.reduce((sum, s) => sum + (s.insuranceFee || 0), 0),
     totalCompoundRights: subscribers.reduce((sum, s) => sum + (s.compoundRights || 0), 0),

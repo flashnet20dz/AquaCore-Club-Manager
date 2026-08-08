@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { normalizePaymentStatus, isExemptStatus } from "@/lib/rcs";
 
 export async function GET(req: NextRequest) {
   try {
@@ -39,7 +40,12 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { subscriberId, months, amount, paymentStatus, note } = body;
 
-    if (!subscriberId || !amount) {
+    // ★ EXEMPT renewals don't require an amount (amount = 0)
+    // Normalize the status first to detect exempt
+    const normalizedStatus = normalizePaymentStatus(paymentStatus) || "مدفوع";
+    const exempt = isExemptStatus(normalizedStatus);
+
+    if (!subscriberId || (!exempt && !amount && amount !== 0)) {
       return NextResponse.json({ error: "بيانات ناقصة" }, { status: 400 });
     }
 
@@ -51,6 +57,9 @@ export async function POST(req: NextRequest) {
     const expiryDate = new Date(renewalDate);
     expiryDate.setDate(expiryDate.getDate() + (months || 1) * 30);
 
+    // ★ EXEMPT renewal: amount = 0, no financial claim
+    const finalAmount = exempt ? 0 : (amount || 0);
+
     const renewal = await db.renewal.create({
       data: {
         clubId: sub.clubId,
@@ -58,19 +67,23 @@ export async function POST(req: NextRequest) {
         renewalDate,
         expiryDate,
         months: months || 1,
-        amount,
-        paymentStatus: paymentStatus || "مدفوع",
-        note: note || null,
+        amount: finalAmount,
+        paymentStatus: normalizedStatus,
+        note: exempt
+          ? (note || "تجديد معفى — بدون مطالبة مالية")
+          : (note || null),
       },
       include: { subscriber: true },
     });
 
-    // Update subscriber's last payment & expiry
+    // Update subscriber's last payment & status
+    // ★ For EXEMPT: keep lastPaymentDate as-is (no payment happened),
+    //    but update paymentStatus to "معفى" so the subscriber is marked exempt.
     await db.subscriber.update({
       where: { id: subscriberId },
       data: {
-        lastPaymentDate: renewalDate,
-        paymentStatus: paymentStatus || "مدفوع",
+        lastPaymentDate: exempt ? sub.lastPaymentDate : renewalDate,
+        paymentStatus: normalizedStatus,
       },
     });
 
@@ -79,7 +92,9 @@ export async function POST(req: NextRequest) {
         clubId: sub.clubId,
         subscriberId,
         type: "renewal",
-        description: `تم تجديد اشتراك ${sub.lastName} ${sub.firstName} لمدة ${months || 1} شهر`,
+        description: exempt
+          ? `تم تجديد اشتراك ${sub.lastName} ${sub.firstName} — معفى (بدون مطالبة مالية)`
+          : `تم تجديد اشتراك ${sub.lastName} ${sub.firstName} لمدة ${months || 1} شهر بمبلغ ${finalAmount} دج`,
       },
     });
 

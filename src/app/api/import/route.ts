@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser, hasPermission } from "@/lib/session";
-import { computeSubscriberFields, computeSubscriberFieldsDynamic, type Gender, type BloodType, type SubscriptionType, type PaymentStatus, type SwimmingDays, type TimeSlot, type SubscriptionTypeConfig, DEFAULT_TYPES_MAP } from "@/lib/rcs";
+import { computeSubscriberFields, computeSubscriberFieldsDynamic, type Gender, type BloodType, type SubscriptionType, type PaymentStatus, type SwimmingDays, type TimeSlot, type SubscriptionTypeConfig, DEFAULT_TYPES_MAP, normalizePaymentStatus, isExemptStatus } from "@/lib/rcs";
 import * as XLSX from "xlsx";
 
 // Parse dates in multiple formats:
@@ -227,7 +227,9 @@ export async function POST(req: NextRequest) {
 
     // Valid values
     const validGenders = ["ذكر", "أنثى"];
-    const validPaymentStatuses = ["مدفوع", "لم يدفع", "تأمين فقط", "اشتراك 300"];
+    // ★ validPaymentStatuses now includes "معفى" — the import accepts it directly
+    // Also accepts via normalization: معفاة, EXEMPT, EXEMPTED (any case)
+    const validPaymentStatuses = ["مدفوع", "لم يدفع", "تأمين فقط", "اشتراك 300", "معفى"];
     // جلب جميع أنواع الاشتراك من قاعدة البيانات (نشطة وغير نشطة)
     const dbSubTypesAll = await db.subscriptionType.findMany({
       where: { clubId: targetClubId },
@@ -371,10 +373,12 @@ export async function POST(req: NextRequest) {
       }
 
       // Payment status — افتراضي "مدفوع" إذا كانت القيمة غير صالحة
+      // ★ Accepts معفى/معفاة/EXEMPT/EXEMPTED → normalizes to "معفى"
       if (paymentStatusKey) {
         const p = String(row[paymentStatusKey] || "").trim();
-        if (validPaymentStatuses.includes(p)) {
-          r.paymentStatus = p;
+        const normalized = normalizePaymentStatus(p);
+        if (normalized) {
+          r.paymentStatus = normalized;
         } else if (p) {
           // قيمة غير معروفة — استخدم "مدفوع" كافتراضي (لا خطأ حرج)
           r.paymentStatus = "مدفوع";
@@ -572,6 +576,8 @@ export async function POST(req: NextRequest) {
           totalInsurance: financialCheck.reduce((s, r) => s + (r.computed.insuranceFee ?? 0), 0),
           totalCompound: financialCheck.reduce((s, r) => s + (r.computed.compoundRights ?? 0), 0),
           totalRevenue: financialCheck.reduce((s, r) => s + (r.computed.totalAmount ?? 0), 0),
+          // ★ Count exempt subscribers detected in the import preview
+          exemptCount: financialCheck.filter((r) => isExemptStatus(r.paymentStatus)).length,
         },
         // 🔑 معاينة ورقة التجديد
         renewalPreview: analyzeRenewalSheet(wb),
@@ -695,6 +701,8 @@ export async function POST(req: NextRequest) {
 
     let imported = 0;
     let skipped = 0;
+    // ★ Track how many exempt subscribers were imported
+    let exemptImported = 0;
     const importErrors: { row: number; name: string; error: string }[] = [];
 
     // ═══ المرحلة 2: إنشاء المنخرطين — إدراج فردي لكل صف ═══
@@ -707,6 +715,8 @@ export async function POST(req: NextRequest) {
       try {
         await db.subscriber.create({ data: records[i] });
         imported++;
+        // ★ Count exempt imports
+        if (isExemptStatus(r.paymentStatus)) exemptImported++;
       } catch (e) {
         const errMsg = e instanceof Error ? e.message : "خطأ غير معروف";
         skipped++;
@@ -915,6 +925,8 @@ export async function POST(req: NextRequest) {
       imported,
       updated,
       skipped,
+      // ★ Report exempt count in import results
+      exemptImported,
       duplicates: duplicateRows.length,
       duplicateDetails: duplicateRows.slice(0, 50),
       // 🔑 التعارضات المالية (لم تُستورد — تحتاج مراجعة يدوية)

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { computeSubscriberFields } from "@/lib/rcs";
+import { computeSubscriberFields, isExemptStatus } from "@/lib/rcs";
 import { getCurrentUser } from "@/lib/session";
 
 /**
@@ -69,11 +69,17 @@ export async function GET() {
     ]);
 
     // تنسيق التوزيعات
-    const paymentStatusLabels = ["مدفوع", "لم يدفع", "تأمين فقط", "اشتراك 300"];
+    // ★ "معفى" added as a separate payment status bucket
+    const paymentStatusLabels = ["مدفوع", "لم يدفع", "تأمين فقط", "اشتراك 300", "معفى"];
     const byPaymentStatus = paymentStatusLabels.map((status) => ({
       status,
       count: byPaymentStatusRaw.find((r) => r.paymentStatus === status)?._count._all || 0,
     }));
+
+    // ★ Explicit EXEMPT count (the key new metric)
+    const exemptCount = byPaymentStatusRaw
+      .filter((r) => isExemptStatus(r.paymentStatus))
+      .reduce((sum, r) => sum + r._count._all, 0);
 
     // أنواع الاشتراك من DB
     const subTypeWhere = isSuperadmin ? { active: true } : { clubId: currentUser.clubId!, active: true };
@@ -122,8 +128,14 @@ export async function GET() {
       },
     });
 
-    const computed = subsForComputation.map((s) => computeSubscriberFields(s));
-    const paid = computed.filter((s) => s.paymentStatus !== "لم يدفع");
+    const computed = subsForComputation.map((s) => ({ ...s, ...computeSubscriberFields(s) }));
+
+    // ★ paid = subscribers who paid AND are NOT exempt (exempt is a separate category)
+    //   unpaid = explicitly "لم يدفع"
+    //   exempt = isExempt flag (separate, excluded from paid/unpaid/revenue)
+    const paid = computed.filter((s) => !isExemptStatus(s.paymentStatus) && s.paymentStatus !== "لم يدفع");
+    const unpaid = computed.filter((s) => s.paymentStatus === "لم يدفع");
+    const exempt = computed.filter((s) => s.isExempt);
 
     const totalSubscriptionFees = paid.reduce((sum, s) => sum + (s.subscriptionFee ?? 0), 0);
     const totalInsuranceFees = paid.reduce((sum, s) => sum + (s.insuranceFee ?? 0), 0);
@@ -160,6 +172,9 @@ export async function GET() {
     return NextResponse.json({
       total,
       paid: paid.length,
+      // ★ EXEMPT count as a first-class metric (separate from paid/unpaid)
+      unpaid: unpaid.length,
+      exempt: exempt.length,
       financial: {
         totalSubscriptionFees,
         totalInsuranceFees,

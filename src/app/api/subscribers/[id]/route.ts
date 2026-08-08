@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { computeSubscriberFields } from "@/lib/rcs";
+import { computeSubscriberFields, normalizePaymentStatus } from "@/lib/rcs";
 import { getCurrentUser } from "@/lib/session";
 import { recordSyncOutbox } from "@/lib/sync-outbox";
 import { checkWaitlistPromotion } from "@/lib/waitlist";
@@ -45,6 +45,17 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
+    // ★ Normalize payment status if provided (accepts معفى/EXEMPT/...)
+    let normalizedStatus: string | undefined;
+    if (body.paymentStatus) {
+      normalizedStatus = normalizePaymentStatus(body.paymentStatus) || undefined;
+      if (!normalizedStatus) {
+        return NextResponse.json({
+          error: `حالة دفع غير صالحة: "${body.paymentStatus}". القيم المقبولة: مدفوع، لم يدفع، تأمين فقط، اشتراك 300، معفى`,
+        }, { status: 400 });
+      }
+    }
+
     // بناء بيانات التحديث — لا نرسل fileNumber إلا إذا تغير النوع فعلاً
     let updateData: any = {
       lastName: body.lastName ?? existing.lastName,
@@ -56,7 +67,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       lastPaymentDate: body.lastPaymentDate !== undefined
         ? (body.lastPaymentDate ? new Date(body.lastPaymentDate) : null)
         : existing.lastPaymentDate,
-      paymentStatus: body.paymentStatus ?? existing.paymentStatus,
+      // ★ Use normalized status (accepts معفى/معفاة/EXEMPT/EXEMPTED → "معفى")
+      paymentStatus: normalizedStatus ?? existing.paymentStatus,
       swimmingDays: body.swimmingDays !== undefined ? (body.swimmingDays || null) : existing.swimmingDays,
       timeSlot: body.timeSlot !== undefined ? (body.timeSlot || null) : existing.timeSlot,
       phone: body.phone !== undefined ? (body.phone || null) : existing.phone,

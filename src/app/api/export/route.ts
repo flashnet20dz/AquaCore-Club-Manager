@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { computeSubscriberFields } from "@/lib/rcs";
+import { computeSubscriberFields, isExemptStatus, formatAmountForExport } from "@/lib/rcs";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -286,13 +286,14 @@ async function exportExcel(type: string, filters: ExportFilters = { club: {}, su
         "العمر": c.age,
         "فصيلة الدم": s.bloodType || "",
         "نوع الاشتراك": s.subscriptionType,
-        "تاريخ آخر دفعة": s.lastPaymentDate ? formatDate(new Date(s.lastPaymentDate)) : "",
-        "تاريخ الانتهاء": c.expiryDate ? formatDate(new Date(c.expiryDate)) : "",
+        "تاريخ آخر دفعة": isExemptStatus(s.paymentStatus) ? "" : (s.lastPaymentDate ? formatDate(new Date(s.lastPaymentDate)) : ""),
+        "تاريخ الانتهاء": isExemptStatus(s.paymentStatus) ? "" : (c.expiryDate ? formatDate(new Date(c.expiryDate)) : ""),
         "حالة الدفع": s.paymentStatus,
-        "رسوم الاشتراك": c.subscriptionFee ?? "",
-        "مصاريف التأمين": c.insuranceFee ?? "",
-        "حقوق المركب": c.compoundRights ?? "",
-        "المبلغ الإجمالي": c.totalAmount ?? "",
+        // ★ EXEMPT subscribers show "معفى" in amount columns (not 0)
+        "رسوم الاشتراك": formatAmountForExport(s.paymentStatus, c.subscriptionFee),
+        "مصاريف التأمين": formatAmountForExport(s.paymentStatus, c.insuranceFee),
+        "حقوق المركب": formatAmountForExport(s.paymentStatus, c.compoundRights),
+        "المبلغ الإجمالي": formatAmountForExport(s.paymentStatus, c.totalAmount),
         "حالة التجديد": c.renewalStatus,
         "أيام السباحة": s.swimmingDays || "",
         "التوقيت": s.timeSlot || "",
@@ -302,11 +303,15 @@ async function exportExcel(type: string, filters: ExportFilters = { club: {}, su
     sheetName = "المنخرطون";
 
     // Summary sheet
-    const paid = subs.filter((s) => s.paymentStatus !== "لم يدفع");
+    // ★ paid excludes exempt subscribers (they are a separate category)
+    const paid = subs.filter((s) => !isExemptStatus(s.paymentStatus) && s.paymentStatus !== "لم يدفع");
+    const exemptSubs = subs.filter((s) => isExemptStatus(s.paymentStatus));
     const computed = subs.map((s) => ({ ...s, ...computeSubscriberFields(s) }));
     const summary = [
       { "البند": "إجمالي المنخرطين", "القيمة": subs.length },
       { "البند": "منخرطون مدفوعون", "القيمة": paid.length },
+      // ★ EXEMPT count as a separate summary line
+      { "البند": "منخرطون معفون", "القيمة": exemptSubs.length },
       { "البند": "إجمالي رسوم الاشتراكات (دج)", "القيمة": computed.reduce((sum, s) => sum + (s.subscriptionFee ?? 0), 0) },
       { "البند": "إجمالي مصاريف التأمين (دج)", "القيمة": computed.reduce((sum, s) => sum + (s.insuranceFee ?? 0), 0) },
       { "البند": "إجمالي حقوق المركب (دج)", "القيمة": computed.reduce((sum, s) => sum + (s.compoundRights ?? 0), 0) },
@@ -424,7 +429,7 @@ async function exportExcel(type: string, filters: ExportFilters = { club: {}, su
   } else if (queryType === "financial") {
     const subs = await db.subscriber.findMany({ where: filters.sub });
     const computed = subs.map((s) => ({ ...s, ...computeSubscriberFields(s) }));
-    const paid = computed.filter((s) => s.paymentStatus !== "لم يدفع");
+    const paid = computed.filter((s) => !isExemptStatus(s.paymentStatus) && s.paymentStatus !== "لم يدفع");
 
     dataRows = paid.map((s, i) => ({
       "رقم": i + 1,
@@ -564,7 +569,7 @@ async function exportPdf(type: string, _sigs: string[], _enteteConfig: EnteteCon
   } else if (queryType === "financial") {
     const subs = await db.subscriber.findMany({ where: filters.sub });
     const computed = subs.map((s) => ({ ...s, ...computeSubscriberFields(s) }));
-    const paid = computed.filter((s) => s.paymentStatus !== "لم يدفع");
+    const paid = computed.filter((s) => !isExemptStatus(s.paymentStatus) && s.paymentStatus !== "لم يدفع");
     head = ["#", "File", "Name", "Birth Date", "Type", "Sub Fee", "Insurance", "Compound", "Total"];
     body = paid.map((s, i) => [
       i + 1, s.fileNumber, `${s.lastName} ${s.firstName}`,
@@ -851,7 +856,7 @@ async function exportWord(type: string, sigs: string[] = [], enteteConfig: Entet
   } else if (queryType === "financial") {
     const subs = await db.subscriber.findMany({ where: filters.sub });
     const computed = subs.map((s) => ({ ...s, ...computeSubscriberFields(s) }));
-    const paid = computed.filter((s) => s.paymentStatus !== "لم يدفع");
+    const paid = computed.filter((s) => !isExemptStatus(s.paymentStatus) && s.paymentStatus !== "لم يدفع");
     tableHeaders = "<th>#</th><th>رقم الملف</th><th>اللقب والاسم</th><th>تاريخ الميلاد</th><th>نوع الاشتراك</th><th>رسوم الاشتراك</th><th>مصاريف التأمين</th><th>حقوق المركب</th><th>المبلغ الإجمالي</th>";
     tableRows = paid.map((s, i) => `<tr>
       <td style="text-align:center;">${i + 1}</td>

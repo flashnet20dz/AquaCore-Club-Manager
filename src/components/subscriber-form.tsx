@@ -32,6 +32,7 @@ import {
   PAYMENT_STATUSES,
   SWIMMING_DAYS,
   TIME_SLOTS,
+  isExemptStatus,
   type BloodType,
   type SubscriptionType,
   type PaymentStatus,
@@ -189,7 +190,11 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
   // حساب الرسوم ديناميكياً من خصائص نوع الاشتراك
   let subscriptionFee: number | null = null;
   let insuranceFee: number | null = null;
-  if (form.paymentStatus !== "لم يدفع" && form.paymentStatus) {
+  // ★ EXEMPT: no fees at all
+  if (isExemptStatus(form.paymentStatus)) {
+    subscriptionFee = 0;
+    insuranceFee = 0;
+  } else if (form.paymentStatus !== "لم يدفع" && form.paymentStatus) {
     const typeConfig = subTypes.find((t) => t.code === form.subscriptionType);
     if (typeConfig) {
       // استخدام الخصائص الديناميكية
@@ -347,11 +352,24 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
             <ChipSelector
               label="حالة الدفع"
               icon={<CreditCard className="h-4 w-4" />}
-              options={PAYMENT_STATUSES.map((ps) => ({ value: ps, label: ps }))}
+              // ★ "معفى" now appears in the options (from PAYMENT_STATUSES)
+              options={PAYMENT_STATUSES.map((ps) => ({ value: ps, label: ps === "معفى" ? "🎁 معفى" : ps }))}
               value={form.paymentStatus}
               onChange={(v) => setForm({ ...form, paymentStatus: v })}
-              columns={4}
+              columns={3}
             />
+
+            {/* ★ EXEMPT info box — shown when paymentStatus is "معفى" */}
+            {isExemptStatus(form.paymentStatus) && (
+              <div className="rounded-lg border border-violet-300/50 bg-violet-50 dark:bg-violet-950/30 dark:border-violet-700/50 p-3 flex items-start gap-2">
+                <div className="text-violet-600 dark:text-violet-400 mt-0.5 shrink-0">
+                  <CreditCard className="h-4 w-4" />
+                </div>
+                <div className="text-xs text-violet-700 dark:text-violet-300">
+                  <strong>حالة معفى:</strong> لن يتم احتساب أي مبلغ على هذا المنخرط (الاشتراك = 0، التأمين = 0، المجموع = 0). لن يظهر ضمن المبالغ غير المدفوعة ولن يُعتبر متأخراً في الدفع. لا حاجة لإدخال تاريخ دفع.
+                </div>
+              </div>
+            )}
 
             <ChipSelector
               label="أيام السباحة"

@@ -8,6 +8,8 @@ import {
   type Gender,
   type SubscriptionType,
   type PaymentStatus,
+  normalizePaymentStatus,
+  isExemptStatus,
 } from "@/lib/rcs";
 
 export async function GET(req: NextRequest) {
@@ -70,6 +72,9 @@ export async function GET(req: NextRequest) {
       filtered = computed.filter((s) => s.renewalStatus === "⛔ منتهي - يتطلب تجديد");
     } else if (renewalStatus === "مجمدة") {
       filtered = computed.filter((s) => s.renewalStatus === "🔒 مجمدة");
+    } else if (renewalStatus === "معفى") {
+      // ★ Filter by exempt flag (EXEMPT subscribers)
+      filtered = computed.filter((s) => s.isExempt);
     }
 
     return NextResponse.json({
@@ -97,6 +102,14 @@ export async function POST(req: NextRequest) {
 
     if (!body.lastName || !body.firstName || !body.birthDate || !body.gender || !body.subscriptionType || !body.paymentStatus) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
+
+    // ★ Normalize payment status — accepts معفى/معفاة/EXEMPT/EXEMPTED → "معفى"
+    const normalizedStatus = normalizePaymentStatus(body.paymentStatus);
+    if (!normalizedStatus) {
+      return NextResponse.json({
+        error: `حالة دفع غير صالحة: "${body.paymentStatus}". القيم المقبولة: مدفوع، لم يدفع، تأمين فقط، اشتراك 300، معفى`,
+      }, { status: 400 });
     }
 
     const count = await db.subscriber.count({ where: { clubId: currentUser.clubId } });
@@ -149,8 +162,9 @@ export async function POST(req: NextRequest) {
         gender: body.gender as Gender,
         bloodType: body.bloodType || null,
         subscriptionType: body.subscriptionType as SubscriptionType,
+        // ★ EXEMPT subscribers may not have a payment date — that's fine
         lastPaymentDate: body.lastPaymentDate ? new Date(body.lastPaymentDate) : null,
-        paymentStatus: body.paymentStatus as PaymentStatus,
+        paymentStatus: normalizedStatus as PaymentStatus,
         swimmingDays: body.swimmingDays || null,
         timeSlot: body.timeSlot || null,
         phone: body.phone || null,
@@ -162,7 +176,9 @@ export async function POST(req: NextRequest) {
         clubId: currentUser.clubId,
         subscriberId: subscriber.id,
         type: "create",
-        description: `تم تسجيل منخرط جديد: ${subscriber.lastName} ${subscriber.firstName} (${fileNumber})`,
+        description: isExemptStatus(normalizedStatus)
+          ? `تم تسجيل منخرط معفى: ${subscriber.lastName} ${subscriber.firstName} (${fileNumber})`
+          : `تم تسجيل منخرط جديد: ${subscriber.lastName} ${subscriber.firstName} (${fileNumber})`,
       },
     });
 

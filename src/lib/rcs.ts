@@ -1,15 +1,22 @@
 /**
  * Business logic for RCS subscription system
  * ─────────────────────────────────────────────
- * v2.0 — Dynamic subscription type properties
+ * v3.0 — Dynamic subscription type properties + EXEMPT payment status
  * لا يوجد أي شرط ثابت مثل if(type === "MJ")
  * كل القرارات مبنية على خصائص النوع المخزنة في قاعدة البيانات
+ *
+ * EXEMPT ("معفى") is now a first-class payment status:
+ *   - subscriptionFee = 0, insuranceFee = 0, compoundRights = 0, totalAmount = 0
+ *   - renewalStatus always = "✅ ساري" (never late, never frozen)
+ *   - Not counted in unpaid totals; counted separately in statistics
+ *   - Accepted variants on import: معفى, معفاة, EXEMPT, EXEMPTED
  */
 
 export type Gender = "ذكر" | "أنثى";
 export type BloodType = "A+" | "A-" | "B+" | "B-" | "O+" | "O-" | "AB+" | "AB-";
 export type SubscriptionType = "/" | "OPOW" | "DJS" | "FCS" | "RCS" | "POLICE" | "MJ" | string;
-export type PaymentStatus = "مدفوع" | "لم يدفع" | "تأمين فقط" | "اشتراك 300";
+// ★ EXEMPT ("معفى") added as a first-class payment status
+export type PaymentStatus = "مدفوع" | "لم يدفع" | "تأمين فقط" | "اشتراك 300" | "معفى";
 export type SwimmingDays = "الأحد والأربعاء" | "الاثنين والخميس" | "الثلاثاء والجمعة" | "كل الأيام" | string;
 export type TimeSlot = "09:00-10:00" | "10:00-11:00" | "19:00-20:00" | "20:00-21:00" | string;
 
@@ -154,6 +161,63 @@ export interface SubscriberWithComputed {
   compoundRights: number | null;
   totalAmount: number | null;
   renewalStatus: string;
+  // ★ EXEMPT flag — true when paymentStatus is "معفى"
+  isExempt: boolean;
+}
+
+// ════════════ EXEMPT ("معفى") helpers ════════════
+
+/**
+ * Checks if a payment status string represents EXEMPT.
+ * Accepts the canonical "معفى" plus normalized EXEMPT values.
+ */
+export function isExemptStatus(status: string | null | undefined): boolean {
+  if (!status) return false;
+  const normalized = status.trim().toLowerCase();
+  return normalized === "معفى" || normalized === "معفاة" || normalized === "exempt" || normalized === "exempted";
+}
+
+/**
+ * Normalize various EXEMPT spellings/encodings to the canonical "معفى".
+ * Used during Excel import and data entry.
+ * Accepts: معفى, معفاة, EXEMPT, EXEMPTED (any case)
+ * Returns the canonical status string, or null if input is not a valid status.
+ */
+export function normalizePaymentStatus(raw: string | null | undefined): PaymentStatus | null {
+  if (!raw) return null;
+  const trimmed = String(raw).trim();
+  if (!trimmed) return null;
+  const lower = trimmed.toLowerCase();
+  // EXEMPT variants → canonical "معفى"
+  if (lower === "exempt" || lower === "exempted" || trimmed === "معفى" || trimmed === "معفاة") {
+    return "معفى";
+  }
+  // Standard statuses
+  if (trimmed === "مدفوع" || trimmed === "لم يدفع" || trimmed === "تأمين فقط" || trimmed === "اشتراك 300") {
+    return trimmed as PaymentStatus;
+  }
+  return null;
+}
+
+/**
+ * Format an amount for display.
+ * EXEMPT subscribers show "معفى" instead of "0 دج" to make clear they are
+ * exempt, not just zero-amount.
+ */
+export function formatAmountDisplay(paymentStatus: PaymentStatus, amount: number | null): string {
+  if (isExemptStatus(paymentStatus)) return "معفى";
+  if (amount === null) return "—";
+  return `${amount.toLocaleString("en-US")} دج`;
+}
+
+/**
+ * Format amount for Excel/PDF export cells.
+ * EXEMPT → "معفى" (string), so the spreadsheet cell literally shows the word.
+ */
+export function formatAmountForExport(paymentStatus: PaymentStatus, amount: number | null): string | number {
+  if (isExemptStatus(paymentStatus)) return "معفى";
+  if (amount === null) return "—";
+  return amount;
 }
 
 // ثوابت قديمة (للتوافق مع الكود الموجود)
@@ -204,6 +268,8 @@ export function calculateSubscriptionFeeDynamic(
   typeConfig: SubscriptionTypeConfig,
   age: number
 ): number | null {
+  // ★ EXEMPT: no subscription fee at all, regardless of type/age
+  if (isExemptStatus(paymentStatus)) return 0;
   if (paymentStatus === "لم يدفع") return null;
   if (typeConfig.freeSubscription) return 0;
 
@@ -229,6 +295,8 @@ export function calculateInsuranceFeeDynamic(
   paymentStatus: PaymentStatus,
   typeConfig: SubscriptionTypeConfig
 ): number | null {
+  // ★ EXEMPT: no insurance fee
+  if (isExemptStatus(paymentStatus)) return 0;
   if (paymentStatus === "لم يدفع") return null;
   // إذا كان النوع مجاني — لا تأمين
   if (typeConfig.freeSubscription) return 0;
@@ -244,6 +312,8 @@ export function calculateCompoundRightsDynamic(
   paymentStatus: PaymentStatus,
   typeConfig: SubscriptionTypeConfig
 ): number | null {
+  // ★ EXEMPT: no compound rights
+  if (isExemptStatus(paymentStatus)) return 0;
   if (paymentStatus === "لم يدفع") return null;
   // إذا كان النوع مجاني — لا حقوق مركب
   if (typeConfig.freeSubscription) return 0;
@@ -257,6 +327,8 @@ export function calculateTotalAmountDynamic(
   subscriptionFee: number | null,
   insuranceFee: number | null
 ): number | null {
+  // ★ EXEMPT: total is explicitly 0 (not derived from null)
+  if (isExemptStatus(paymentStatus)) return 0;
   if (paymentStatus === "لم يدفع") return null;
   if (subscriptionFee === null) return null;
   return subscriptionFee + (insuranceFee ?? 0);
@@ -266,6 +338,8 @@ export function calculateRenewalStatus(
   paymentStatus: PaymentStatus,
   expiryDate: Date | null
 ): string {
+  // ★ EXEMPT: always active, never overdue, never frozen
+  if (isExemptStatus(paymentStatus)) return "✅ ساري";
   if (paymentStatus === "لم يدفع") return "🔒 مجمدة";
   if (!expiryDate) return "";
   const today = new Date();
@@ -296,6 +370,7 @@ export function computeSubscriberFieldsDynamic<T extends {
   compoundRights: number | null;
   totalAmount: number | null;
   renewalStatus: string;
+  isExempt: boolean;
 } {
   const config = typeConfig || getTypeConfig(sub.subscriptionType as string);
   const age = calculateAge(sub.birthDate);
@@ -306,6 +381,8 @@ export function computeSubscriberFieldsDynamic<T extends {
   const compoundRights = calculateCompoundRightsDynamic(sub.paymentStatus, config);
   const totalAmount = calculateTotalAmountDynamic(sub.paymentStatus, subscriptionFee, insuranceFee);
   const renewalStatus = calculateRenewalStatus(sub.paymentStatus, expiryDate);
+  // ★ EXEMPT flag for easy UI/API usage
+  const isExempt = isExemptStatus(sub.paymentStatus);
 
   return {
     age,
@@ -315,6 +392,7 @@ export function computeSubscriberFieldsDynamic<T extends {
     compoundRights,
     totalAmount,
     renewalStatus,
+    isExempt,
   };
 }
 
@@ -363,12 +441,14 @@ export function generateFileNumber(index: number): string {
   return `RCS ${String(index).padStart(3, "0")}`;
 }
 
-// Status colors for badges
-export const PAYMENT_STATUS_COLORS: Record<PaymentStatus, string> = {
+// Status colors for badges — ★ EXEMPT ("معفى") uses distinct violet
+export const PAYMENT_STATUS_COLORS: Record<string, string> = {
   "مدفوع": "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
   "لم يدفع": "bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30",
   "تأمين فقط": "bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/30",
   "اشتراك 300": "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30",
+  // ★ EXEMPT — violet/purple, clearly different from paid (emerald) and unpaid (rose)
+  "معفى": "bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/30",
 };
 
 export const SUBSCRIPTION_TYPE_COLORS: Record<string, string> = {
@@ -389,7 +469,8 @@ export const RENEWAL_STATUS_COLORS: Record<string, string> = {
 };
 
 export const SUBSCRIPTION_TYPES: SubscriptionType[] = ["/", "OPOW", "DJS", "FCS", "RCS", "POLICE", "MJ"];
-export const PAYMENT_STATUSES: PaymentStatus[] = ["مدفوع", "لم يدفع", "تأمين فقط", "اشتراك 300"];
+// ★ PAYMENT_STATUSES now includes "معفى" (EXEMPT)
+export const PAYMENT_STATUSES: PaymentStatus[] = ["مدفوع", "لم يدفع", "تأمين فقط", "اشتراك 300", "معفى"];
 export const BLOOD_TYPES: BloodType[] = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"];
 export const SWIMMING_DAYS: SwimmingDays[] = ["الأحد والأربعاء", "الاثنين والخميس", "الثلاثاء والجمعة", "الثلاثاء والسبت", "كل الأيام"];
 export const TIME_SLOTS: TimeSlot[] = [

@@ -93,7 +93,9 @@ export const SubscriberCard = memo(function SubscriberCard({
       {/* Top accent bar */}
       <div className={cn(
         "h-1 w-full",
-        subscriber.paymentStatus === "مدفوع" ? "bg-gradient-to-l from-emerald-500 to-emerald-400"
+        // ★ EXEMPT uses violet gradient
+        subscriber.paymentStatus === "معفى" ? "bg-gradient-to-l from-violet-500 to-violet-400"
+        : subscriber.paymentStatus === "مدفوع" ? "bg-gradient-to-l from-emerald-500 to-emerald-400"
         : subscriber.paymentStatus === "لم يدفع" ? "bg-gradient-to-l from-rose-500 to-rose-400"
         : subscriber.paymentStatus === "تأمين فقط" ? "bg-gradient-to-l from-sky-500 to-sky-400"
         : "bg-gradient-to-l from-amber-500 to-amber-400"
@@ -238,7 +240,12 @@ export const SubscriberCard = memo(function SubscriberCard({
             المبلغ الإجمالي
           </div>
           <div className="text-right">
-            {subscriber.totalAmount !== null ? (
+            {/* ★ EXEMPT shows "معفى" instead of "0 دج" */}
+            {subscriber.isExempt ? (
+              <span className="font-extrabold text-lg text-violet-700 dark:text-violet-300">
+                معفى
+              </span>
+            ) : subscriber.totalAmount !== null ? (
               <span className="font-extrabold text-lg text-amber-700 dark:text-amber-300 tabular-nums">
                 {subscriber.totalAmount.toLocaleString("en-US")} <span className="text-xs font-medium">دج</span>
               </span>
@@ -248,8 +255,8 @@ export const SubscriberCard = memo(function SubscriberCard({
           </div>
         </div>
 
-        {/* Mini breakdown */}
-        {subscriber.totalAmount !== null && (
+        {/* Mini breakdown — hidden for EXEMPT (no breakdown needed) */}
+        {!subscriber.isExempt && subscriber.totalAmount !== null && (
           <div className="flex items-center justify-between text-[10px] text-muted-foreground -mt-2">
             <span>اشتراك: {subscriber.subscriptionFee ?? 0}</span>
             <span>تأمين: {subscriber.insuranceFee ?? 0}</span>
