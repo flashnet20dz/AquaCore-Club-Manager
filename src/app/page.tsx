@@ -8,7 +8,7 @@ import {
   QrCode, Download, Settings as SettingsIcon, LogOut, Moon, Sun, ChevronLeft,
   UserCheck, RefreshCcw, FileText, Bell, Zap, Award, Pencil, Trash2,
   CreditCard, Inbox, UserCog, Database, Layers, Menu, CalendarOff, ListPlus, Building2,
-  ArrowDownAZ,
+  ArrowDownAZ, Banknote,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,6 +54,7 @@ import { CardDesignerPro } from "@/components/card-designer-pro";
 import { InsurancePanel } from "@/components/insurance-panel";
 import { CompoundPanel } from "@/components/compound-panel";
 import { CompensationsPanel } from "@/components/compensations-panel";
+import { StaffCompensationsPanel } from "@/components/staff-compensations-panel";
 import { WaitlistPanel } from "@/components/waitlist-panel";
 import { useSubscriptionTypes } from "@/hooks/use-subscription-types";
 import { ContractsPanel } from "@/components/contracts-panel";
@@ -481,6 +482,7 @@ export default function Home() {
                  activeTab === "import" ? "الاستيراد" :
                  activeTab === "export" ? "التصدير" :
                  activeTab === "charges" ? "الأعباء" :
+                 activeTab === "staff-compensations" ? "تعويضات العمال" :
                  activeTab === "contracts" ? "عقود العمال" :
                  activeTab === "users" ? "المستخدمون" :
                  activeTab === "backup" ? "النسخ الاحتياطي" :
@@ -569,6 +571,11 @@ export default function Home() {
               {hasPermission(sessionUser.role, "charges") && (
                 <TabsTrigger value="charges" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
                   <Wallet className="h-4 w-4" /> الأعباء والتسديدات
+                </TabsTrigger>
+              )}
+              {hasPermission(sessionUser.role, "staffCompensations") && (
+                <TabsTrigger value="staff-compensations" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
+                  <Banknote className="h-4 w-4" /> تعويضات العمال
                 </TabsTrigger>
               )}
               {isAdmin && (
@@ -1087,6 +1094,13 @@ export default function Home() {
             </TabsContent>
           )}
 
+          {/* ★ STAFF COMPENSATIONS TAB (financial — admin/assistant/lifeguard) */}
+          {hasPermission(sessionUser.role, "staffCompensations") && (
+            <TabsContent value="staff-compensations" className="mt-0">
+              <StaffCompensationsPanel />
+            </TabsContent>
+          )}
+
           {/* CONTRACTS TAB (admin only) */}
           {isAdmin && (
             <TabsContent value="contracts" className="mt-0">
@@ -1266,6 +1280,14 @@ export default function Home() {
                 label="الأعباء والتسديدات"
                 active={activeTab === "charges"}
                 onClick={() => { handleTabChange("charges"); setMobileNavOpen(false); }}
+              />
+            )}
+            {hasPermission(sessionUser.role, "staffCompensations") && (
+              <MobileNavItem
+                icon={Banknote}
+                label="تعويضات العمال"
+                active={activeTab === "staff-compensations"}
+                onClick={() => { handleTabChange("staff-compensations"); setMobileNavOpen(false); }}
               />
             )}
             {isAdmin && (

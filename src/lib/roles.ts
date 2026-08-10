@@ -31,6 +31,9 @@ export function hasPermission(role: string | undefined, feature: string): boolea
     export: ["admin", "assistant"],
     workHours: ["admin", "assistant", "lifeguard"],
     workHoursApproval: ["admin", "assistant"],
+    // ★ Staff financial compensations — admin + assistant manage, lifeguard views own
+    staffCompensations: ["admin", "assistant", "lifeguard"],
+    staffCompensationsManage: ["admin", "assistant"],
     userManagement: ["admin"],
     settings: ["admin"],
     cards: ["admin", "assistant"],

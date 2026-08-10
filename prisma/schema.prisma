@@ -62,6 +62,7 @@ model Club {
   contractTemplates ContractTemplate[]
   activationCodes ActivationCode[]                  // الأكواد المُفعَّلة لهذا النادي
   guardAssignments GuardAssignment[]                // تعيينات الحراس
+  staffCompensations StaffCompensation[]          // التعويضات المالية للعمال
   clubSettings    ClubSettings?                      // إعدادات النادي (سوبر أدمن)
   uiConfigurations UIConfiguration[]                 // إعدادات الواجهات المخصصة
   groupMemberships ClubGroupMember[]                 // عضوية في مجموعات النوادي
@@ -272,6 +273,7 @@ model User {
   employees       Employee[]
   guardAssignments GuardAssignment[]
   codeBatches     CodeBatch[]                       // الدفعات التي ولّدها هذا المستخدم
+  staffCompensations StaffCompensation[]
 }
 
 model WorkHours {
@@ -496,6 +498,7 @@ model Employee {
 
   contracts       EmploymentContract[]
 
+  staffCompensations StaffCompensation[]
   @@unique([clubId, nationalId])
   @@index([clubId])
   @@index([clubId, position])
@@ -991,4 +994,77 @@ model CardTemplate {
   @@index([clubId])
   @@index([isShared])
   @@index([isDefault])
+}
+
+// ═══════════════════════════════════════════════════════════
+// STAFF COMPENSATIONS (التعويضات المالية للعمال والحراس)
+// ═══════════════════════════════════════════════════════════
+// Financial compensation records for workers, guards, and employees.
+// Separate from the session `Compensation` model (which tracks makeup
+// swimming sessions for subscribers who missed classes).
+//
+// Supports:
+//   - Manual entry with auto-calculated total
+//   - Auto-calculation from WorkHours/Pointage for guards
+//   - Payment status tracking (paid / unpaid / processing)
+//   - Period filtering (month/year)
+//   - Bulk actions + export (Word/PDF/Excel/CSV)
+model StaffCompensation {
+  id              String   @id @default(cuid())
+  clubId          String
+  club            Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  // Employee link (the worker/guard/employee receiving compensation)
+  employeeId      String?
+  employee        Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+
+  // User link (fallback if no Employee record — direct user compensation)
+  userId          String?
+  user            User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  // Person snapshot (for display even if employee/user deleted)
+  personName      String
+  personPosition  String   @default("guard")  // guard/coach/admin/maintenance/cleaner/seasonal/other
+
+  // Period
+  month           Int      // 1-12
+  year            Int      // e.g. 2026
+  periodLabel     String?  // "أوت 2026" (cached for display)
+
+  // Work data
+  workHours       Int      @default(0)    // عدد ساعات العمل
+  hourRate        Int      @default(200)  // سعر الساعة (دج)
+  baseAmount      Int      @default(0)    // التعويض الأساسي = workHours * hourRate
+
+  // Adjustments
+  overtimeHours   Int      @default(0)    // الساعات الإضافية
+  overtimeAmount  Int      @default(0)    // تعويض الساعات الإضافية
+  bonusAmount     Int      @default(0)    // تعويض إضافي (منح)
+  deductions      Int      @default(0)    // الخصومات
+
+  // Total = baseAmount + overtimeAmount + bonusAmount - deductions
+  totalAmount     Int      @default(0)
+
+  // Payment status
+  paymentStatus   String   @default("unpaid")  // paid / unpaid / processing
+  paymentDate     DateTime?
+  paymentMethod   String?  // cash / bank / cheque
+
+  // Compensation type
+  compensationType String  @default("monthly")  // monthly / bonus / overtime / penalty / other
+
+  note            String?
+
+  // Audit
+  createdById     String?
+  approvedById    String?
+  approvedAt      DateTime?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([clubId, year, month])
+  @@index([clubId, paymentStatus])
+  @@index([clubId, employeeId])
+  @@index([clubId, userId])
 }
