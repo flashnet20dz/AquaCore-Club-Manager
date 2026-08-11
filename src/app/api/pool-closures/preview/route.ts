@@ -15,7 +15,7 @@ import { getCurrentUser } from "@/lib/session";
 export async function GET(req: NextRequest) {
   try {
     const currentUser = await getCurrentUser();
-    if (!currentUser || !currentUser.clubId) {
+    if (!currentUser) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
     }
 
