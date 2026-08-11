@@ -99,6 +99,19 @@ export async function PATCH(
         },
       });
 
+      // ★ سجل تدقيق: تحديد موعد تعويضي
+      await db.compensationHistory.create({
+        data: {
+          clubId,
+          compensationId: id,
+          action: "scheduled",
+          description: `تحديد حصة تعويضية بتاريخ ${newDate.toLocaleDateString("ar")} — ${compensationTimeSlot}`,
+          oldValue: JSON.stringify({ status: compensation.status, compensationDate: compensation.compensationDate }),
+          newValue: JSON.stringify({ status: "scheduled", compensationDate: newDate.toISOString(), compensationTimeSlot }),
+          userId: currentUser.id,
+        },
+      });
+
       await db.notification.create({
         data: {
           clubId,
@@ -136,9 +149,32 @@ export async function PATCH(
         },
       });
 
+      // ★ زيادة compensatedCount وتحديث الحالة المشتقة
+      const newCompensatedCount = (compensation.compensatedCount || 0) + 1;
+      // لو وصل للعدد الكامل → used، وإلا → partial
+      const newStatus = newCompensatedCount >= compensation.cancelledSessionsCount ? "used" : "partial";
+
       const updated = await db.compensation.update({
         where: { id },
-        data: { status: "used", usedAt: new Date(), attendanceId: attendance.id },
+        data: {
+          status: newStatus,
+          usedAt: new Date(),
+          attendanceId: attendance.id,
+          compensatedCount: newCompensatedCount,
+        },
+      });
+
+      // ★ سجل تدقيق: استخدام الحصة التعويضية
+      await db.compensationHistory.create({
+        data: {
+          clubId,
+          compensationId: id,
+          action: "used",
+          description: `حضور الحصة التعويضية (${newCompensatedCount}/${compensation.cancelledSessionsCount}) — ${compensation.compensationDate?.toLocaleDateString("ar")}`,
+          oldValue: JSON.stringify({ status: compensation.status, compensatedCount: compensation.compensatedCount }),
+          newValue: JSON.stringify({ status: newStatus, compensatedCount: newCompensatedCount, attendanceId: attendance.id }),
+          userId: currentUser.id,
+        },
       });
 
       await db.activity.create({
@@ -160,6 +196,20 @@ export async function PATCH(
         where: { id },
         data: { status: "cancelled", note: body.note || compensation.note },
       });
+
+      // ★ سجل تدقيق: إلغاء التعويض
+      await db.compensationHistory.create({
+        data: {
+          clubId,
+          compensationId: id,
+          action: "cancelled",
+          description: body.note ? `إلغاء التعويض: ${body.note}` : "إلغاء التعويض",
+          oldValue: JSON.stringify({ status: compensation.status }),
+          newValue: JSON.stringify({ status: "cancelled", note: body.note || null }),
+          userId: currentUser.id,
+        },
+      });
+
       return NextResponse.json({ compensation: updated });
     }
 

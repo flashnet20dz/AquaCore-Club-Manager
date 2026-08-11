@@ -68,6 +68,7 @@ model Club {
   groupMemberships ClubGroupMember[]                 // عضوية في مجموعات النوادي
   featureAccess   FeatureAccess[]                    // وصول مخصص للميزات
   cardTemplates   CardTemplate[]                     // قوالب بطاقات الانخراط
+  compensationHistory CompensationHistory[]           // سجل تدقيق التعويضات
 }
 
 // Club subscription (اشتراك النادي)
@@ -273,6 +274,7 @@ model User {
   employees       Employee[]
   guardAssignments GuardAssignment[]
   codeBatches     CodeBatch[]                       // الدفعات التي ولّدها هذا المستخدم
+  compensationHistory CompensationHistory[]           // سجل تدقيق التعويضات
   staffCompensations StaffCompensation[]
 }
 
@@ -607,18 +609,30 @@ model PoolClosure {
   clubId          String
   club            Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
-  date            DateTime                        // تاريخ الإغلاق
+  date            DateTime                        // تاريخ الإغلاق (للتوافق — يُساوي startDate في الإغلاقات الجديدة)
+  // ★ فترة الإغلاق: من تاريخ إلى تاريخ (multi-day closure)
+  startDate       DateTime?
+  endDate         DateTime?
+
   swimmingDays    String?                          // مجموعة الأيام المتأثرة (مثال: "الأحد والأربعاء") — null = كل المجموعات
   timeSlot        String?                          // التوقيت المتأثر (مثال: "09:00-10:00") — null = كل التوقيتات
   reason          String                           // سبب الإغلاق (صيانة، تنظيف عميق، عطل تقني...)
   note            String?
 
+  // ★ نطاق الاستهداف (filters) — محفوظة للسجل
+  subscriptionTypesFilter  String?                 // JSON array of types
+  paymentStatusesFilter    String?                 // JSON array of statuses
+  registeredOnOrAfter      DateTime?
+  registeredOnOrBefore     DateTime?
+
   createdById     String?
   createdAt       DateTime @default(now())
 
   compensations   Compensation[]
+  history         CompensationHistory[]
 
   @@index([clubId, date])
+  @@index([clubId, startDate, endDate])
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -638,7 +652,16 @@ model Compensation {
   originalSwimmingDays  String?
   originalTimeSlot      String?
 
-  status                String   @default("pending")  // pending / scheduled / used / expired / cancelled
+  status                String   @default("pending")  // pending / scheduled / used / expired / cancelled / partial
+
+  // ★ عدد الحصص الملغاة الفعلية لهذا المنخرط خلال فترة الإغلاق
+  // (محسوب من جدول فوجه، ليس من عدد أيام الغلق)
+  cancelledSessionsCount Int     @default(1)
+  // ★ عدد الحصص التي تم تعويضها فعلياً (0 = pending, < cancelled = partial, = cancelled = complete)
+  compensatedCount       Int     @default(0)
+
+  // ★ مهلة الاستخدام (تاريخ انتهاء صلاحية الحصة التعويضية)
+  expiryDate             DateTime?
 
   compensationDate      DateTime?                  // تاريخ الحصة التعويضية (بعد تحديدها)
   compensationSwimmingDays String?
@@ -653,8 +676,41 @@ model Compensation {
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
+  history                CompensationHistory[]
+
   @@index([clubId, status])
   @@index([clubId, subscriberId])
+  @@index([closureId])
+  @@index([expiryDate])
+}
+
+// ═══════════════════════════════════════════════════════════
+// COMPENSATION HISTORY (سجل تدقيق التعويضات) — per club
+// ═══════════════════════════════════════════════════════════
+// Audit trail: every change to a compensation or closure is logged here
+// (who did what, when, old value → new value)
+model CompensationHistory {
+  id              String   @id @default(cuid())
+  clubId          String
+  club            Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  compensationId  String?
+  compensation    Compensation? @relation(fields: [compensationId], references: [id], onDelete: SetNull)
+  closureId       String?
+  closure         PoolClosure? @relation(fields: [closureId], references: [id], onDelete: SetNull)
+
+  action          String   // created / scheduled / used / cancelled / expired / rescheduled / deleted
+  description     String
+  oldValue        String?  // JSON snapshot of relevant fields before change
+  newValue        String?  // JSON snapshot after change
+
+  userId          String?
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  createdAt       DateTime @default(now())
+
+  @@index([clubId, createdAt])
+  @@index([compensationId])
   @@index([closureId])
 }
 

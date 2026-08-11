@@ -536,3 +536,135 @@ export function getAgeCategory(gender: string, age: number): AgeCategory {
   if (gender === "ذكر") return isYoung ? "males_under_13" : "males_13_plus";
   return isYoung ? "females_under_13" : "females_13_plus";
 }
+
+// ═══════════════════════════════════════════════════════════
+// ★ COMPENSATION SYSTEM HELPERS
+// ═══════════════════════════════════════════════════════════
+
+// خريطة أسماء أيام السباحة إلى أرقام أيام الأسبوع (JS: 0=Sunday)
+const DAY_NAME_TO_JS_DOW: Record<string, number> = {
+  "الأحد": 0,
+  "الاثنين": 1,
+  "الثلاثاء": 2,
+  "الأربعاء": 3,
+  "الخميس": 4,
+  "الجمعة": 5,
+  "السبت": 6,
+};
+
+/**
+ * تحليل مجموعة أيام السباحة إلى قائمة أرقام أيام الأسبوع.
+ * مثال: "الأحد والأربعاء" → [0, 3]
+ * "كل الأيام" → [0,1,2,3,4,5,6]
+ */
+export function parseSwimmingDays(swimmingDays: string | null | undefined): number[] {
+  if (!swimmingDays || swimmingDays === "كل الأيام") {
+    return [0, 1, 2, 3, 4, 5, 6];
+  }
+  // split على " و " أو "،"
+  const parts = swimmingDays.split(/\s*و\s*|\s*,\s*/).map((s) => s.trim()).filter(Boolean);
+  const result: number[] = [];
+  for (const part of parts) {
+    const dow = DAY_NAME_TO_JS_DOW[part];
+    if (dow !== undefined) result.push(dow);
+  }
+  return result.length > 0 ? result : [0, 1, 2, 3, 4, 5, 6];
+}
+
+/**
+ * ★ حساب عدد الحصص الملغاة الفعلية لفوج معيّن خلال فترة إغلاق.
+ *
+ * المنطق:
+ * - لكل يوم في فترة [startDate, endDate]
+ * - إذا كان يوم الأسبوع ينتمي إلى أيام فوج المنخرط → حصة ملغاة
+ * - النتيجة: عدد الحصص الفعلي (ليس عدد الأيام التقويمية)
+ *
+ * @param startDate بداية فترة الإغلاق
+ * @param endDate نهاية فترة الإغلاق (ضمنية — شامل)
+ * @param swimmingDays مجموعة أيام السباحة ("الأحد والأربعاء" / "كل الأيام" / ...)
+ * @returns عدد الحصص الملغاة
+ */
+export function countCancelledSessionsInRange(
+  startDate: Date,
+  endDate: Date,
+  swimmingDays: string | null | undefined
+): number {
+  const allowedDows = new Set(parseSwimmingDays(swimmingDays));
+  const start = new Date(startDate);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(endDate);
+  end.setHours(23, 59, 59, 999);
+
+  if (end < start) return 0;
+
+  let count = 0;
+  const cursor = new Date(start);
+  // حد أمان: لا نعالج أكثر من 365 يوماً
+  let safety = 0;
+  while (cursor <= end && safety < 366) {
+    if (allowedDows.has(cursor.getDay())) {
+      count++;
+    }
+    cursor.setDate(cursor.getDate() + 1);
+    safety++;
+  }
+  return count;
+}
+
+/**
+ * حساب تاريخ انتهاء صلاحية التعويض.
+ * افتراضياً 60 يوماً من تاريخ الإلغاء.
+ */
+export function calculateCompensationExpiryDate(originalDate: Date, validityDays: number = 60): Date {
+  const expiry = new Date(originalDate);
+  expiry.setDate(expiry.getDate() + validityDays);
+  return expiry;
+}
+
+/**
+ * تحديد حالة التعويض الفعلية بناءً على العدد والانتهاء.
+ * - compensatedCount === 0 → "pending" (لم يُعوَّض)
+ * - 0 < compensatedCount < cancelledSessionsCount → "partial" (تعويض جزئي)
+ * - compensatedCount >= cancelledSessionsCount → "used" (تم التعويض بالكامل)
+ * - expiryDate انتهى ولم يكتمل → "expired" (منتهي الصلاحية)
+ */
+export function deriveCompensationStatus(
+  cancelledSessionsCount: number,
+  compensatedCount: number,
+  expiryDate: Date | null,
+  currentStatus: string
+): string {
+  //cancelled === "cancelled" يبقى ملغى
+  if (currentStatus === "cancelled") return "cancelled";
+  // تم التعويض بالكامل
+  if (compensatedCount >= cancelledSessionsCount && cancelledSessionsCount > 0) return "used";
+  // انتهت الصلاحية بدون إكمال
+  if (expiryDate) {
+    const now = new Date();
+    if (now > expiryDate && compensatedCount < cancelledSessionsCount) return "expired";
+  }
+  // تعويض جزئي
+  if (compensatedCount > 0 && compensatedCount < cancelledSessionsCount) return "partial";
+  // بانتظار
+  return "pending";
+}
+
+// ★ حالات التعويض الموسّعة + ألوانها
+export const COMPENSATION_STATUS_LABELS: Record<string, string> = {
+  pending: "لم يُعوَّض",
+  partial: "تعويض جزئي",
+  scheduled: "محدَّد موعد",
+  used: "تم التعويض",
+  expired: "منتهي الصلاحية",
+  cancelled: "ملغى",
+};
+
+export const COMPENSATION_STATUS_COLORS: Record<string, string> = {
+  pending: "bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-300 dark:border-rose-800",
+  partial: "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-800",
+  scheduled: "bg-sky-100 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-300 dark:border-sky-800",
+  used: "bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-800",
+  expired: "bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-900/50 dark:text-slate-400 dark:border-slate-700",
+  cancelled: "bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-300 dark:border-rose-800",
+};
+

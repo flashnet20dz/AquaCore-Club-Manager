@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { countCancelledSessionsInRange } from "@/lib/rcs";
 
 /**
  * GET /api/pool-closures/preview?swimmingDays=&timeSlot=&registeredOnOrBefore=&registeredOnOrAfter=&subscriptionTypes=&paymentStatuses=
@@ -80,7 +81,29 @@ export async function GET(req: NextRequest) {
 
     const total = await db.subscriber.count({ where });
 
-    return NextResponse.json({ total, subscribers });
+    // ★ لو وُجدت فترة إغلاق (startDate + endDate)، احسب عدد الحصص الملغاة لكل منخرط
+    const startDateParam = url.searchParams.get("startDate") || url.searchParams.get("date");
+    const endDateParam = url.searchParams.get("endDate") || url.searchParams.get("date");
+    let totalCancelledSessions = 0;
+    let subscribersWithCounts: typeof subscribers | unknown[] = subscribers;
+    if (startDateParam && endDateParam) {
+      const start = new Date(startDateParam);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(endDateParam);
+      end.setHours(23, 59, 59, 999);
+      subscribersWithCounts = subscribers.map((s) => {
+        const count = countCancelledSessionsInRange(start, end, s.swimmingDays);
+        totalCancelledSessions += Math.max(1, count);
+        return { ...s, cancelledSessionsCount: Math.max(1, count) };
+      });
+    }
+
+    return NextResponse.json({
+      total,
+      subscribers: subscribersWithCounts,
+      // ★ إجمالي الحصص الملغاة المتوقعة (لو وُجدت فترة)
+      totalCancelledSessions: totalCancelledSessions > 0 ? totalCancelledSessions : undefined,
+    });
   } catch (e) {
     console.error("GET /api/pool-closures/preview:", e);
     return NextResponse.json({ error: "Internal" }, { status: 500 });

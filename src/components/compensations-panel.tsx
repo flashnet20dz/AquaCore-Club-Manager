@@ -75,10 +75,14 @@ interface CompSubscriber {
 
 interface Compensation {
   id: string;
-  status: "pending" | "scheduled" | "used" | "expired" | "cancelled";
+  status: "pending" | "scheduled" | "used" | "expired" | "cancelled" | "partial";
   originalDate: string;
   originalSwimmingDays: string | null;
   originalTimeSlot: string | null;
+  // ★ عدد الحصص الملغاة + المعوَّضة + تاريخ الانتهاء
+  cancelledSessionsCount?: number;
+  compensatedCount?: number;
+  expiryDate?: string | null;
   compensationDate: string | null;
   compensationSwimmingDays: string | null;
   compensationTimeSlot: string | null;
@@ -89,6 +93,8 @@ interface Compensation {
 interface PoolClosure {
   id: string;
   date: string;
+  startDate?: string | null;
+  endDate?: string | null;
   swimmingDays: string | null;
   timeSlot: string | null;
   reason: string;
@@ -97,19 +103,21 @@ interface PoolClosure {
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  pending: "بانتظار التحديد",
-  scheduled: "مُحدَّدة",
-  used: "تم الاستخدام",
-  expired: "منتهية",
-  cancelled: "ملغاة",
+  pending: "لم يُعوَّض",
+  partial: "تعويض جزئي",
+  scheduled: "محدَّد موعد",
+  used: "تم التعويض",
+  expired: "منتهي الصلاحية",
+  cancelled: "ملغى",
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  pending: "bg-amber-100 text-amber-700 border-amber-200",
-  scheduled: "bg-sky-100 text-sky-700 border-sky-200",
-  used: "bg-emerald-100 text-emerald-700 border-emerald-200",
-  expired: "bg-gray-100 text-gray-500 border-gray-200",
-  cancelled: "bg-rose-100 text-rose-700 border-rose-200",
+  pending: "bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-300 dark:border-rose-800",
+  partial: "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-800",
+  scheduled: "bg-sky-100 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-300 dark:border-sky-800",
+  used: "bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-800",
+  expired: "bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-900/50 dark:text-slate-400 dark:border-slate-700",
+  cancelled: "bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-300 dark:border-rose-800",
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -155,7 +163,8 @@ export function CompensationsPanel() {
   const pendingCount = closures.flatMap((c) => c.compensations).filter((c) => c.status === "pending").length;
 
   // التحديد الجماعي يشمل فقط الحالات القابلة للتصرف (pending/scheduled)
-  const selectableCompensations = allCompensations.filter((c) => c.status === "pending" || c.status === "scheduled");
+  // ★ selectables: pending + partial + scheduled (all actionable states)
+  const selectableCompensations = allCompensations.filter((c) => c.status === "pending" || c.status === "partial" || c.status === "scheduled");
   const allSelected = selectableCompensations.length > 0 && selectableCompensations.every((c) => selectedIds.has(c.id));
   const someSelected = selectedIds.size > 0;
 
@@ -317,15 +326,25 @@ export function CompensationsPanel() {
               {closures.map((closure) => {
                 const affectedCount = closure.compensations.length;
                 const pendingCount = closure.compensations.filter((c) => c.status === "pending").length;
+                const partialCount = closure.compensations.filter((c) => c.status === "partial").length;
                 const usedCount = closure.compensations.filter((c) => c.status === "used").length;
+                const expiredCount = closure.compensations.filter((c) => c.status === "expired").length;
                 const hasUsed = usedCount > 0;
+                // ★ total cancelled sessions across all compensations in this closure
+                const totalCancelled = closure.compensations.reduce((s, c) => s + (c.cancelledSessionsCount || 1), 0);
+                const totalCompensated = closure.compensations.reduce((s, c) => s + (c.compensatedCount || 0), 0);
+                const isMultiDay = closure.startDate && closure.endDate &&
+                  new Date(closure.endDate).getTime() - new Date(closure.startDate).getTime() > 86400000;
                 return (
                   <div key={closure.id} className="p-3 flex items-start justify-between gap-3 hover:bg-muted/20 transition-colors">
                     <div className="flex-1 min-w-0 space-y-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-semibold text-sm">
-                          {new Date(closure.date).toLocaleDateString("ar", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+                          {isMultiDay
+                            ? `${new Date(closure.startDate!).toLocaleDateString("ar")} ← ${new Date(closure.endDate!).toLocaleDateString("ar")}`
+                            : new Date(closure.date).toLocaleDateString("ar", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
                         </span>
+                        {isMultiDay && <Badge variant="outline" className="text-xs bg-primary/10 text-primary">إغلاق متعدد</Badge>}
                         <Badge variant="outline" className="text-xs">{closure.swimmingDays || "كل الأيام"}</Badge>
                         {closure.timeSlot && <Badge variant="outline" className="text-xs">{closure.timeSlot}</Badge>}
                       </div>
@@ -333,10 +352,18 @@ export function CompensationsPanel() {
                         السبب: {closure.reason}
                         {closure.note && <span className="mr-1">· {closure.note}</span>}
                       </p>
-                      <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                      <div className="flex items-center gap-3 text-[11px] text-muted-foreground flex-wrap">
                         <span className="flex items-center gap-1"><Users className="h-3 w-3" /> {affectedCount} متأثر</span>
-                        {pendingCount > 0 && <span className="text-amber-600">{pendingCount} بانتظار</span>}
-                        {usedCount > 0 && <span className="text-emerald-600">{usedCount} تم التعويض</span>}
+                        {totalCancelled > affectedCount && (
+                          <span className="flex items-center gap-1 text-amber-700"><CalendarOff className="h-3 w-3" /> {totalCancelled} حصة ملغاة</span>
+                        )}
+                        {totalCompensated > 0 && (
+                          <span className="text-emerald-600">{totalCompensated}/{totalCancelled} معوَّض</span>
+                        )}
+                        {pendingCount > 0 && <span className="text-rose-600">{pendingCount} لم يُعوَّض</span>}
+                        {partialCount > 0 && <span className="text-amber-600">{partialCount} جزئي</span>}
+                        {usedCount > 0 && <span className="text-emerald-600">{usedCount} مكتمل</span>}
+                        {expiredCount > 0 && <span className="text-slate-500">{expiredCount} منتهي</span>}
                       </div>
                     </div>
                     <Button
@@ -385,7 +412,7 @@ export function CompensationsPanel() {
                   />
                 )}
                 <div className="space-y-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold">
                       {comp.subscriber.firstName} {comp.subscriber.lastName}
                     </span>
@@ -393,6 +420,16 @@ export function CompensationsPanel() {
                     <Badge className={cn("text-xs border", STATUS_COLORS[comp.status])}>
                       {STATUS_LABELS[comp.status]}
                     </Badge>
+                    {/* ★ عدد الحصص الملغاة vs المعوَّضة */}
+                    {comp.cancelledSessionsCount && comp.cancelledSessionsCount > 1 && (
+                      <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
+                        {comp.compensatedCount || 0}/{comp.cancelledSessionsCount} معوَّض
+                      </Badge>
+                    )}
+                    {/* ★ تنبيه قرب انتهاء الصلاحية */}
+                    {comp.expiryDate && (comp.status === "pending" || comp.status === "partial" || comp.status === "scheduled") && (
+                      <ExpiryBadge expiryDate={comp.expiryDate} />
+                    )}
                   </div>
                   <p className="text-xs text-muted-foreground">
                     الحصة الأصلية: {new Date(comp.originalDate).toLocaleDateString("ar")} —{" "}
@@ -578,11 +615,14 @@ function NewClosureDialog({
   onOpenChange: (v: boolean) => void;
   onCreated: () => void;
 }) {
-  const [date, setDate] = useState("");
+  // ★ فترة الإغلاق: من تاريخ إلى تاريخ (لو endDate فارغ = إغلاق يوم واحد)
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [swimmingDays, setSwimmingDays] = useState<string>("__all__");
   const [timeSlot, setTimeSlot] = useState<string>("__all__");
   const [reason, setReason] = useState("");
   const [note, setNote] = useState("");
+  const [validityDays, setValidityDays] = useState(60);
   const [submitting, setSubmitting] = useState(false);
 
   // ─── تعويض جماعي حسب تاريخ التسجيل + نوع الاشتراك + حالة الدفع ───
@@ -593,6 +633,7 @@ function NewClosureDialog({
   const [selectedSubscriptionTypes, setSelectedSubscriptionTypes] = useState<string[]>([]);
   const [selectedPaymentStatuses, setSelectedPaymentStatuses] = useState<string[]>([]);
   const [previewCount, setPreviewCount] = useState<number | null>(null);
+  const [previewCancelledSessions, setPreviewCancelledSessions] = useState<number | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
   const hasAnyFilter =
@@ -609,6 +650,13 @@ function NewClosureDialog({
     // ★ comma-separated multi-filters
     if (selectedSubscriptionTypes.length > 0) params.set("subscriptionTypes", selectedSubscriptionTypes.join(","));
     if (selectedPaymentStatuses.length > 0) params.set("paymentStatuses", selectedPaymentStatuses.join(","));
+    // ★ date range for cancelled sessions count
+    if (startDate && endDate) {
+      params.set("startDate", startDate);
+      params.set("endDate", endDate);
+    } else if (startDate) {
+      params.set("date", startDate);
+    }
     return params;
   };
 
@@ -625,11 +673,13 @@ function NewClosureDialog({
   const preview = async () => {
     setPreviewLoading(true);
     setPreviewCount(null);
+    setPreviewCancelledSessions(null);
     try {
       const res = await fetch(`/api/pool-closures/preview?${buildParams().toString()}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setPreviewCount(data.total);
+      setPreviewCancelledSessions(data.totalCancelledSessions ?? null);
     } catch (e: any) {
       toast.error(e?.message || "تعذّرت المعاينة");
     } finally {
@@ -638,8 +688,12 @@ function NewClosureDialog({
   };
 
   const submit = async () => {
-    if (!date || !reason) {
-      toast.error("التاريخ وسبب الإغلاق مطلوبان");
+    if (!startDate || !reason) {
+      toast.error("تاريخ بداية الإغلاق والسبب مطلوبان");
+      return;
+    }
+    if (endDate && new Date(endDate) < new Date(startDate)) {
+      toast.error("تاريخ النهاية يجب أن يكون بعد تاريخ البداية");
       return;
     }
     if (!hasAnyFilter && !confirm("لم تحدد أي تصفية — هذا سيعوّض كل المنخرطين بدون استثناء. متابعة؟")) {
@@ -647,27 +701,37 @@ function NewClosureDialog({
     }
     setSubmitting(true);
     try {
+      // ★ لو endDate فارغ، نرسل date فقط (إغلاق يوم واحد للتوافق)
+      const payload: Record<string, unknown> = {
+        swimmingDays: swimmingDays === "__all__" ? null : swimmingDays,
+        timeSlot: timeSlot === "__all__" ? null : timeSlot,
+        reason,
+        note: note || undefined,
+        registeredOnOrBefore: registeredOnOrBefore || undefined,
+        registeredOnOrAfter: registeredOnOrAfter || undefined,
+        subscriptionTypes: selectedSubscriptionTypes.length > 0 ? selectedSubscriptionTypes : undefined,
+        paymentStatuses: selectedPaymentStatuses.length > 0 ? selectedPaymentStatuses : undefined,
+        validityDays,
+      };
+      if (endDate) {
+        payload.startDate = startDate;
+        payload.endDate = endDate;
+      } else {
+        payload.date = startDate;
+      }
+
       const res = await fetch("/api/pool-closures", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          date,
-          swimmingDays: swimmingDays === "__all__" ? null : swimmingDays,
-          timeSlot: timeSlot === "__all__" ? null : timeSlot,
-          reason,
-          note: note || undefined,
-          registeredOnOrBefore: registeredOnOrBefore || undefined,
-          registeredOnOrAfter: registeredOnOrAfter || undefined,
-          // ★ pass multi-select filters
-          subscriptionTypes: selectedSubscriptionTypes.length > 0 ? selectedSubscriptionTypes : undefined,
-          paymentStatuses: selectedPaymentStatuses.length > 0 ? selectedPaymentStatuses : undefined,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      toast.success(`تم تسجيل الإغلاق — تأثر ${data.affectedCount} منخرط(ة) وأُنشئت لهم تعويضات`);
+      const cancelledMsg = data.totalCancelledSessions ? ` (${data.totalCancelledSessions} حصة ملغاة)` : "";
+      toast.success(`تم تسجيل الإغلاق — تأثر ${data.affectedCount} منخرط(ة)${cancelledMsg}`);
       onOpenChange(false);
-      setDate(""); setSwimmingDays("__all__"); setTimeSlot("__all__"); setReason(""); setNote("");
+      setStartDate(""); setEndDate(""); setSwimmingDays("__all__"); setTimeSlot("__all__"); setReason(""); setNote("");
+      setValidityDays(60);
       setRegisteredOnOrBefore(""); setRegisteredOnOrAfter(""); setPreviewCount(null);
       setSelectedSubscriptionTypes([]); setSelectedPaymentStatuses([]);
       onCreated();
@@ -689,9 +753,49 @@ function NewClosureDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-2">
+          {/* ★ فترة الإغلاق: من تاريخ إلى تاريخ */}
           <div className="space-y-1.5">
-            <Label>تاريخ الإغلاق *</Label>
-            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <Label>فترة الإغلاق *</Label>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">من تاريخ (بداية الإغلاق)</Label>
+                <Input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => { setStartDate(e.target.value); setPreviewCount(null); }}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">إلى تاريخ (نهاية الإغلاق — اختياري)</Label>
+                <Input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => { setEndDate(e.target.value); setPreviewCount(null); }}
+                  placeholder="لإغلاق يوم واحد اتركه فارغاً"
+                />
+              </div>
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              {endDate
+                ? "إغلاق متعدد الأيام — سيُحسب عدد الحصص الملغاة فعلياً لكل فوج حسب جدوله."
+                : "إغلاق يوم واحد — اترك «إلى تاريخ» فارغاً."}
+            </p>
+          </div>
+
+          {/* ★ مهلة الاستخدام */}
+          <div className="space-y-1.5">
+            <Label>مهلة استخدام التعويض (أيام)</Label>
+            <Input
+              type="number"
+              min={1}
+              max={365}
+              value={validityDays}
+              onChange={(e) => setValidityDays(Number(e.target.value) || 60)}
+              className="h-8"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              تنتهي صلاحية الحصة التعويضية بعد {validityDays} يوماً من تاريخ الإلغاء.
+            </p>
           </div>
 
           <div className="space-y-1.5">
@@ -892,9 +996,16 @@ function NewClosureDialog({
               معاينة عدد المتأثرين
             </Button>
             {previewCount !== null && (
-              <Badge variant="outline" className="text-xs">
-                سيتأثر {previewCount} منخرط(ة)
-              </Badge>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge variant="outline" className="text-xs">
+                  سيتأثر {previewCount} منخرط(ة)
+                </Badge>
+                {previewCancelledSessions !== null && previewCancelledSessions > 0 && (
+                  <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
+                    {previewCancelledSessions} حصة ملغاة متوقعة
+                  </Badge>
+                )}
+              </div>
             )}
           </div>
 
@@ -1099,5 +1210,41 @@ function BulkScheduleDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// ★ ExpiryBadge — تنبيه قرب انتهاء صلاحية التعويض
+// ═══════════════════════════════════════════════════════════
+function ExpiryBadge({ expiryDate }: { expiryDate: string }) {
+  const now = new Date();
+  const expiry = new Date(expiryDate);
+  const daysLeft = Math.ceil((expiry.getTime() - now.getTime()) / 86400000);
+
+  if (daysLeft < 0) {
+    return (
+      <Badge variant="outline" className="text-[10px] bg-slate-100 text-slate-500 border-slate-200">
+        منتهية الصلاحية
+      </Badge>
+    );
+  }
+  if (daysLeft <= 7) {
+    return (
+      <Badge variant="outline" className="text-[10px] bg-rose-50 text-rose-700 border-rose-200 animate-pulse">
+        ⚠️ ينتهي خلال {daysLeft} يوم
+      </Badge>
+    );
+  }
+  if (daysLeft <= 30) {
+    return (
+      <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-200">
+        ينتهي خلال {daysLeft} يوم
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="text-[10px] bg-muted/50 text-muted-foreground">
+      صالح حتى {expiry.toLocaleDateString("ar")}
+    </Badge>
   );
 }

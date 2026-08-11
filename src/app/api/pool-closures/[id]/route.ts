@@ -27,11 +27,23 @@ export async function DELETE(
 
     // احذف فقط التعويضات غير المستخدمة، أبقِ المستخدَمة كسجل تاريخي واقطع ربطها بالإغلاق
     await db.compensation.deleteMany({
-      where: { closureId: id, status: { in: ["pending", "scheduled"] } },
+      where: { closureId: id, status: { in: ["pending", "scheduled", "partial", "expired"] } },
     });
     await db.compensation.updateMany({
       where: { closureId: id, status: "used" },
       data: { note: "تم إلغاء سجل الإغلاق الأصلي، هذا السجل محفوظ للأرشيف" },
+    });
+
+    // ★ سجل تدقيق: حذف الإغلاق
+    await db.compensationHistory.create({
+      data: {
+        clubId: closure.clubId,
+        closureId: closure.id,
+        action: "deleted",
+        description: `حذف إغلاق ${closure.date.toLocaleDateString("ar")} (${closure.reason})`,
+        oldValue: JSON.stringify({ closureId: id, reason: closure.reason, date: closure.date }),
+        userId: currentUser.id,
+      },
     });
 
     await db.poolClosure.delete({ where: { id } });
