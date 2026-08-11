@@ -14,6 +14,11 @@ import {
   RefreshCw,
   Users,
   XCircle,
+  Trash2,
+  ChevronDown,
+  ChevronLeft,
+  Filter,
+  CalendarDays,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -35,9 +40,27 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { SWIMMING_DAYS, TIME_SLOTS } from "@/lib/rcs";
+import {
+  SWIMMING_DAYS,
+  TIME_SLOTS,
+  SUBSCRIPTION_TYPES,
+  PAYMENT_STATUSES,
+  PAYMENT_STATUS_COLORS,
+  SUBSCRIPTION_TYPE_COLORS,
+} from "@/lib/rcs";
 
 // ═══════════════════════════════════════════════════════════
 // أنواع البيانات
@@ -101,6 +124,10 @@ export function CompensationsPanel() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkScheduleOpen, setBulkScheduleOpen] = useState(false);
   const [bulkActing, setBulkActing] = useState(false);
+  // ★ Closures list section + delete
+  const [showClosuresList, setShowClosuresList] = useState(false);
+  const [deleteClosureId, setDeleteClosureId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const loadClosures = useCallback(async () => {
     setLoading(true);
@@ -148,6 +175,24 @@ export function CompensationsPanel() {
     });
   };
 
+  // ★ حذف إغلاق مسجل (في حالة الخطأ)
+  const confirmDeleteClosure = async () => {
+    if (!deleteClosureId) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/pool-closures/${deleteClosureId}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "تعذّر الحذف");
+      toast.success("تم حذف الإغلاق وتعويضاته غير المستخدمة");
+      setDeleteClosureId(null);
+      await loadClosures();
+    } catch (e: any) {
+      toast.error(e?.message || "تعذّر حذف الإغلاق");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const bulkCancel = async () => {
     if (!confirm(`هل تريد إلغاء ${selectedIds.size} تعويض محدَّد؟`)) return;
     setBulkActing(true);
@@ -186,6 +231,17 @@ export function CompensationsPanel() {
           <Button variant="outline" size="sm" onClick={loadClosures} disabled={loading}>
             <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
           </Button>
+          {closures.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowClosuresList(!showClosuresList)}
+            >
+              <CalendarDays className="h-4 w-4 ml-1" />
+              الإغلاقات المسجلة ({closures.length})
+              <ChevronDown className={cn("h-3 w-3 mr-1 transition-transform", showClosuresList && "rotate-180")} />
+            </Button>
+          )}
           <Button size="sm" onClick={() => setNewClosureOpen(true)}>
             <Plus className="h-4 w-4 ml-1" />
             تسجيل إغلاق جديد
@@ -242,6 +298,63 @@ export function CompensationsPanel() {
             إلغاء التحديد
           </Button>
         </motion.div>
+      )}
+
+      {/* ★ قائمة الإغلاقات المسجلة (قابلة للحذف عند الخطأ) */}
+      {showClosuresList && closures.length > 0 && (
+        <div className="rounded-xl border bg-card overflow-hidden">
+          <div className="px-4 py-3 border-b bg-muted/30 flex items-center justify-between">
+            <h3 className="font-semibold text-sm flex items-center gap-2">
+              <CalendarDays className="h-4 w-4 text-primary" />
+              الإغلاقات المسجلة ({closures.length})
+            </h3>
+            <Button variant="ghost" size="sm" onClick={() => setShowClosuresList(false)}>
+              إخفاء
+            </Button>
+          </div>
+          <ScrollArea className="max-h-80">
+            <div className="divide-y">
+              {closures.map((closure) => {
+                const affectedCount = closure.compensations.length;
+                const pendingCount = closure.compensations.filter((c) => c.status === "pending").length;
+                const usedCount = closure.compensations.filter((c) => c.status === "used").length;
+                const hasUsed = usedCount > 0;
+                return (
+                  <div key={closure.id} className="p-3 flex items-start justify-between gap-3 hover:bg-muted/20 transition-colors">
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-sm">
+                          {new Date(closure.date).toLocaleDateString("ar", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+                        </span>
+                        <Badge variant="outline" className="text-xs">{closure.swimmingDays || "كل الأيام"}</Badge>
+                        {closure.timeSlot && <Badge variant="outline" className="text-xs">{closure.timeSlot}</Badge>}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        السبب: {closure.reason}
+                        {closure.note && <span className="mr-1">· {closure.note}</span>}
+                      </p>
+                      <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                        <span className="flex items-center gap-1"><Users className="h-3 w-3" /> {affectedCount} متأثر</span>
+                        {pendingCount > 0 && <span className="text-amber-600">{pendingCount} بانتظار</span>}
+                        {usedCount > 0 && <span className="text-emerald-600">{usedCount} تم التعويض</span>}
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 shrink-0"
+                      onClick={() => setDeleteClosureId(closure.id)}
+                      title={hasUsed ? "حذف الإغلاق (التعويضات المستخدمة ستبقى محفوظة)" : "حذف الإغلاق وتعويضاته"}
+                    >
+                      <Trash2 className="h-3.5 w-3.5 ml-1" />
+                      حذف
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </ScrollArea>
+        </div>
       )}
 
       {/* قائمة التعويضات */}
@@ -387,6 +500,34 @@ export function CompensationsPanel() {
           submitting={bulkActing}
         />
       )}
+
+      {/* ★ نافذة تأكيد حذف الإغلاق */}
+      <AlertDialog open={!!deleteClosureId} onOpenChange={(o) => !o && setDeleteClosureId(null)}>
+        <AlertDialogContent dir="rtl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-rose-500" />
+              تأكيد حذف الإغلاق
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              سيتم حذف سجل الإغلاق وكل تعويضاته غير المستخدمة (بانتظار/محددة).
+              التعويضات التي تم استخدامها (استُبدلت بحصة فعلية) ستبقى محفوظة كأرشيف.
+              <strong className="block mt-2 text-rose-600">لا يمكن التراجع عن هذا الإجراء.</strong>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>إلغاء</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); confirmDeleteClosure(); }}
+              disabled={deleting}
+              className="bg-rose-600 hover:bg-rose-700"
+            >
+              {deleting ? <Loader2 className="h-4 w-4 ml-1 animate-spin" /> : <Trash2 className="h-4 w-4 ml-1" />}
+              حذف الإغلاق
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -444,16 +585,20 @@ function NewClosureDialog({
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // ─── تعويض جماعي حسب تاريخ التسجيل (اختياري) ───
-  const [showBulkFilter, setShowBulkFilter] = useState(false);
+  // ─── تعويض جماعي حسب تاريخ التسجيل + نوع الاشتراك + حالة الدفع ───
+  const [showBulkFilter, setShowBulkFilter] = useState(true);
   const [registeredOnOrBefore, setRegisteredOnOrBefore] = useState("");
   const [registeredOnOrAfter, setRegisteredOnOrAfter] = useState("");
+  // ★ Multi-select filters: subscription types + payment statuses
+  const [selectedSubscriptionTypes, setSelectedSubscriptionTypes] = useState<string[]>([]);
+  const [selectedPaymentStatuses, setSelectedPaymentStatuses] = useState<string[]>([]);
   const [previewCount, setPreviewCount] = useState<number | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
   const hasAnyFilter =
     swimmingDays !== "__all__" || timeSlot !== "__all__" ||
-    !!registeredOnOrBefore || !!registeredOnOrAfter;
+    !!registeredOnOrBefore || !!registeredOnOrAfter ||
+    selectedSubscriptionTypes.length > 0 || selectedPaymentStatuses.length > 0;
 
   const buildParams = () => {
     const params = new URLSearchParams();
@@ -461,7 +606,20 @@ function NewClosureDialog({
     if (timeSlot !== "__all__") params.set("timeSlot", timeSlot);
     if (registeredOnOrBefore) params.set("registeredOnOrBefore", registeredOnOrBefore);
     if (registeredOnOrAfter) params.set("registeredOnOrAfter", registeredOnOrAfter);
+    // ★ comma-separated multi-filters
+    if (selectedSubscriptionTypes.length > 0) params.set("subscriptionTypes", selectedSubscriptionTypes.join(","));
+    if (selectedPaymentStatuses.length > 0) params.set("paymentStatuses", selectedPaymentStatuses.join(","));
     return params;
+  };
+
+  // ★ toggle helpers for multi-select
+  const toggleSubscriptionType = (type: string) => {
+    setSelectedSubscriptionTypes((prev) => prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]);
+    setPreviewCount(null);
+  };
+  const togglePaymentStatus = (status: string) => {
+    setSelectedPaymentStatuses((prev) => prev.includes(status) ? prev.filter((s) => s !== status) : [...prev, status]);
+    setPreviewCount(null);
   };
 
   const preview = async () => {
@@ -500,6 +658,9 @@ function NewClosureDialog({
           note: note || undefined,
           registeredOnOrBefore: registeredOnOrBefore || undefined,
           registeredOnOrAfter: registeredOnOrAfter || undefined,
+          // ★ pass multi-select filters
+          subscriptionTypes: selectedSubscriptionTypes.length > 0 ? selectedSubscriptionTypes : undefined,
+          paymentStatuses: selectedPaymentStatuses.length > 0 ? selectedPaymentStatuses : undefined,
         }),
       });
       const data = await res.json();
@@ -507,7 +668,8 @@ function NewClosureDialog({
       toast.success(`تم تسجيل الإغلاق — تأثر ${data.affectedCount} منخرط(ة) وأُنشئت لهم تعويضات`);
       onOpenChange(false);
       setDate(""); setSwimmingDays("__all__"); setTimeSlot("__all__"); setReason(""); setNote("");
-      setRegisteredOnOrBefore(""); setRegisteredOnOrAfter(""); setPreviewCount(null); setShowBulkFilter(false);
+      setRegisteredOnOrBefore(""); setRegisteredOnOrAfter(""); setPreviewCount(null);
+      setSelectedSubscriptionTypes([]); setSelectedPaymentStatuses([]);
       onCreated();
     } catch (e: any) {
       toast.error(e?.message || "تعذّر تسجيل الإغلاق");
@@ -518,7 +680,7 @@ function NewClosureDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent dir="rtl" className="max-w-md max-h-[85vh] overflow-y-auto">
+      <DialogContent dir="rtl" className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <CalendarOff className="h-4 w-4" />
@@ -572,45 +734,153 @@ function NewClosureDialog({
             <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
           </div>
 
-          {/* ─── تعويض جماعي حسب تاريخ التسجيل ─── */}
-          <div className="rounded-lg border border-dashed border-border/70">
+          {/* ─── ★ معايير تحديد المنخرطين المعنيين بالتعويض ─── */}
+          <div className="rounded-lg border border-primary/20 bg-primary/5">
             <button
               type="button"
               onClick={() => setShowBulkFilter(!showBulkFilter)}
               className="w-full flex items-center justify-between p-2.5 text-xs font-semibold"
             >
               <span className="flex items-center gap-1.5">
-                <CalendarClock className="h-3.5 w-3.5 text-primary" />
-                تعويض جماعي حسب تاريخ التسجيل (اختياري)
+                <Filter className="h-3.5 w-3.5 text-primary" />
+                معايير تحديد المنخرطين المعنيين بالتعويض
               </span>
-              <span className="text-muted-foreground">{showBulkFilter ? "−" : "+"}</span>
+              <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showBulkFilter && "rotate-180")} />
             </button>
             {showBulkFilter && (
-              <div className="p-2.5 pt-0 space-y-3">
+              <div className="p-3 pt-0 space-y-4">
                 <p className="text-[11px] text-muted-foreground">
-                  مثال: عوّض كل المنخرطين المسجلين في أو قبل تاريخ معيّن — بغض النظر عن حصتهم.
-                  اترك الحقول فارغة لتجاهل هذا الشرط.
+                  حدد المنخرطين المعنيين بالتعويض: نوع الاشتراك، حالة الدفع، وفترة التسجيل.
+                  كل المعايير مجتمعة بـ AND — اتركها فارغة لتعويض كل المنخرطين.
                 </p>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1">
-                    <Label className="text-[11px]">مسجَّل في أو قبل</Label>
-                    <Input
-                      type="date"
-                      value={registeredOnOrBefore}
-                      onChange={(e) => { setRegisteredOnOrBefore(e.target.value); setPreviewCount(null); }}
-                      className="h-8 text-xs"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-[11px]">مسجَّل في أو بعد</Label>
-                    <Input
-                      type="date"
-                      value={registeredOnOrAfter}
-                      onChange={(e) => { setRegisteredOnOrAfter(e.target.value); setPreviewCount(null); }}
-                      className="h-8 text-xs"
-                    />
+
+                {/* ★ أنواع الاشتراك المعنية */}
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] font-semibold flex items-center gap-1">
+                    <Filter className="h-3 w-3" />
+                    أنواع الاشتراك المعنية
+                    {selectedSubscriptionTypes.length > 0 && (
+                      <Badge variant="secondary" className="text-[10px] h-4">{selectedSubscriptionTypes.length} محدد</Badge>
+                    )}
+                  </Label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {SUBSCRIPTION_TYPES.map((type) => {
+                      const selected = selectedSubscriptionTypes.includes(type as string);
+                      return (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => toggleSubscriptionType(type as string)}
+                          className={cn(
+                            "px-2 py-1 rounded-md text-[11px] border transition-all",
+                            selected
+                              ? cn(SUBSCRIPTION_TYPE_COLORS[type as string] || "bg-primary/15 text-primary border-primary/30", "ring-1 ring-primary/30")
+                              : "bg-background text-muted-foreground border-border hover:border-primary/30"
+                          )}
+                        >
+                          {type}
+                        </button>
+                      );
+                    })}
+                    {selectedSubscriptionTypes.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedSubscriptionTypes([]); setPreviewCount(null); }}
+                        className="px-2 py-1 rounded-md text-[11px] text-rose-600 hover:bg-rose-50"
+                      >
+                        مسح
+                      </button>
+                    )}
                   </div>
                 </div>
+
+                {/* ★ حالة الاشتراكات */}
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] font-semibold flex items-center gap-1">
+                    <Filter className="h-3 w-3" />
+                    حالة الاشتراكات
+                    {selectedPaymentStatuses.length > 0 && (
+                      <Badge variant="secondary" className="text-[10px] h-4">{selectedPaymentStatuses.length} محدد</Badge>
+                    )}
+                  </Label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {PAYMENT_STATUSES.map((status) => {
+                      const selected = selectedPaymentStatuses.includes(status);
+                      return (
+                        <button
+                          key={status}
+                          type="button"
+                          onClick={() => togglePaymentStatus(status)}
+                          className={cn(
+                            "px-2 py-1 rounded-md text-[11px] border transition-all",
+                            selected
+                              ? cn(PAYMENT_STATUS_COLORS[status] || "bg-primary/15 text-primary border-primary/30", "ring-1 ring-primary/30")
+                              : "bg-background text-muted-foreground border-border hover:border-primary/30"
+                          )}
+                        >
+                          {status}
+                        </button>
+                      );
+                    })}
+                    {selectedPaymentStatuses.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedPaymentStatuses([]); setPreviewCount(null); }}
+                        className="px-2 py-1 rounded-md text-[11px] text-rose-600 hover:bg-rose-50"
+                      >
+                        مسح
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* ★ المنخرطون المسجلون من تاريخ ... إلى يوم الغلق */}
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] font-semibold flex items-center gap-1">
+                    <CalendarClock className="h-3 w-3" />
+                    المنخرطون المسجلون (من تاريخ إلى يوم الغلق)
+                  </Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-[10px] text-muted-foreground">مسجَّل ابتداءً من</Label>
+                      <Input
+                        type="date"
+                        value={registeredOnOrAfter}
+                        onChange={(e) => { setRegisteredOnOrAfter(e.target.value); setPreviewCount(null); }}
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] text-muted-foreground">مسجَّل حتى يوم الغلق</Label>
+                      <Input
+                        type="date"
+                        value={registeredOnOrBefore}
+                        onChange={(e) => { setRegisteredOnOrBefore(e.target.value); setPreviewCount(null); }}
+                        className="h-8 text-xs"
+                        placeholder="يوم الغلق"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    اترك "حتى يوم الغلق" فارغاً لتعويض كل المنخرطين المسجلين من تاريخ البداية حتى الآن.
+                  </p>
+                </div>
+
+                {/* ملخص المعايير النشطة */}
+                {hasAnyFilter && (
+                  <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+                    <span className="text-muted-foreground">المعايير النشطة:</span>
+                    {swimmingDays !== "__all__" && <Badge variant="outline" className="text-[10px] h-4">{swimmingDays}</Badge>}
+                    {timeSlot !== "__all__" && <Badge variant="outline" className="text-[10px] h-4">{timeSlot}</Badge>}
+                    {selectedSubscriptionTypes.map((t) => <Badge key={t} variant="outline" className="text-[10px] h-4">{t}</Badge>)}
+                    {selectedPaymentStatuses.map((s) => <Badge key={s} variant="outline" className="text-[10px] h-4">{s}</Badge>)}
+                    {(registeredOnOrAfter || registeredOnOrBefore) && (
+                      <Badge variant="outline" className="text-[10px] h-4">
+                        {registeredOnOrAfter || "..."} ← {registeredOnOrBefore || "الآن"}
+                      </Badge>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>

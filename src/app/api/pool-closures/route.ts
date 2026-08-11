@@ -40,7 +40,9 @@ export async function GET(req: NextRequest) {
  * body: {
  *   date, reason, note?,
  *   swimmingDays?, timeSlot?,              // تصفية حسب الحصة المعتادة (اختياري)
- *   registeredOnOrBefore?, registeredOnOrAfter?  // تصفية حسب تاريخ التسجيل (اختياري، ISO date)
+ *   registeredOnOrBefore?, registeredOnOrAfter?,  // تصفية حسب تاريخ التسجيل (اختياري، ISO date)
+ *   subscriptionTypes?: string[],          // ★ تصفية حسب نوع الاشتراك (متعدد)
+ *   paymentStatuses?: string[],            // ★ تصفية حسب حالة الدفع (متعدد)
  * }
  * - كل معايير التصفية اختيارية ومجتمعة بـ AND. إذا كلها فارغة = يشمل كل المنخرطين.
  * - مثال "تعويض جماعي": ترك swimmingDays/timeSlot فارغين، وتحديد registeredOnOrBefore
@@ -57,6 +59,7 @@ export async function POST(req: NextRequest) {
     const {
       date, swimmingDays, timeSlot, reason, note,
       registeredOnOrBefore, registeredOnOrAfter,
+      subscriptionTypes, paymentStatuses,
     } = body;
 
     if (!date || !reason) {
@@ -88,6 +91,7 @@ export async function POST(req: NextRequest) {
     if (swimmingDays) where.swimmingDays = swimmingDays;
     if (timeSlot) where.timeSlot = timeSlot;
 
+    // ★ تصفية حسب تاريخ التسجيل (من تاريخ إلى يوم الغلق)
     if (registeredOnOrBefore || registeredOnOrAfter) {
       const createdAtFilter: Record<string, Date> = {};
       if (registeredOnOrBefore) {
@@ -102,6 +106,16 @@ export async function POST(req: NextRequest) {
         createdAtFilter.gte = start;
       }
       where.createdAt = createdAtFilter;
+    }
+
+    // ★ تصفية حسب نوع الاشتراك (متعدد)
+    if (Array.isArray(subscriptionTypes) && subscriptionTypes.length > 0) {
+      where.subscriptionType = { in: subscriptionTypes };
+    }
+
+    // ★ تصفية حسب حالة الدفع (متعدد)
+    if (Array.isArray(paymentStatuses) && paymentStatuses.length > 0) {
+      where.paymentStatus = { in: paymentStatuses };
     }
 
     const affectedSubscribers = await db.subscriber.findMany({ where });
