@@ -36,6 +36,16 @@ model Club {
   graceEndDate    DateTime?                         // نهاية فترة السماح (أسبوع بعد انتهاء الاشتراك)
   hardwareFingerprint String?                       // بصمة الجهاز (لمنع النسخ لجهاز آخر)
 
+  // ★ ─── Theme & Branding (Multi-Tenant visual identity) ─── ★
+  themePreset     String?  // اسم القالب: ocean|royal|emerald|azure|midnight|coral|amber|forest
+  primaryColor    String?  // لون أساسي مخصص (HSL string "H S% L%" أو hex)
+  secondaryColor  String?  // لون ثانوي مخصص
+  accentColor     String?  // لون التمييز
+  logoUrl         String?  // رابط شعار النادي (Cloudinary)
+  borderRadius    String?  // sharp|medium|full → يتحكم بـ --radius
+  density         String?  // comfortable|normal|compact → يتحكم بالـ spacing
+  fontFamily      String?  // cairo|tajawal|system
+
   // Relations
   users           User[]
   subscribers     Subscriber[]

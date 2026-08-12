@@ -3,6 +3,7 @@ import { Cairo, Tajawal } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { PWAInstaller } from "@/components/pwa-installer";
+import { ThemeProvider } from "@/lib/theme-context";
 
 const cairo = Cairo({
   variable: "--font-cairo",
@@ -170,7 +171,9 @@ export default function RootLayout({
       <body
         className={`${cairo.variable} ${tajawal.variable} font-cairo antialiased bg-background text-foreground min-h-screen`}
       >
-        {children}
+        <ThemeProvider>
+          {children}
+        </ThemeProvider>
         <Toaster position="top-center" richColors closeButton />
         <PWAInstaller />
       </body>

@@ -312,3 +312,44 @@ body { overflow-y: auto; }
   --theme-secondary: #0369a1;
 }
 
+
+/* ═══════════════════════════════════════════════════════════
+   ★ THEME SYSTEM — Dynamic CSS Variables + Density + Font
+   ═══════════════════════════════════════════════════════════ */
+
+/* Density: scale factor for padding/spacing */
+:root {
+  --spacing-scale: 1;
+}
+
+/* Font: dynamically switchable */
+:root {
+  --font-active: var(--font-cairo);
+}
+html {
+  font-family: var(--font-active), var(--font-cairo), var(--font-tajawal), system-ui, sans-serif;
+}
+
+/* ═════════ Print Media — always light colors regardless of theme ═════════ */
+@media print {
+  :root, .dark {
+    --background: oklch(1 0 0) !important;
+    --foreground: oklch(0.15 0.02 240) !important;
+    --card: oklch(1 0 0) !important;
+    --card-foreground: oklch(0.15 0.02 240) !important;
+    --popover: oklch(1 0 0) !important;
+    --popover-foreground: oklch(0.15 0.02 240) !important;
+    --muted: oklch(0.95 0.01 220) !important;
+    --muted-foreground: oklch(0.4 0.02 240) !important;
+    --border: oklch(0.85 0.01 220) !important;
+    --input: oklch(0.94 0.01 220) !important;
+  }
+  .dark {
+    color-scheme: light !important;
+  }
+}
+
+/* Club logo: display when data-club-logo is set */
+[data-club-logo] .club-logo-img {
+  content: attr(data-club-logo);
+}
