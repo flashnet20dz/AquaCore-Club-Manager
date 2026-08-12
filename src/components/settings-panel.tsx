@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import {
   Settings as SettingsIcon, Save, Loader2, Building, Phone, MessageSquare,
   DollarSign, Clock, Users, Plus, Trash2, Type, Calendar, Timer,
-  LayoutTemplate, Sparkles, Upload, ImageIcon, Palette, Pencil, FileText, Monitor,
+  LayoutTemplate, Sparkles, Pencil, FileText, Monitor,
   RefreshCw, Key, Copy, Eye, EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -95,7 +95,6 @@ export function SettingsPanel() {
             <TabsTrigger value="subscribers" className="text-xs flex-1">👥 المنخرطون</TabsTrigger>
             <TabsTrigger value="workhours" className="text-xs flex-1">⏰ ساعات العمل</TabsTrigger>
             <TabsTrigger value="entete" className="text-xs flex-1">📄 الترويسة الموحدة</TabsTrigger>
-            <TabsTrigger value="theme" className="text-xs flex-1">🎨 المظهر</TabsTrigger>
             <TabsTrigger value="texts" className="text-xs flex-1">📝 النصوص</TabsTrigger>
             <TabsTrigger value="whatsapp" className="text-xs flex-1">💬 WhatsApp</TabsTrigger>
             <TabsTrigger value="desktop" className="text-xs flex-1">💻 سطح المكتب</TabsTrigger>
@@ -181,157 +180,14 @@ export function SettingsPanel() {
             <UnifiedHeaderSettings />
           </TabsContent>
 
-          {/* ════════════ المظهر (الثيم) ════════════ */}
-          <TabsContent value="theme" className="space-y-3 mt-3">
-            <div className="rounded-xl border border-border/60 p-4 space-y-4">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                <Palette className="h-3 w-3" /> الألوان والثيم
-              </h4>
-              <p className="text-xs text-muted-foreground">خصّص ألوان الواجهة حسب هوية ناديك. تُطبَّق فوراً بعد الحفظ.</p>
-
-              {/* Preset themes */}
-              <div>
-                <Label className="text-sm font-semibold mb-2 block">قوالب جاهزة</Label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {[
-                    { id: "teal", name: "أزرق مخضر", primary: "#0f766e", secondary: "#0369a1" },
-                    { id: "blue", name: "أزرق", primary: "#1d4ed8", secondary: "#0284c7" },
-                    { id: "purple", name: "بنفسجي", primary: "#7c3aed", secondary: "#9333ea" },
-                    { id: "rose", name: "وردي", primary: "#e11d48", secondary: "#f43f5e" },
-                    { id: "emerald", name: "أخضر", primary: "#059669", secondary: "#10b981" },
-                    { id: "amber", name: "ذهبي", primary: "#d97706", secondary: "#f59e0b" },
-                    { id: "indigo", name: "نيلي", primary: "#4f46e5", secondary: "#6366f1" },
-                    { id: "slate", name: "رمادي", primary: "#475569", secondary: "#64748b" },
-                  ].map((t) => (
-                    <button
-                      key={t.id}
-                      onClick={() => setSettings({ ...settings, themePrimary: t.primary, themeSecondary: t.secondary })}
-                      className={cn(
-                        "flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition",
-                        settings.themePrimary === t.primary ? "border-primary ring-2 ring-primary/20" : "border-border hover:border-primary/40"
-                      )}
-                    >
-                      <div className="flex gap-1">
-                        <div className="h-6 w-6 rounded-md" style={{ backgroundColor: t.primary }} />
-                        <div className="h-6 w-6 rounded-md" style={{ backgroundColor: t.secondary }} />
-                      </div>
-                      <span className="text-[10px] font-semibold">{t.name}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Custom colors */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t">
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-semibold">اللون الأساسي</Label>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="color"
-                      value={settings.themePrimary || "#0f766e"}
-                      onChange={(e) => setSettings({ ...settings, themePrimary: e.target.value })}
-                      className="h-10 w-14 p-1"
-                    />
-                    <Input
-                      value={settings.themePrimary || "#0f766e"}
-                      onChange={(e) => setSettings({ ...settings, themePrimary: e.target.value })}
-                      className="h-10 font-mono text-xs"
-                      dir="ltr"
-                    />
-                  </div>
-                  <p className="text-[10px] text-muted-foreground">يُستخدم في الأزرار، الروابط، والعناوين</p>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-semibold">اللون الثانوي</Label>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="color"
-                      value={settings.themeSecondary || "#0369a1"}
-                      onChange={(e) => setSettings({ ...settings, themeSecondary: e.target.value })}
-                      className="h-10 w-14 p-1"
-                    />
-                    <Input
-                      value={settings.themeSecondary || "#0369a1"}
-                      onChange={(e) => setSettings({ ...settings, themeSecondary: e.target.value })}
-                      className="h-10 font-mono text-xs"
-                      dir="ltr"
-                    />
-                  </div>
-                  <p className="text-[10px] text-muted-foreground">يُستخدم في التدرجات اللونية والخلفيات</p>
-                </div>
-              </div>
-
-              {/* Live preview */}
-              <div className="rounded-lg border border-border/60 p-3">
-                <p className="text-[10px] text-muted-foreground mb-2">معاينة</p>
-                <div className="flex items-center gap-2">
-                  <button
-                    className="px-4 py-2 rounded-lg text-white text-sm font-semibold"
-                    style={{ background: `linear-gradient(to left, ${settings.themePrimary || "#0f766e"}, ${settings.themeSecondary || "#0369a1"})` }}
-                  >
-                    زر تجريبي
-                  </button>
-                  <span style={{ color: settings.themePrimary || "#0f766e" }} className="text-sm font-bold">نص ملون</span>
-                  <div className="h-8 w-8 rounded-lg" style={{ backgroundColor: settings.themePrimary || "#0f766e" }} />
-                  <div className="h-8 w-8 rounded-lg" style={{ backgroundColor: settings.themeSecondary || "#0369a1" }} />
-                </div>
-              </div>
-            </div>
-          </TabsContent>
-
           {/* ════════════ النصوص ════════════ */}
           <TabsContent value="texts" className="space-y-3 mt-3">
-            {/* Header logo upload */}
-            <div className="rounded-xl border-2 border-primary/30 bg-primary/5 p-3 space-y-3">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
-                <ImageIcon className="h-3 w-3" /> شعار أعلى الموقع
-              </h4>
-              <p className="text-xs text-muted-foreground">ارفع شعاراً مخصصاً يظهر بجانب العنوان في أعلى كل الصفحات. إذا لم ترفع شيئاً، يظهر أيقونة الموج الافتراضية.</p>
-              <div className="flex items-center gap-3">
-                {/* Preview */}
-                <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-teal-500 to-sky-600 flex items-center justify-center overflow-hidden shrink-0">
-                  {settings.headerLogo ? (
-                    <img src={settings.headerLogo} alt="شعار" className="w-full h-full object-contain" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
-                  ) : (
-                    <span className="text-white text-lg font-bold">R</span>
-                  )}
-                </div>
-                {/* Upload button */}
-                <label className="flex items-center gap-2 px-3 py-2 rounded-lg border-2 border-dashed border-border hover:border-primary/40 hover:bg-accent cursor-pointer transition text-xs font-semibold">
-                  <Upload className="h-4 w-4" />
-                  رفع شعار (PNG/JPG، حتى 1MB)
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/jpg,image/svg+xml"
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (!f) return;
-                      if (f.size > 1024 * 1024) { toast.error("حجم الصورة يجب أن يكون أقل من 1 ميغابايت"); return; }
-                      const reader = new FileReader();
-                      reader.onload = (ev) => {
-                        setSettings({ ...settings, headerLogo: ev.target?.result as string });
-                        toast.success("تم رفع الشعار");
-                      };
-                      reader.readAsDataURL(f);
-                      e.target.value = "";
-                    }}
-                  />
-                </label>
-                {/* Remove button */}
-                {settings.headerLogo && (
-                  <Button size="sm" variant="ghost" className="text-rose-600 hover:text-rose-700 h-8" onClick={() => { setSettings({ ...settings, headerLogo: "" }); toast.success("تم حذف الشعار"); }}>
-                    <Trash2 className="h-3.5 w-3.5 ml-1" /> إزالة
-                  </Button>
-                )}
-              </div>
-            </div>
-
             {/* Header text */}
             <div className="rounded-xl border border-border/60 p-3 space-y-3">
               <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                 <LayoutTemplate className="h-3 w-3" /> نص أعلى الموقع (الترويسة)
               </h4>
+              <p className="text-xs text-muted-foreground">الشعار والإعدادات البصرية تُدار من قسم «المظهر والألوان» أعلى الصفحة.</p>
               <Input
                 value={settings.headerTitle || ""}
                 onChange={(e) => setSettings({ ...settings, headerTitle: e.target.value })}
