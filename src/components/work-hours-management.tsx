@@ -424,7 +424,7 @@ export function WorkHoursManagement() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-teal-800 text-white">
+              <tr className="bg-muted/60 text-foreground border-b-2 border-primary/20">
                 <th className="p-2 text-right w-8">#</th>
                 <th className="p-2 text-right min-w-[120px]">العامل</th>
                 <th className="p-2 text-right w-24">التاريخ</th>
@@ -455,7 +455,7 @@ export function WorkHoursManagement() {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       transition={{ delay: Math.min(i * 0.01, 0.3) }}
-                      className={cn("border-b transition hover:bg-teal-50/40 bg-slate-50")}
+                      className={cn("border-b border-border/40 transition hover:bg-muted/40")}
                     >
                       <td className="p-2 text-center text-muted-foreground">{i + 1}</td>
                       <td className="p-2">
@@ -636,16 +636,16 @@ export function WorkHoursManagement() {
       </Dialog>
 
       {/* 🔑 جدول ملخص ساعات العمل والراتب */}
-      <div className="rounded-2xl border border-amber-500/30 bg-amber-50/30 overflow-hidden">
+      <div className="rounded-2xl border border-amber-500/30 bg-card overflow-hidden">
         <div className="p-4 border-b border-amber-500/20">
-          <h3 className="font-bold text-sm flex items-center gap-2 text-amber-900">
+          <h3 className="font-bold text-sm flex items-center gap-2 text-foreground">
             <Wallet className="h-4 w-4 text-amber-600" /> ملخص ساعات العمل والراتب — {monthName}
           </h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-amber-500/10 text-amber-900">
+              <tr className="bg-muted/60 text-foreground border-b-2 border-amber-500/20">
                 <th className="p-2 text-right w-8">#</th>
                 <th className="p-2 text-right min-w-[120px]">العامل</th>
                 <th className="p-2 text-right">الوظيفة</th>
@@ -662,7 +662,7 @@ export function WorkHoursManagement() {
                 <tr><td colSpan={9} className="text-center py-8 text-muted-foreground">لا يوجد عمال</td></tr>
               ) : (
                 staffSummary.map((s, i) => (
-                  <tr key={s.id} className={cn("border-b border-amber-500/10 hover:bg-amber-50/40 bg-amber-50/10")}>
+                  <tr key={s.id} className={cn("border-b border-border/40 transition hover:bg-muted/40")}>
                     <td className="p-2 text-center text-muted-foreground">{i + 1}</td>
                     <td className="p-2 font-semibold">{s.name}</td>
                     <td className="p-2 text-xs text-muted-foreground">{s.position || s.role}</td>
@@ -682,7 +682,7 @@ export function WorkHoursManagement() {
             </tbody>
             {staffSummary.length > 0 && (
               <tfoot>
-                <tr className="bg-amber-500/15 font-bold text-amber-900">
+                <tr className="bg-muted/60 font-bold text-foreground border-t-2 border-amber-500/20">
                   <td colSpan={5} className="p-2 text-right">الإجمالي</td>
                   <td className="p-2 text-center">{staffSummary.reduce((s, x) => s + x.absentDays, 0)}</td>
                   <td className="p-2 text-center text-teal-700">{staffSummary.reduce((s, x) => s + x.totalHours, 0).toFixed(1)} سا</td>

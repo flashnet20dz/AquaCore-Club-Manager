@@ -318,7 +318,7 @@ export function PointagePanel() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-teal-800 text-white">
+              <tr className="bg-muted/60 text-foreground border-b-2 border-primary/20">
                 <th className="p-2 text-right">اليوم</th>
                 <th className="p-2 text-center">التوقيت</th>
                 <th className="p-2 text-center">الفوج</th>
