@@ -33,7 +33,7 @@ import {
   Barcode, Grid3x3, Magnet, Undo2, Redo2, FolderOpen, BringToFront,
   SendToBack, PanelRightClose, PanelLeftClose, PanelLeftOpen, PanelRightOpen,
   Moon, Sun, ZoomIn, ZoomOut, Maximize, Users,
-  Droplets, Wand2,
+  Droplets, Wand2, CalendarRange,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -314,6 +314,9 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
   const [subFilter, setSubFilter] = useState<string>("");
   const [genderFilter, setGenderFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
+  // ★ Registration date filter (from / to)
+  const [regDateFrom, setRegDateFrom] = useState<string>("");
+  const [regDateTo, setRegDateTo] = useState<string>("");
 
   // ── Canvas state ──
   const [zoom, setZoom] = useState<number | "fit">("fit");
@@ -976,11 +979,29 @@ body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-we
       if (subFilter && s.subscriptionType !== subFilter) return false;
       if (genderFilter && s.gender !== genderFilter) return false;
       if (statusFilter && s.renewalStatus !== statusFilter) return false;
+      // ★ Registration date filter (createdAt)
+      if (regDateFrom || regDateTo) {
+        const created = new Date(s.createdAt);
+        if (regDateFrom) {
+          const from = new Date(regDateFrom);
+          from.setHours(0, 0, 0, 0);
+          if (created < from) return false;
+        }
+        if (regDateTo) {
+          const to = new Date(regDateTo);
+          to.setHours(23, 59, 59, 999);
+          if (created > to) return false;
+        }
+      }
       return true;
     });
     result.sort((a, b) => a.fileNumber.localeCompare(b.fileNumber, undefined, { numeric: true }));
     return result;
-  }, [subscribers, search, subFilter, genderFilter, statusFilter]);
+  }, [subscribers, search, subFilter, genderFilter, statusFilter, regDateFrom, regDateTo]);
+
+  // ★ Check if any date filter is active
+  const hasDateFilter = !!(regDateFrom || regDateTo);
+  const clearDateFilter = () => { setRegDateFrom(""); setRegDateTo(""); };
 
   const toggleSubSelect = (id: string) => {
     setSelectedSubIds((prev) => prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]);
@@ -1484,6 +1505,9 @@ body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-we
                 subFilter={subFilter} setSubFilter={setSubFilter}
                 genderFilter={genderFilter} setGenderFilter={setGenderFilter}
                 statusFilter={statusFilter} setStatusFilter={setStatusFilter}
+                regDateFrom={regDateFrom} setRegDateFrom={setRegDateFrom}
+                regDateTo={regDateTo} setRegDateTo={setRegDateTo}
+                hasDateFilter={hasDateFilter} onClearDateFilter={clearDateFilter}
                 subTypes={subTypes}
               />
             </motion.aside>
@@ -1683,6 +1707,9 @@ body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-we
                     subFilter={subFilter} setSubFilter={setSubFilter}
                     genderFilter={genderFilter} setGenderFilter={setGenderFilter}
                     statusFilter={statusFilter} setStatusFilter={setStatusFilter}
+                    regDateFrom={regDateFrom} setRegDateFrom={setRegDateFrom}
+                    regDateTo={regDateTo} setRegDateTo={setRegDateTo}
+                    hasDateFilter={hasDateFilter} onClearDateFilter={clearDateFilter}
                     subTypes={subTypes}
                   />
                 </div>
@@ -1897,6 +1924,8 @@ function MembersSidebar({
   onToggle, onSelectAll, onClearAll, search, setSearch,
   subFilter, setSubFilter, genderFilter, setGenderFilter,
   statusFilter, setStatusFilter, subTypes,
+  regDateFrom, setRegDateFrom, regDateTo, setRegDateTo,
+  hasDateFilter, onClearDateFilter,
 }: {
   subscribers: SubscriberWithComputed[];
   allSubscribersCount: number;
@@ -1910,6 +1939,10 @@ function MembersSidebar({
   genderFilter: string; setGenderFilter: (s: string) => void;
   statusFilter: string; setStatusFilter: (s: string) => void;
   subTypes: any[];
+  // ★ Registration date filter
+  regDateFrom: string; setRegDateFrom: (s: string) => void;
+  regDateTo: string; setRegDateTo: (s: string) => void;
+  hasDateFilter: boolean; onClearDateFilter: () => void;
 }) {
   const getTypeColor = (code: string) => subTypes.find((st: any) => st.code === code)?.color || "#0d9488";
   return (
@@ -1960,6 +1993,34 @@ function MembersSidebar({
               <SelectItem value="تأمين فقط" className="text-xs">تأمين فقط</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+
+        {/* ★ Registration date filter */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <Label className="text-[10px] font-semibold text-muted-foreground flex items-center gap-1">
+              <CalendarRange className="h-3 w-3" /> تاريخ التسجيل
+            </Label>
+            {hasDateFilter && (
+              <button onClick={onClearDateFilter} className="text-[10px] text-rose-600 hover:text-rose-700">مسح</button>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-1">
+            <Input
+              type="date"
+              value={regDateFrom}
+              onChange={(e) => setRegDateFrom(e.target.value)}
+              className="h-7 text-[10px] p-1"
+              title="من تاريخ"
+            />
+            <Input
+              type="date"
+              value={regDateTo}
+              onChange={(e) => setRegDateTo(e.target.value)}
+              className="h-7 text-[10px] p-1"
+              title="إلى تاريخ"
+            />
+          </div>
         </div>
 
         <div className="flex items-center gap-1">
