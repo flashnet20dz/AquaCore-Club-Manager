@@ -33,7 +33,7 @@ import {
   Barcode, Grid3x3, Magnet, Undo2, Redo2, FolderOpen, BringToFront,
   SendToBack, PanelRightClose, PanelLeftClose, PanelLeftOpen, PanelRightOpen,
   Moon, Sun, ZoomIn, ZoomOut, Maximize, Users,
-  Droplets, Wand2, CalendarRange,
+  Droplets, Wand2, CalendarRange, Frame,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -74,9 +74,10 @@ type ElementType =
   | "customText" | "shape" | "logo" | "qr" | "photo" | "uploadedImage"
   | "fullName" | "memberId" | "bloodType" | "dateOfBirth" | "paymentDate"
   | "swimmingDays" | "swimmingTime" | "subscriptionType" | "expiryDate"
-  | "clubName" | "cardTitle" | "barcode";
+  | "clubName" | "cardTitle" | "barcode" | "frame";
 
 type ShapeKind = "rectangle" | "circle" | "line";
+type FrameKind = "solid" | "double" | "dashed" | "dotted" | "groove" | "ridge" | "inset" | "outset";
 
 interface CardElement {
   id: string;
@@ -102,6 +103,9 @@ interface CardElement {
   borderStyle?: string;
   borderRadius?: number;
   shapeKind?: ShapeKind;
+  // ★ Frame properties
+  frameKind?: FrameKind;
+  frameInset?: number; // المسافة من حافة البطاقة (سم)
   imageData?: string;
   locked?: boolean;
   shadow?: boolean;
@@ -155,6 +159,7 @@ const CARD_SIZE_PRESETS: { value: string; label: string; width: number; height: 
 const ELEMENT_LIBRARY: { type: ElementType; label: string; icon: typeof Type }[] = [
   { type: "customText", label: "نص", icon: Type },
   { type: "shape", label: "مستطيل", icon: Square },
+  { type: "frame", label: "إطار", icon: Frame },
   { type: "logo", label: "شعار", icon: Building2 },
   { type: "uploadedImage", label: "صورة", icon: ImageIcon },
   { type: "qr", label: "QR", icon: QrCode },
@@ -273,6 +278,13 @@ function createElement(type: ElementType): CardElement {
     el.shapeKind = "rectangle"; el.bgColor = "#0f766e"; el.bgOpacity = 100;
     el.borderColor = "#000000"; el.borderWidth = 0; el.borderStyle = "solid";
     el.borderRadius = 4; el.width = 3; el.height = 1;
+  }
+  // ★ Frame element — إطار زخرفي يغطي البطاقة
+  if (type === "frame") {
+    el.frameKind = "solid"; el.borderColor = "#0f766e"; el.borderWidth = 3;
+    el.borderStyle = "solid"; el.borderRadius = 10; el.frameInset = 0.2;
+    el.width = 9.6; el.height = 6.6; el.x = 0.2; el.y = 0.2;
+    el.bgColor = "transparent"; el.bgOpacity = 0;
   }
   if (type === "logo") { el.width = 2; el.height = 1.5; }
   if (type === "uploadedImage") { el.width = 3; el.height = 2; }
@@ -809,6 +821,11 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
         return `<div style="${base}background:#e5e7eb;border-radius:${br};overflow:hidden;">${photoUrl ? `<img src="${photoUrl}" style="width:100%;height:100%;object-fit:cover;" />` : ""}</div>`;
       }
       if (el.type === "shape") return `<div style="${base}"></div>`;
+      // ★ Frame export
+      if (el.type === "frame") {
+        const fStyle = el.frameKind === "double" ? "double" : el.frameKind === "dashed" ? "dashed" : el.frameKind === "dotted" ? "dotted" : el.frameKind === "groove" ? "groove" : el.frameKind === "ridge" ? "ridge" : el.frameKind === "inset" ? "inset" : el.frameKind === "outset" ? "outset" : "solid";
+        return `<div style="${base}border:${el.borderWidth || 3}px ${fStyle} ${el.borderColor || "#0f766e"};border-radius:${el.borderRadius || 0}px;box-sizing:border-box;"></div>`;
+      }
       // Text
       const content = getContent(el, sub as any);
       const label = el.showLabel ? (el.labelText || "") : "";
@@ -1187,6 +1204,14 @@ body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-we
                   </div>
                 )}
                 {el.type === "shape" && <div className="w-full h-full" />}
+                {/* ★ Frame element — إطار زخرفي */}
+                {el.type === "frame" && (
+                  <div className="w-full h-full pointer-events-none" style={{
+                    border: `${el.borderWidth}px ${el.frameKind === "double" ? "double" : el.frameKind === "dashed" ? "dashed" : el.frameKind === "dotted" ? "dotted" : el.frameKind === "groove" ? "groove" : el.frameKind === "ridge" ? "ridge" : el.frameKind === "inset" ? "inset" : el.frameKind === "outset" ? "outset" : "solid"} ${el.borderColor}`,
+                    borderRadius: `${el.borderRadius || 0}px`,
+                    boxSizing: "border-box",
+                  }} />
+                )}
                 {showText && (
                   <span style={{
                     fontFamily: `${el.fontFamily}, Arial, sans-serif`,
@@ -2412,6 +2437,101 @@ function PropertiesContent({
         </CollapsiblePanel>
       )}
 
+      {/* ★ Frame properties panel */}
+      {selected.type === "frame" && (
+        <CollapsiblePanel title="خصائص الإطار" icon={Frame} defaultOpen>
+          <div className="space-y-3">
+            {/* Frame style */}
+            <div>
+              <Label className="text-[10px] font-semibold">نمط الإطار</Label>
+              <div className="grid grid-cols-2 gap-1 mt-1">
+                {([
+                  { value: "solid", label: "متصل" },
+                  { value: "double", label: "مزدوج" },
+                  { value: "dashed", label: "متقطع" },
+                  { value: "dotted", label: "نقاط" },
+                  { value: "groove", label: "محزّز" },
+                  { value: "ridge", label: "بارز" },
+                  { value: "inset", label: "غائر" },
+                  { value: "outset", label: "بارز 3D" },
+                ] as const).map((s) => (
+                  <button
+                    key={s.value}
+                    onClick={() => updateEl(selected.id, { frameKind: s.value as FrameKind })}
+                    className={cn(
+                      "px-2 py-1.5 rounded-md text-[10px] font-medium border transition-all",
+                      selected.frameKind === s.value
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background text-muted-foreground border-border hover:border-primary/40"
+                    )}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Thickness + Color */}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-[10px]">السماكة (px)</Label>
+                <Input type="number" min="1" max="20" value={selected.borderWidth || 3}
+                  onChange={(e) => updateEl(selected.id, { borderWidth: parseInt(e.target.value) || 1 })}
+                  className="h-8 text-xs" />
+              </div>
+              <div>
+                <Label className="text-[10px]">اللون</Label>
+                <Input type="color" value={selected.borderColor || "#0f766e"}
+                  onChange={(e) => updateEl(selected.id, { borderColor: e.target.value })}
+                  className="h-8 w-full p-1" />
+              </div>
+            </div>
+
+            {/* Corner radius */}
+            <div>
+              <Label className="text-[10px]">انحناء الزوايا: {selected.borderRadius || 0}px</Label>
+              <input type="range" min="0" max="50" value={selected.borderRadius || 0}
+                onChange={(e) => updateEl(selected.id, { borderRadius: parseInt(e.target.value) })}
+                className="w-full" />
+            </div>
+
+            {/* Quick fit presets */}
+            <div>
+              <Label className="text-[10px] font-semibold">ملاءمة البطاقة</Label>
+              <div className="flex gap-1 mt-1">
+                <Button size="sm" variant="outline" className="flex-1 h-8 text-[10px]"
+                  onClick={() => {
+                    const c = design.config;
+                    updateEl(selected.id, { x: 0.2, y: 0.2, width: c.width - 0.4, height: c.height - 0.4 });
+                  }}>
+                  ملء البطاقة
+                </Button>
+                <Button size="sm" variant="outline" className="flex-1 h-8 text-[10px]"
+                  onClick={() => {
+                    const c = design.config;
+                    updateEl(selected.id, { x: 0.5, y: 0.5, width: c.width - 1, height: c.height - 1 });
+                  }}>
+                  هوامش كبيرة
+                </Button>
+              </div>
+            </div>
+
+            {/* Color presets */}
+            <div>
+              <Label className="text-[10px] font-semibold">ألوان جاهزة</Label>
+              <div className="flex flex-wrap gap-1 mt-1">
+                {PRESET_COLORS.slice(0, 10).map((c) => (
+                  <button key={c} onClick={() => updateEl(selected.id, { borderColor: c })}
+                    className={cn("w-6 h-6 rounded-md border-2 transition-all",
+                      selected.borderColor === c ? "border-primary ring-1 ring-primary/30 scale-110" : "border-border")}
+                    style={{ backgroundColor: c }} />
+                ))}
+              </div>
+            </div>
+          </div>
+        </CollapsiblePanel>
+      )}
+
       {/* Appearance panel (background, border for non-text) */}
       {!showText && (
         <CollapsiblePanel title="المظهر العام" icon={Palette}>
@@ -2723,6 +2843,11 @@ function generateWordHTML(subscribers: SubscriberWithComputed[], design: CardDes
         return `<div style="${base}overflow:hidden;border-radius:8px;position:relative;">${photoSrc ? `<img src="${photoSrc}" style="${imgStyle}" onerror="this.style.display='none'" /><div style="${phStyle}"></div>` : `<div style="${phStyle}"></div>`}</div>`;
       }
       if (el.type === "shape") return `<div style="${base}"></div>`;
+      // ★ Frame export (buildElementHTML path)
+      if (el.type === "frame") {
+        const fStyle = el.frameKind === "double" ? "double" : el.frameKind === "dashed" ? "dashed" : el.frameKind === "dotted" ? "dotted" : el.frameKind === "groove" ? "groove" : el.frameKind === "ridge" ? "ridge" : el.frameKind === "inset" ? "inset" : el.frameKind === "outset" ? "outset" : "solid";
+        return `<div style="${base}border:${el.borderWidth || 3}px ${fStyle} ${el.borderColor || "#0f766e"};border-radius:${el.borderRadius || 0}px;box-sizing:border-box;"></div>`;
+      }
       const content = getContent(el, sub);
       const label = el.showLabel ? (el.labelText || "") : "";
       return `<div style="${base}"><span style="font-family:${el.fontFamily},Arial,sans-serif;font-size:${((el.fontSize || 10) * 0.265).toFixed(1)}mm;font-weight:${el.fontWeight};color:${el.color};text-align:${el.textAlign};width:100%;line-height:1.3;">${escapeHtml(label + content)}</span></div>`;
