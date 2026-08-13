@@ -54,4 +54,4 @@ export const authOptions: NextAuthOptions = {
   // Use default cookie settings — they work in both localhost and preview deployments
 };
 
-export type Role = "admin" | "coach";
+export type Role = "admin" | "accountant" | "assistant" | "lifeguard" | "observer" | "coach";

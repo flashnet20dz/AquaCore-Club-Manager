@@ -34,6 +34,7 @@ interface User {
 
 const ROLE_INFO: Record<string, { label: string; icon: string; color: string }> = {
   admin: { label: "مدير", icon: "👑", color: "bg-amber-500/15 text-amber-700 border-amber-500/30" },
+  accountant: { label: "محاسب مالي", icon: "💰", color: "bg-emerald-500/15 text-emerald-700 border-emerald-500/30" },
   assistant: { label: "مساعد إداري", icon: "💼", color: "bg-sky-500/15 text-sky-700 border-sky-500/30" },
   lifeguard: { label: "حارس سباحة", icon: "🏊", color: "bg-teal-500/15 text-teal-700 border-teal-500/30" },
   observer: { label: "مراقب", icon: "👁️", color: "bg-violet-500/15 text-violet-700 border-violet-500/30" },

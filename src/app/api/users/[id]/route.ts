@@ -23,7 +23,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const data: Record<string, unknown> = {};
     if (name !== undefined) data.name = name;
     if (role !== undefined) {
-      const validRoles = ["admin", "assistant", "lifeguard", "observer"];
+      const validRoles = ["admin", "accountant", "assistant", "lifeguard", "observer"];
       if (!validRoles.includes(role)) {
         return NextResponse.json({ error: "دور غير صالح" }, { status: 400 });
       }
