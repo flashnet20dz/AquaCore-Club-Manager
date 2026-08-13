@@ -8,7 +8,7 @@ import {
   QrCode, Download, Settings as SettingsIcon, LogOut, Moon, Sun, ChevronLeft,
   UserCheck, RefreshCcw, FileText, Bell, Zap, Award, Pencil, Trash2,
   CreditCard, Inbox, UserCog, Database, Layers, Menu, CalendarOff, ListPlus, Building2,
-  ArrowDownAZ, Banknote,
+  ArrowDownAZ, Banknote, Briefcase,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +43,9 @@ import { ExportPanel } from "@/components/export-panel";
 import { ReportViewer } from "@/components/reports";
 import { SettingsPanel } from "@/components/settings-panel";
 import { ThemeSettingsPanel } from "@/components/theme-settings-panel";
+import { FinancialDashboard } from "@/components/financial-dashboard";
+import { FinancialPayments } from "@/components/financial-payments";
+import { FinancialReports } from "@/components/financial-reports";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SyncIndicator } from "@/components/sync-indicator";
 import { UserManagement } from "@/components/user-management";
@@ -147,7 +150,10 @@ export default function Home() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   // Controlled tabs + mobile nav drawer
   // 🔑 حارس السباحة: التبويب الافتراضي = الحضور (لا لوحة تحكم)
-  const [activeTab, setActiveTab] = useState<string>(sessionUser?.role === "admin" || sessionUser?.role === "superadmin" ? "dashboard" : "attendance");
+  const [activeTab, setActiveTab] = useState<string>(
+    sessionUser?.role === "accountant" ? "financial-dashboard"
+    : (sessionUser?.role === "admin" || sessionUser?.role === "superadmin" ? "dashboard" : "attendance")
+  );
   // Hook موحد لجلب أنواع الاشتراك — Single Source of Truth
   // يجب استدعاؤه قبل أي early return (قواعد الـ Hooks)
   const { types: subscriptionTypes, refresh: refreshSubTypes } = useSubscriptionTypes();
@@ -483,6 +489,9 @@ export default function Home() {
                  activeTab === "export" ? "التصدير" :
                  activeTab === "charges" ? "الأعباء" :
                  activeTab === "staff-compensations" ? "تعويضات العمال" :
+                 activeTab === "financial-dashboard" ? "لوحة المالية" :
+                 activeTab === "financial-payments" ? "الدفعات" :
+                 activeTab === "financial-reports" ? "التقارير المالية" :
                  activeTab === "contracts" ? "عقود العمال" :
                  activeTab === "users" ? "المستخدمون" :
                  activeTab === "backup" ? "النسخ الاحتياطي" :
@@ -576,6 +585,22 @@ export default function Home() {
               {hasPermission(sessionUser.role, "staffCompensations") && (
                 <TabsTrigger value="staff-compensations" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
                   <Banknote className="h-4 w-4" /> تعويضات العمال
+                </TabsTrigger>
+              )}
+              {/* ★ Financial System (المحاسب المالي) — 3 tabs */}
+              {hasPermission(sessionUser.role, "financialDashboard") && (
+                <TabsTrigger value="financial-dashboard" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
+                  <Briefcase className="h-4 w-4" /> لوحة المالية
+                </TabsTrigger>
+              )}
+              {hasPermission(sessionUser.role, "financialPayments") && (
+                <TabsTrigger value="financial-payments" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
+                  <Wallet className="h-4 w-4" /> الدفعات
+                </TabsTrigger>
+              )}
+              {hasPermission(sessionUser.role, "financialReports") && (
+                <TabsTrigger value="financial-reports" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
+                  <FileText className="h-4 w-4" /> التقارير المالية
                 </TabsTrigger>
               )}
               {isAdmin && (
@@ -1101,6 +1126,23 @@ export default function Home() {
             </TabsContent>
           )}
 
+          {/* ★ FINANCIAL SYSTEM TABS (المحاسب المالي) */}
+          {hasPermission(sessionUser.role, "financialDashboard") && (
+            <TabsContent value="financial-dashboard" className="mt-0">
+              <FinancialDashboard />
+            </TabsContent>
+          )}
+          {hasPermission(sessionUser.role, "financialPayments") && (
+            <TabsContent value="financial-payments" className="mt-0">
+              <FinancialPayments />
+            </TabsContent>
+          )}
+          {hasPermission(sessionUser.role, "financialReports") && (
+            <TabsContent value="financial-reports" className="mt-0">
+              <FinancialReports />
+            </TabsContent>
+          )}
+
           {/* CONTRACTS TAB (admin only) */}
           {isAdmin && (
             <TabsContent value="contracts" className="mt-0">
@@ -1288,6 +1330,31 @@ export default function Home() {
                 label="تعويضات العمال"
                 active={activeTab === "staff-compensations"}
                 onClick={() => { handleTabChange("staff-compensations"); setMobileNavOpen(false); }}
+              />
+            )}
+            {/* ★ Financial system mobile nav */}
+            {hasPermission(sessionUser.role, "financialDashboard") && (
+              <MobileNavItem
+                icon={Briefcase}
+                label="لوحة المالية"
+                active={activeTab === "financial-dashboard"}
+                onClick={() => { handleTabChange("financial-dashboard"); setMobileNavOpen(false); }}
+              />
+            )}
+            {hasPermission(sessionUser.role, "financialPayments") && (
+              <MobileNavItem
+                icon={Wallet}
+                label="الدفعات"
+                active={activeTab === "financial-payments"}
+                onClick={() => { handleTabChange("financial-payments"); setMobileNavOpen(false); }}
+              />
+            )}
+            {hasPermission(sessionUser.role, "financialReports") && (
+              <MobileNavItem
+                icon={FileText}
+                label="التقارير المالية"
+                active={activeTab === "financial-reports"}
+                onClick={() => { handleTabChange("financial-reports"); setMobileNavOpen(false); }}
               />
             )}
             {isAdmin && (

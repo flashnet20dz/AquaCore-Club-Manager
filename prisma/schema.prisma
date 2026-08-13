@@ -79,6 +79,9 @@ model Club {
   featureAccess   FeatureAccess[]                    // وصول مخصص للميزات
   cardTemplates   CardTemplate[]                     // قوالب بطاقات الانخراط
   compensationHistory CompensationHistory[]           // سجل تدقيق التعويضات
+  // ★ Financial system (المحاسب المالي)
+  financialTransactions FinancialTransaction[]        // العمليات المالية (مداخيل + مصاريف)
+  financialBalance      FinancialBalance?              // الرصيد المالي للحظي
 }
 
 // Club subscription (اشتراك النادي)
@@ -286,6 +289,8 @@ model User {
   codeBatches     CodeBatch[]                       // الدفعات التي ولّدها هذا المستخدم
   compensationHistory CompensationHistory[]           // سجل تدقيق التعويضات
   staffCompensations StaffCompensation[]
+  // ★ Financial system
+  financialTransactions FinancialTransaction[]        // العمليات المالية التي سجّلها هذا المستخدم
 }
 
 model WorkHours {
@@ -1133,4 +1138,82 @@ model StaffCompensation {
   @@index([clubId, paymentStatus])
   @@index([clubId, employeeId])
   @@index([clubId, userId])
+}
+
+// ═══════════════════════════════════════════════════════════
+// FINANCIAL SYSTEM (المحاسب المالي) — per club
+// ═══════════════════════════════════════════════════════════
+// Track all income (مداخيل) and expenses (مصاريف) for each club.
+// Balance = totalIncome - totalExpense, updated atomically per transaction.
+
+model FinancialTransaction {
+  id              String   @id @default(cuid())
+  clubId          String
+  club            Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  // نوع العملية: income (مدخول) أو expense (مصروف)
+  type            String   // "income" | "expense"
+
+  // فئة العملية
+  // income: "subscription" | "renewal" | "insurance" | "other_income"
+  // expense: "wages" | "insurance" | "compound_rights" | "office_supplies" | "other_expense"
+  category        String
+
+  // تصنيف فرعي اختياري (مثلاً: اسم المورد، نوع اللوازم)
+  subCategory     String?
+
+  // المبلغ (بالدينار الجزائري)
+  amount          Int
+
+  // التاريخ الفعلي للعملية
+  date            DateTime @default(now())
+
+  // طريقة الدفع
+  paymentMethod   String   @default("cash") // "cash" | "bank" | "cheque"
+
+  // جهة الدفع/الاستلام
+  payeeName       String?  // اسم من استلم/دفع المال
+  payeeId         String?  // معرّف الموظف/المنخرط (اختياري)
+
+  // ربط اختياري بسجلات أخرى
+  subscriberId    String?  // للمداخيل: منخرط مرتبط
+  employeeId      String?  // للمصاريف: أجر عامل مرتبط
+  staffCompensationId String? // ربط بتعويض عامل موجود
+  closureId       String?  // ربط بإغلاق (لحقوق المركب)
+
+  // مرجع مالي (رقم الإيصال، رقم الشيك، رقم التحويل)
+  reference       String?
+
+  // ملاحظات
+  note            String?
+
+  // ربط بالمستخدم الذي سجّل العملية (audit)
+  createdById     String?
+  user            User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([clubId, type, category])
+  @@index([clubId, date])
+  @@index([clubId, payeeName])
+}
+
+// سجل لحظي للرصيد المالي للنادي (singleton لكل نادي)
+model FinancialBalance {
+  id              String   @id @default(cuid())
+  clubId          String   @unique
+  club            Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  totalIncome     Int      @default(0)   // مجموع كل المداخيل
+  totalExpense    Int      @default(0)   // مجموع كل المصاريف
+  balance         Int      @default(0)   // totalIncome - totalExpense (الباقي)
+
+  // تفصيل حسب الفئة (JSON للإحصائيات السريعة)
+  incomeByCategory   String  @default("{}")  // { subscription: N, renewal: N, ... }
+  expenseByCategory  String  @default("{}")  // { wages: N, insurance: N, ... }
+
+  lastTransactionId   String?
+  lastTransactionDate DateTime?
+  updatedAt       DateTime @updatedAt
 }

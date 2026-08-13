@@ -1,6 +1,6 @@
 // Role definitions and permission helpers (safe for client and server)
 // Multi-Tenant: includes superadmin role
-export type Role = "superadmin" | "admin" | "assistant" | "lifeguard" | "observer";
+export type Role = "superadmin" | "admin" | "assistant" | "lifeguard" | "observer" | "accountant";
 
 export const ROLE_LABELS: Record<string, string> = {
   superadmin: "مدير عام",
@@ -8,6 +8,7 @@ export const ROLE_LABELS: Record<string, string> = {
   assistant: "مساعد إداري",
   lifeguard: "حارس سباحة",
   observer: "مراقب",
+  accountant: "محاسب مالي",
 };
 
 export const ROLE_ICONS: Record<string, string> = {
@@ -16,6 +17,7 @@ export const ROLE_ICONS: Record<string, string> = {
   assistant: "💼",
   lifeguard: "🏊",
   observer: "👁️",
+  accountant: "💰",
 };
 
 // Check if user has permission for a feature
@@ -39,6 +41,10 @@ export function hasPermission(role: string | undefined, feature: string): boolea
     cards: ["admin", "assistant"],
     import: ["admin", "assistant"],
     charges: ["admin"],
+    // ★ Financial system (المحاسب المالي)
+    financialDashboard: ["admin", "accountant"],
+    financialPayments: ["admin", "accountant"],
+    financialReports: ["admin", "accountant", "assistant"],
   };
   return permissions[feature]?.includes(role) || false;
 }
