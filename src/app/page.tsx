@@ -383,6 +383,8 @@ export default function Home() {
   }
 
   const isAdmin = sessionUser.role === "admin" || sessionUser.role === "superadmin";
+  // ★ المحاسب المالي يرى واجهة إدارة ساعات العمل الكاملة (لعرض الأجور) لكن لا يدير
+  const canViewWorkHoursManagement = isAdmin || sessionUser.role === "accountant";
 
   return (
     <SubscriptionGate>
@@ -1122,7 +1124,8 @@ export default function Home() {
           {/* ★ STAFF COMPENSATIONS TAB (financial — admin/assistant/lifeguard) */}
           {hasPermission(sessionUser.role, "staffCompensations") && (
             <TabsContent value="staff-compensations" className="mt-0">
-              <StaffCompensationsPanel />
+              {/* ★ المحاسب المالي يرى التعويضات لكن لا يضيف/يعدّل (canManage=false) */}
+              <StaffCompensationsPanel canManage={hasPermission(sessionUser.role, "staffCompensationsManage")} />
             </TabsContent>
           )}
 
@@ -1158,7 +1161,8 @@ export default function Home() {
           {/* WORK HOURS TAB */}
           {hasPermission(sessionUser.role, "workHours") && (
             <TabsContent value="workhours" className="mt-0">
-              {isAdmin ? <WorkHoursManagement /> : <PointagePanel />}
+              {/* ★ المحاسب المالي + المدير = واجهة الإدارة الكاملة (ساعات + أجور) */}
+              {canViewWorkHoursManagement ? <WorkHoursManagement /> : <PointagePanel />}
             </TabsContent>
           )}
 

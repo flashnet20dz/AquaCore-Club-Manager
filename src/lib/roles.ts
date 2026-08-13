@@ -31,10 +31,11 @@ export function hasPermission(role: string | undefined, feature: string): boolea
     attendance: ["admin", "assistant", "lifeguard", "observer"],
     renewals: ["admin", "assistant"],
     export: ["admin", "assistant"],
-    workHours: ["admin", "assistant", "lifeguard"],
+    // ★ المحاسب المالي يرى ساعات العمل (لعرض الأجور) لكن لا يديرها
+    workHours: ["admin", "assistant", "lifeguard", "accountant"],
     workHoursApproval: ["admin", "assistant"],
-    // ★ Staff financial compensations — admin + assistant manage, lifeguard views own
-    staffCompensations: ["admin", "assistant", "lifeguard"],
+    // ★ Staff financial compensations — admin + assistant manage, lifeguard views own, accountant views all
+    staffCompensations: ["admin", "assistant", "lifeguard", "accountant"],
     staffCompensationsManage: ["admin", "assistant"],
     userManagement: ["admin"],
     settings: ["admin"],

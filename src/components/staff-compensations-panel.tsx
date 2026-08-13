@@ -969,7 +969,7 @@ interface DetailSheetProps {
   record: StaffCompensation | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onEdit: (record: StaffCompensation) => void;
+  onEdit?: (record: StaffCompensation) => void;
   onPrint: (record: StaffCompensation) => void;
 }
 
@@ -1111,13 +1111,16 @@ function DetailSheet({ record, open, onOpenChange, onEdit, onPrint }: DetailShee
             <Printer className="h-4 w-4" />
             طباعة
           </Button>
-          <Button
-            className="gap-2 bg-teal-600 hover:bg-teal-700"
-            onClick={() => onEdit(record)}
-          >
-            <Pencil className="h-4 w-4" />
-            تعديل
-          </Button>
+          {/* ★ إخفاء زر التعديل للمحاسب (canManage=false → onEdit=undefined) */}
+          {onEdit && (
+            <Button
+              className="gap-2 bg-teal-600 hover:bg-teal-700"
+              onClick={() => onEdit(record)}
+            >
+              <Pencil className="h-4 w-4" />
+              تعديل
+            </Button>
+          )}
         </SheetFooter>
       </SheetContent>
     </Sheet>
@@ -1140,7 +1143,7 @@ function DetailItem({ icon: Icon, label, value }: { icon: React.ElementType; lab
 // المكوّن الرئيسي
 // ═══════════════════════════════════════════════════════════
 
-export function StaffCompensationsPanel() {
+export function StaffCompensationsPanel({ canManage = true }: { canManage?: boolean }) {
   // ── الحالة ──
   const [records, setRecords] = useState<StaffCompensation[]>([]);
   const [stats, setStats] = useState<CompStats | null>(null);
@@ -1669,10 +1672,13 @@ export function StaffCompensationsPanel() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={handleOpenAdd} className="gap-2 bg-teal-600 hover:bg-teal-700">
-              <Plus className="h-4 w-4" />
-              إضافة تعويض
-            </Button>
+            {/* ★ المحاسب المالي لا يمكنه إضافة/تعديل (canManage=false) */}
+            {canManage && (
+              <Button onClick={handleOpenAdd} className="gap-2 bg-teal-600 hover:bg-teal-700">
+                <Plus className="h-4 w-4" />
+                إضافة تعويض
+              </Button>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" className="gap-2">
@@ -2351,7 +2357,7 @@ export function StaffCompensationsPanel() {
           record={detailRecord}
           open={detailOpen}
           onOpenChange={setDetailOpen}
-          onEdit={handleOpenEdit}
+          onEdit={canManage ? handleOpenEdit : undefined}
           onPrint={(r) => handlePrint([r])}
         />
 
