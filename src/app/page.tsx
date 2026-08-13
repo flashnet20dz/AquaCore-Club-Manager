@@ -149,11 +149,10 @@ export default function Home() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   // Controlled tabs + mobile nav drawer
-  // 🔑 حارس السباحة: التبويب الافتراضي = الحضور (لا لوحة تحكم)
-  const [activeTab, setActiveTab] = useState<string>(
-    sessionUser?.role === "accountant" ? "financial-dashboard"
-    : (sessionUser?.role === "admin" || sessionUser?.role === "superadmin" ? "dashboard" : "attendance")
-  );
+  // 🔑 التبويب الافتراضي حسب الدور، لكن يُحفظ في localStorage ليبقى عند التحديث
+  const defaultTab = sessionUser?.role === "accountant" ? "financial-dashboard"
+    : (sessionUser?.role === "admin" || sessionUser?.role === "superadmin" ? "dashboard" : "attendance");
+  const [activeTab, setActiveTab] = useState<string>(defaultTab);
   // Hook موحد لجلب أنواع الاشتراك — Single Source of Truth
   // يجب استدعاؤه قبل أي early return (قواعد الـ Hooks)
   const { types: subscriptionTypes, refresh: refreshSubTypes } = useSubscriptionTypes();
@@ -161,9 +160,18 @@ export default function Home() {
   // التقرير المفتوح حالياً في مركز التقارير
   const [openReportId, setOpenReportId] = useState<string | null>(null);
 
-  // مسح التقرير المفتوح عند تغيير التبويب
+  // ★ استرجاع التبويب المحفوظ عند تحميل الصفحة (يبقى عند التحديث)
+  useEffect(() => {
+    try {
+      const savedTab = localStorage.getItem("rcs-active-tab");
+      if (savedTab) setActiveTab(savedTab);
+    } catch {}
+  }, []);
+
+  // مسح التقرير المفتوح عند تغيير التبويب + حفظ التبويب
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
+    try { localStorage.setItem("rcs-active-tab", tab); } catch {}
     if (tab !== "export") setOpenReportId(null);
   };
   // Filters drawer (mobile)
