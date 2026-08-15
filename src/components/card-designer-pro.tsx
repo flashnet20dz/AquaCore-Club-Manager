@@ -852,33 +852,36 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
   }, [design]);
 
   // 🔑 مولّد صفحات Recto/Verso — لكل 8 منخرطين: صفحة أمامية + صفحة خلفية
-  // الواجهة الخلفية معكوسة أفقياً لمحاذاة القلب المزدوج (duplex flip)
-  // 🔑 نستخدم direction:ltr للصفحة الخلفية لضمان العكس البصري الفعلي
+  // الواجهة الخلفية: عناصر البطاقة معكوسة أفقياً + ترتيب البطاقات معكوس per-row
+  // ★ كلا الصفحتين direction:rtl — العكس يأتي من:
+  //   1) عكس ترتيب كل صف: [c1,c2] → [c2,c1]  (في RTL: c1=يسار بدل يمين)
+  //   2) عكس محتوى كل بطاقة: finalLeftPct = 100 - leftPct - widthPct
   const buildRectoVersoPages = useCallback((subsWithPhotos: any[]): string => {
     const cardsPerPage = 8;
     const pages: string[] = [];
     for (let i = 0; i < subsWithPhotos.length; i += cardsPerPage) {
       const pageSubs = subsWithPhotos.slice(i, i + cardsPerPage);
-      const fillers = Array.from({ length: cardsPerPage - pageSubs.length }).map(() => `<div style="width:9.3cm;height:6.625cm;"></div>`).join("");
-      // الوجه الأمامي (Recto) — ترتيب طبيعي، direction:rtl
-      // RTL grid: c1 يمين، c2 يسار
+      const frontFillers = Array.from({ length: cardsPerPage - pageSubs.length }).map(() => `<div style="width:9.3cm;height:6.625cm;"></div>`).join("");
+      // الوجه الأمامي (Recto) — ترتيب طبيعي
       const frontCards = pageSubs.map((s: any) => buildCardHTMLString(s, "front")).join("");
-      pages.push(`<div class="print-page" style="direction:rtl;">${frontCards}${fillers}</div>`);
-      // الوجه الخلفي (Verso) — عكس ترتيب الأعمدة + direction:ltr
-      // LTR grid: أول عنصر يسار، ثاني عنصر يمين
-      // نعكس ترتيب كل صف: [c2, c1] → c2 يسار، c1 يمين
-      // عند قلب الورقة: ظهر c1 (يمين أمامي) يصبح يساراً ✓
+      pages.push(`<div class="print-page" style="direction:rtl;">${frontCards}${frontFillers}</div>`);
+
+      // الوجه الخلفي (Verso) — عكس ترتيب كل صف
+      // أمامية (RTL): Row1=[c2 يسار, c1 يمين] → خلفية يجب: [c1 يسار, c2 يمين]
+      // نعكس: [c2, c1] → مع RTL: c2=يمين, c1=يسار ✓
+      // ★ للصفوف الناقصة: الفارغ يُضاف BEFORE البطاقة (ليأخذ يمين، والبطاقة تأخذ يسار)
       const backChunk: any[] = [];
       for (let r = 0; r < 4; r++) {
         const rowStart = r * 2;
         const rowEnd = Math.min(rowStart + 2, pageSubs.length);
         const rowCards = pageSubs.slice(rowStart, rowEnd);
-        backChunk.push(...rowCards.reverse());
         const fillCount = 2 - rowCards.length;
+        // ★ الفارغ أولاً (يأخذ يمين في RTL)، ثم البطاقات المعكوسة (تأخذ يسار)
         for (let f = 0; f < fillCount; f++) backChunk.push(null);
+        backChunk.push(...rowCards.reverse());
       }
       const backCards = backChunk.map((s) => s ? buildCardHTMLString(s, "back") : `<div style="width:9.3cm;height:6.625cm;"></div>`).join("");
-      pages.push(`<div class="print-page" style="direction:ltr;">${backCards}</div>`);
+      pages.push(`<div class="print-page" style="direction:rtl;">${backCards}</div>`);
     }
     return pages.join("");
   }, [buildCardHTMLString]);
