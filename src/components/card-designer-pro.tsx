@@ -814,7 +814,11 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
       const topPct = (el.y / c.height) * 100;
       const widthPct = (el.width / c.width) * 100;
       const heightPct = (el.height / c.height) * 100;
-      const base = `position:absolute;left:${leftPct}%;top:${topPct}%;width:${widthPct}%;height:${heightPct}%;display:flex;align-items:center;justify-content:${el.textAlign === "center" ? "center" : el.textAlign === "left" ? "flex-start" : "flex-end"};direction:rtl;overflow:hidden;box-sizing:border-box;transform:rotate(${el.rotation || 0}deg);opacity:${(el.opacity ?? 100) / 100};z-index:${el.zIndex || 1};${el.bgColor ? `background-color:${el.bgColor}${bgAlpha};` : ""}${el.borderWidth ? `border:${el.borderWidth}px ${el.borderStyle || "solid"} ${el.borderColor || "#000"};` : ""}border-radius:${br};padding:0.5mm;`;
+      // ★ للوجه الخلفي: عكس الموضع الأفقي لعناصر البطاقة لمحاذاة القلب المزدوج (duplex flip)
+      // عند قلب الورقة أفقياً، العنصر الذي كان يميناً (leftPct صغير) يجب أن يصبح يساراً
+      // newLeft = 100 - leftPct - widthPct
+      const finalLeftPct = side === "back" ? (100 - leftPct - widthPct) : leftPct;
+      const base = `position:absolute;left:${finalLeftPct}%;top:${topPct}%;width:${widthPct}%;height:${heightPct}%;display:flex;align-items:center;justify-content:${el.textAlign === "center" ? "center" : el.textAlign === "left" ? "flex-start" : "flex-end"};direction:rtl;overflow:hidden;box-sizing:border-box;transform:rotate(${el.rotation || 0}deg);opacity:${(el.opacity ?? 100) / 100};z-index:${el.zIndex || 1};${el.bgColor ? `background-color:${el.bgColor}${bgAlpha};` : ""}${el.borderWidth ? `border:${el.borderWidth}px ${el.borderStyle || "solid"} ${el.borderColor || "#000"};` : ""}border-radius:${br};padding:0.5mm;`;
 
       if (el.type === "qr") return `<div style="${base}"><img src="${qrUrl}" style="width:100%;height:100%;object-fit:contain;" /></div>`;
       if (el.type === "barcode") return `<div style="${base}"><img src="https://api.qrserver.com/v1/create-barcode/?data=${encodeURIComponent(sub?.fileNumber || "RCS")}&type=code128" style="width:100%;height:100%;object-fit:contain;" /></div>`;
@@ -2767,8 +2771,11 @@ function MobileTabButton({
 
 // ════════════════════════════ PRINT HTML GENERATORS ════════════════════════════
 
-function buildElementHTML(el: CardElement, sub: SubscriberWithComputed | null): string {
-  const base = `position:absolute;left:${el.x}cm;top:${el.y}cm;width:${el.width}cm;height:${el.height}cm;display:flex;align-items:center;justify-content:${el.textAlign === "center" ? "center" : el.textAlign === "left" ? "flex-start" : "flex-end"};direction:rtl;overflow:hidden;box-sizing:border-box;transform:rotate(${el.rotation}deg);opacity:${el.opacity / 100};z-index:${el.zIndex};${el.bgColor ? `background-color:${el.bgColor}${alphaHex(el.bgOpacity ?? 100)};` : ""}${el.borderWidth ? `border:${el.borderWidth}px ${el.borderStyle} ${el.borderColor};` : ""}border-radius:${el.shapeKind === "circle" ? "50%" : `${el.borderRadius || 0}px`};padding:1mm;${el.shadow ? "box-shadow:0 2px 8px rgba(0,0,0,0.15);" : ""}`;
+function buildElementHTML(el: CardElement, sub: SubscriberWithComputed | null, side: "front" | "back" = "front"): string {
+  // ★ للوجه الخلفي: عكس الموضع الأفقي لمحاذاة القلب المزدوج (duplex flip)
+  const cardWidth = el.type ? 10 : 10; // fallback
+  const finalX = side === "back" ? (cardWidth - el.x - el.width) : el.x;
+  const base = `position:absolute;left:${finalX}cm;top:${el.y}cm;width:${el.width}cm;height:${el.height}cm;display:flex;align-items:center;justify-content:${el.textAlign === "center" ? "center" : el.textAlign === "left" ? "flex-start" : "flex-end"};direction:rtl;overflow:hidden;box-sizing:border-box;transform:rotate(${el.rotation}deg);opacity:${el.opacity / 100};z-index:${el.zIndex};${el.bgColor ? `background-color:${el.bgColor}${alphaHex(el.bgOpacity ?? 100)};` : ""}${el.borderWidth ? `border:${el.borderWidth}px ${el.borderStyle} ${el.borderColor};` : ""}border-radius:${el.shapeKind === "circle" ? "50%" : `${el.borderRadius || 0}px`};padding:1mm;${el.shadow ? "box-shadow:0 2px 8px rgba(0,0,0,0.15);" : ""}`;
   if (el.type === "qr") return `<div style="${base}"><img src="https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent(sub?.fileNumber || "RCS")}&color=000000&bgcolor=ffffff" style="width:100%;height:100%;object-fit:contain;" /></div>`;
   if (el.type === "barcode") return `<div style="${base}"><img src="https://api.qrserver.com/v1/create-barcode/?data=${encodeURIComponent(sub?.fileNumber || "RCS")}&type=code128" style="width:100%;height:100%;object-fit:contain;" /></div>`;
   if (el.type === "logo") return `<div style="${base}"><img src="/images/rcs-logo-official.png" style="width:100%;height:100%;object-fit:contain;" onerror="this.style.display='none'" /></div>`;
@@ -2789,7 +2796,7 @@ function buildElementHTML(el: CardElement, sub: SubscriberWithComputed | null): 
 function buildCardHTML(sub: SubscriberWithComputed | null, design: CardDesign, side: "front" | "back"): string {
   const { config } = design;
   const els = side === "front" ? design.front : design.back;
-  const elsHTML = els.filter((e) => e.visible).sort((a, b) => a.zIndex - b.zIndex).map((el) => buildElementHTML(el, sub)).join("");
+  const elsHTML = els.filter((e) => e.visible).sort((a, b) => a.zIndex - b.zIndex).map((el) => buildElementHTML(el, sub, side)).join("");
   const gradDir = config.gradientDirection === "horizontal" ? "to right" : config.gradientDirection === "vertical" ? "to bottom" : "to bottom right";
   const bgStyle = config.bgImage
     ? `background-image:url(${config.bgImage});background-size:cover;background-position:center;background-color:${config.bgColor};`
