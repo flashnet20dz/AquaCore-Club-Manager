@@ -663,10 +663,13 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
           layout: JSON.stringify(design),
         }),
       });
-      if (!res.ok) throw new Error();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `خطأ ${res.status}`);
       toast.success("تم حفظ القالب بنجاح");
       setShowSaveTemplate(false); setTemplateName("");
-    } catch { toast.error("فشل حفظ القالب"); }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "فشل حفظ القالب");
+    }
     finally { setGenerating(false); }
   };
 

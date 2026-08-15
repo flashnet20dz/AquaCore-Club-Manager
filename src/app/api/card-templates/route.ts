@@ -44,7 +44,8 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const currentUser = await getCurrentUser();
-    if (!currentUser || !currentUser.clubId) {
+    // ★ السماح للسوبر أدمن (clubId=null) بحفظ القوالب
+    if (!currentUser) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
     }
 
@@ -55,18 +56,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "الاسم مطلوب" }, { status: 400 });
     }
 
+    // ★ تحديد clubId: superadmin يستخدم body.clubId أو null; غيره يستخدم clubId الخاص به
+    const targetClubId = currentUser.role === "superadmin"
+      ? (body.clubId || null)
+      : currentUser.clubId;
+
     // إذا كان قالباً افتراضياً، ألغِ الافتراضية عن البقية
-    if (isDefault) {
+    if (isDefault && targetClubId) {
       await db.cardTemplate.updateMany({
-        where: { clubId: currentUser.clubId, isDefault: true },
+        where: { clubId: targetClubId, isDefault: true },
         data: { isDefault: false },
       });
     }
 
+    // ★ name هو @unique عالمياً — أضف لاحقة فريدة لو الاسم مكرر
+    let uniqueName = name;
+    const existing = await db.cardTemplate.findUnique({ where: { name } });
+    if (existing) {
+      uniqueName = `${name} (${Date.now().toString().slice(-4)})`;
+    }
+
     const template = await db.cardTemplate.create({
       data: {
-        clubId: currentUser.role === "superadmin" ? null : currentUser.clubId,
-        name,
+        clubId: targetClubId,
+        name: uniqueName,
         description: description || null,
         cardSize: cardSize || "CR80",
         orientation: orientation || "landscape",
@@ -84,13 +97,14 @@ export async function POST(req: NextRequest) {
       action: "create",
       entityType: "card_template",
       entityId: template.id,
-      description: `إنشاء قالب بطاقة: ${name}`,
+      description: `إنشاء قالب بطاقة: ${uniqueName}`,
       metadata: { cardSize, orientation },
-    });
+    }).catch(() => { /* audit log is best-effort */ });
 
     return NextResponse.json({ template }, { status: 201 });
   } catch (e) {
     console.error("POST card-template error:", e);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    const errMsg = e instanceof Error ? e.message : "Internal Server Error";
+    return NextResponse.json({ error: errMsg }, { status: 500 });
   }
 }
