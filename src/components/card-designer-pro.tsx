@@ -67,6 +67,11 @@ import type { SubscriberWithComputed } from "@/lib/rcs";
 import { generateProfessionalPrint, generateProfessionalWord, type PrintDesign, type PrintCardConfig, type PrintCardTexts } from "@/lib/print-engine";
 import { CardCanvas } from "@/components/card-canvas";
 import { exportCardPNG, exportCardWord } from "@/lib/card-export";
+import {
+  DEFAULT_PRINT_SETTINGS, PAPER_SIZES, calculateLayout, getVersoOrder,
+  generatePrintCSS, generateCropMarks,
+  type PrintSettings, type PaperSize, type DuplexMode,
+} from "@/lib/print-layout";
 
 // ──────────────────────────── Types ────────────────────────────
 
@@ -359,6 +364,10 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
   const [showSettings, setShowSettings] = useState(false);
   const [renameTarget, setRenameTarget] = useState<CardElement | null>(null);
   const [renameValue, setRenameValue] = useState("");
+
+  // ★ Print settings state — إعدادات الطباعة الاحترافية
+  const [printSettings, setPrintSettings] = useState<PrintSettings>(DEFAULT_PRINT_SETTINGS);
+  const [showPrintSettings, setShowPrintSettings] = useState(false);
 
   // ── History (undo/redo) ──
   const [history, setHistory] = useState<CardDesign[]>([design]);
@@ -801,19 +810,23 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
   //  🔑 مولّد HTML للبطاقة — نفس منطق المصمم (absolute positioning)
   //  يولّد HTML مباشر من CardDesign — بسيط، موثوق، يعمل في كل المتصفحات.
   // ═══════════════════════════════════════════════════════════════
-  const buildCardHTMLString = useCallback((sub: any, side: "front" | "back"): string => {
+  const buildCardHTMLString = useCallback((sub: any, side: "front" | "back", targetWidthMm?: number, targetHeightMm?: number): string => {
     const c = design.config;
     const els = side === "front" ? design.front : design.back;
+    // ★ إذا حُددت أبعاد مستهدفة (للطباعة)، استخدمها بدل أبعاد التصميم
+    const cardWidthCm = targetWidthMm ? targetWidthMm / 10 : c.width;
+    const cardHeightCm = targetHeightMm ? targetHeightMm / 10 : c.height;
     const photoUrl = sub?.photoDataUrl || (sub?.photoPath ? `${window.location.origin}/api/subscribers/${sub.id}/photo?size=cropped&raw=1` : "");
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(sub?.fileNumber || "RCS")}&color=000000&bgcolor=ffffff`;
 
     const elsHTML = els.filter((e) => e.visible).sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0)).map((el) => {
       const br = el.shapeKind === "circle" ? "50%" : `${el.borderRadius || 0}px`;
       const bgAlpha = el.bgOpacity != null ? Math.round(el.bgOpacity * 2.55).toString(16).padStart(2, "0") : "";
-      const leftPct = (el.x / c.width) * 100;
-      const topPct = (el.y / c.height) * 100;
-      const widthPct = (el.width / c.width) * 100;
-      const heightPct = (el.height / c.height) * 100;
+      // ★ استخدام الأبعاد المستهدفة لحساب النسب المئوية
+      const leftPct = (el.x / cardWidthCm) * 100;
+      const topPct = (el.y / cardHeightCm) * 100;
+      const widthPct = (el.width / cardWidthCm) * 100;
+      const heightPct = (el.height / cardHeightCm) * 100;
       // ★ النصوص والعناصر تبقى ثابتة في مكانها (لا عكس للمحتوى)
       const base = `position:absolute;left:${leftPct}%;top:${topPct}%;width:${widthPct}%;height:${heightPct}%;display:flex;align-items:center;justify-content:${el.textAlign === "center" ? "center" : el.textAlign === "left" ? "flex-start" : "flex-end"};direction:rtl;overflow:hidden;box-sizing:border-box;transform:rotate(${el.rotation || 0}deg);opacity:${(el.opacity ?? 100) / 100};z-index:${el.zIndex || 1};${el.bgColor ? `background-color:${el.bgColor}${bgAlpha};` : ""}${el.borderWidth ? `border:${el.borderWidth}px ${el.borderStyle || "solid"} ${el.borderColor || "#000"};` : ""}border-radius:${br};padding:0.5mm;`;
 
@@ -845,29 +858,50 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
         ? `background:linear-gradient(${c.gradientDirection === "horizontal" ? "to right" : c.gradientDirection === "vertical" ? "to bottom" : "to bottom right"}, ${c.gradientStart || "#0f766e"}, ${c.gradientEnd || "#0369a1"});`
         : `background-color:${c.bgColor};`;
 
-    return `<div style="width:${c.width}cm;height:${c.height}cm;${bg}border:${c.borderWidth}px ${c.borderStyle} ${c.borderColor};border-radius:${c.borderRadius}px;position:relative;overflow:hidden;direction:rtl;box-sizing:border-box;break-inside:avoid;">${elsHTML}</div>`;
+    return `<div style="width:${cardWidthCm}cm;height:${cardHeightCm}cm;${bg}border:${c.borderWidth}px ${c.borderStyle} ${c.borderColor};border-radius:${c.borderRadius}px;position:relative;overflow:hidden;direction:rtl;box-sizing:border-box;break-inside:avoid;">${elsHTML}</div>`;
   }, [design]);
 
-  // 🔑 مولّد صفحات Recto/Verso
-  // ★ أمامية: direction:rtl (البطاقات تبدأ من أقصى اليمين)
-  // ★ خلفية: direction:ltr (البطاقات تبدأ من أقصى اليسار) — نفس الترتيب، لكن الاتجاه معكوس
-  // ★ محتوى البطاقة (نصوص/صور/QR) يبقى ثابتاً في مكانها — لا عكس للعناصر
+  // ═══════════════════════════════════════════════════════════════
+  //  🔑 مولّد صفحات Recto/Verso — إحداثيات مطلقة بالملليمتر
+  //  نفس الإحداثيات لكل بطاقة في RECTO و VERSO → تطابق تام عند الطباعة
+  //  الاختلاف الوحيد: ترتيب البطاقات في VERSO حسب duplexMode
+  // ═══════════════════════════════════════════════════════════════
   const buildRectoVersoPages = useCallback((subsWithPhotos: any[]): string => {
-    const cardsPerPage = 8;
+    const layout = calculateLayout(printSettings);
+    const versoOrder = getVersoOrder(printSettings);
+    const { cardWidth, cardHeight } = layout;
+    const cardsPerPage = printSettings.cardsPerPage;
     const pages: string[] = [];
+    
     for (let i = 0; i < subsWithPhotos.length; i += cardsPerPage) {
       const pageSubs = subsWithPhotos.slice(i, i + cardsPerPage);
-      const fillers = Array.from({ length: cardsPerPage - pageSubs.length }).map(() => `<div style="width:8.5cm;height:6.2cm;"></div>`).join("");
-      // الوجه الأمامي (Recto) — direction:rtl: البطاقات تبدأ من أقصى اليمين
-      const frontCards = pageSubs.map((s: any) => buildCardHTMLString(s, "front")).join("");
-      pages.push(`<div class="print-page" style="direction:rtl;">${frontCards}${fillers}</div>`);
-      // الوجه الخلفي (Verso) — direction:ltr: نفس البطاقات تبدأ من أقصى اليسار
-      // نفس الترتيب تماماً، فقط الاتجاه معكوس → البطاقات تتطابق عند قلب الورقة
-      const backCards = pageSubs.map((s: any) => buildCardHTMLString(s, "back")).join("");
-      pages.push(`<div class="print-page" style="direction:ltr;">${backCards}${fillers}</div>`);
+      
+      // ═══ RECTO (الوجه الأمامي) ═══
+      let rectoCards = '';
+      for (let j = 0; j < cardsPerPage; j++) {
+        const pos = layout.positions[j];
+        const sub = pageSubs[j];
+        const cardHTML = sub ? buildCardHTMLString(sub, "front", cardWidth, cardHeight) : '';
+        const cropHTML = printSettings.showCropMarks ? generateCropMarks(pos) : '';
+        rectoCards += `<div class="card-slot" style="left:${pos.left}mm;top:${pos.top}mm;width:${pos.width}mm;height:${pos.height}mm;">${cardHTML}</div>${cropHTML}`;
+      }
+      pages.push(`<div class="print-page">${rectoCards}</div>`);
+      
+      // ═══ VERSO (الوجه الخلفي) ═══
+      // ★ نفس الإحداثيات تماماً — الاختلاف الوحيد هو ترتيب البطاقات
+      let versoCards = '';
+      for (let j = 0; j < cardsPerPage; j++) {
+        const pos = layout.positions[j];
+        const subIndex = versoOrder[j];
+        const sub = subIndex < pageSubs.length ? pageSubs[subIndex] : null;
+        const cardHTML = sub ? buildCardHTMLString(sub, "back", cardWidth, cardHeight) : '';
+        const cropHTML = printSettings.showCropMarks ? generateCropMarks(pos) : '';
+        versoCards += `<div class="card-slot" style="left:${pos.left}mm;top:${pos.top}mm;width:${pos.width}mm;height:${pos.height}mm;">${cardHTML}</div>${cropHTML}`;
+      }
+      pages.push(`<div class="print-page">${versoCards}</div>`);
     }
     return pages.join("");
-  }, [buildCardHTMLString]);
+  }, [buildCardHTMLString, printSettings]);
 
   // 1) طباعة مباشرة — HTML مباشر في نافذة طباعة (بسيط وموثوق)
   const handlePrintDirect = async () => {
@@ -877,17 +911,10 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
     try {
       const subsWithPhotos = await prepareSubsWithPhotos(subs);
       const pagesHTML = buildRectoVersoPages(subsWithPhotos);
+      const css = generatePrintCSS(printSettings);
       const w = window.open("", "_blank");
       if (!w) { toast.error("اسمح بالنوافذ المنبثقة للموقع"); return; }
-      w.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>طباعة بطاقات — AquaCore</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box;}
-@page{size:A4 portrait;margin:8mm;}
-body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important;}
-.print-page{display:grid;grid-template-columns:repeat(2,8.5cm);grid-template-rows:repeat(4,6.2cm);gap:8mm;width:18.4cm;margin:0 auto;page-break-after:always;justify-content:center;}
-.print-page:last-child{page-break-after:auto;}
-@media screen{body{background:#f0f0f0;padding:20px;}.print-page{margin:0 auto 20px;background:#fff;padding:8mm;box-shadow:0 4px 12px rgba(0,0,0,0.15);display:grid;justify-content:center;}}
-</style></head><body>${pagesHTML}</body></html>`);
+      w.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>طباعة بطاقات — AquaCore</title><style>${css}</style></head><body>${pagesHTML}</body></html>`);
       w.document.close();
       setTimeout(() => { try { w.focus(); w.print(); } catch (e) { console.error(e); } }, 600);
       toast.success(`جاري طباعة ${subs.length} بطاقة (Recto/Verso)`);
@@ -903,16 +930,10 @@ body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-we
     try {
       const subsWithPhotos = await prepareSubsWithPhotos(subs);
       const pagesHTML = buildRectoVersoPages(subsWithPhotos);
+      const css = generatePrintCSS(printSettings);
       const w = window.open("", "_blank");
       if (!w) { toast.error("اسمح بالنوافذ المنبثقة للموقع"); return; }
-      w.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>PDF بطاقات — AquaCore</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box;}
-@page{size:A4 portrait;margin:8mm;}
-body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important;}
-.print-page{display:grid;grid-template-columns:repeat(2,8.5cm);grid-template-rows:repeat(4,6.2cm);gap:8mm;width:18.4cm;margin:0 auto;page-break-after:always;justify-content:center;}
-.print-page:last-child{page-break-after:auto;}
-</style></head><body>${pagesHTML}</body></html>`);
+      w.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>PDF بطاقات — AquaCore</title><style>${css}</style></head><body>${pagesHTML}</body></html>`);
       w.document.close();
       setTimeout(() => { try { w.focus(); w.print(); } catch (e) { console.error(e); } }, 600);
       toast.success(`اختر "حفظ كـ PDF" في نافذة الطباعة (Recto/Verso)`);
@@ -957,16 +978,10 @@ body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-we
     try {
       const subsWithPhotos = await prepareSubsWithPhotos(subs);
       const pagesHTML = buildRectoVersoPages(subsWithPhotos);
+      const css = generatePrintCSS(printSettings);
       const w = window.open("", "_blank");
       if (!w) { toast.error("اسمح بالنوافذ المنبثقة للموقع"); return; }
-      w.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>A4 — AquaCore</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box;}
-@page{size:A4 portrait;margin:8mm;}
-body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important;}
-.print-page{display:grid;grid-template-columns:repeat(2,8.5cm);grid-template-rows:repeat(4,6.2cm);gap:8mm;width:18.4cm;margin:0 auto;page-break-after:always;justify-content:center;}
-.print-page:last-child{page-break-after:auto;}
-</style></head><body>${pagesHTML}</body></html>`);
+      w.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>A4 — AquaCore</title><style>${css}</style></head><body>${pagesHTML}</body></html>`);
       w.document.close();
       setTimeout(() => { try { w.focus(); w.print(); } catch (e) { console.error(e); } }, 600);
       toast.success(`جاري تصدير ${subs.length} بطاقة في A4 (Recto/Verso)`);
@@ -1339,6 +1354,21 @@ body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-we
 
             {/* ═══ 4 أزرار طباعة احترافية ═══ */}
             <div className="flex items-center gap-1">
+              {/* ★ زر إعدادات الطباعة */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setShowPrintSettings(true)}
+                    className="h-8 w-8 p-0"
+                  >
+                    <Settings2 className="h-4 w-4 text-teal-600" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">إعدادات الطباعة (الورق، الهوامش، القلب)</TooltipContent>
+              </Tooltip>
+
               {/* 1) طباعة مباشرة */}
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1805,6 +1835,24 @@ body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-we
                 <Trash2 className="h-4 w-4 ml-1" /> إعادة تعيين
               </Button>
               <Button onClick={() => setShowSettings(false)}>تم</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* ★ نافذة إعدادات الطباعة */}
+        <Dialog open={showPrintSettings} onOpenChange={setShowPrintSettings}>
+          <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-base">
+                <Printer className="h-5 w-5 text-teal-600" /> إعدادات الطباعة
+              </DialogTitle>
+            </DialogHeader>
+            <PrintSettingsContent settings={printSettings} onChange={setPrintSettings} />
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setPrintSettings(DEFAULT_PRINT_SETTINGS); toast.success("تمت إعادة الإعدادات للافتراضي"); }}>
+                <RotateCcw className="h-4 w-4 ml-1" /> إعادة للافتراضي
+              </Button>
+              <Button onClick={() => setShowPrintSettings(false)}>تم</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -2882,6 +2930,160 @@ function generateWordHTML(subscribers: SubscriberWithComputed[], design: CardDes
     <h3 style="text-align:center;font-size:14px;color:#0f766e;margin:20px 0 10px;">الواجهة الخلفية (VERSO)</h3>
     <div style="text-align:center;">${backCards}</div>
   </body></html>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// ★ مكوّن إعدادات الطباعة — ورق + هوامش + قلب + إزاحة
+// ═══════════════════════════════════════════════════════════
+function PrintSettingsContent({ settings, onChange }: {
+  settings: PrintSettings;
+  onChange: (s: PrintSettings) => void;
+}) {
+  const update = (patch: Partial<PrintSettings>) => onChange({ ...settings, ...patch });
+  const layout = calculateLayout(settings);
+  
+  return (
+    <div className="space-y-4 py-2">
+      {/* حجم الورق */}
+      <div className="space-y-1.5">
+        <Label className="text-sm font-semibold">حجم الورق</Label>
+        <Select value={settings.paperSize} onValueChange={(v) => {
+          const ps = v as PaperSize;
+          const dims = PAPER_SIZES[ps];
+          update({ paperSize: ps, paperWidth: dims.width, paperHeight: dims.height });
+        }}>
+          <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="A4">A4 (210×297mm)</SelectItem>
+            <SelectItem value="Letter">Letter (215.9×279.4mm)</SelectItem>
+            <SelectItem value="Custom">مخصص</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* أبعاد مخصص */}
+      {settings.paperSize === "Custom" && (
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <Label className="text-[10px]">عرض الورق (mm)</Label>
+            <Input type="number" value={settings.paperWidth} onChange={(e) => update({ paperWidth: +e.target.value })} className="h-8 text-xs" />
+          </div>
+          <div>
+            <Label className="text-[10px]">ارتفاع الورق (mm)</Label>
+            <Input type="number" value={settings.paperHeight} onChange={(e) => update({ paperHeight: +e.target.value })} className="h-8 text-xs" />
+          </div>
+        </div>
+      )}
+
+      {/* طريقة القلب */}
+      <div className="space-y-1.5">
+        <Label className="text-sm font-semibold">طريقة قلب الورقة (Duplex)</Label>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => update({ duplexMode: "long-edge" })}
+            className={cn("p-2.5 rounded-lg border-2 text-center transition-all",
+              settings.duplexMode === "long-edge" ? "border-primary bg-primary/5" : "border-border hover:border-primary/40")}
+          >
+            <div className="text-xs font-semibold">قلب على الحافة الطويلة</div>
+            <div className="text-[10px] text-muted-foreground mt-1">← يمين↔يسار ←</div>
+          </button>
+          <button
+            onClick={() => update({ duplexMode: "short-edge" })}
+            className={cn("p-2.5 rounded-lg border-2 text-center transition-all",
+              settings.duplexMode === "short-edge" ? "border-primary bg-primary/5" : "border-border hover:border-primary/40")}
+          >
+            <div className="text-xs font-semibold">قلب على الحافة القصيرة</div>
+            <div className="text-[10px] text-muted-foreground mt-1">↑ أعلى↔أسفل ↑</div>
+          </button>
+        </div>
+      </div>
+
+      {/* الهوامش */}
+      <div className="space-y-1.5">
+        <Label className="text-sm font-semibold">الهوامش (mm)</Label>
+        <div className="grid grid-cols-4 gap-1.5">
+          <div>
+            <Label className="text-[10px] text-muted-foreground">علوي</Label>
+            <Input type="number" step="0.5" value={settings.marginTop} onChange={(e) => update({ marginTop: +e.target.value })} className="h-8 text-xs" />
+          </div>
+          <div>
+            <Label className="text-[10px] text-muted-foreground">سفلي</Label>
+            <Input type="number" step="0.5" value={settings.marginBottom} onChange={(e) => update({ marginBottom: +e.target.value })} className="h-8 text-xs" />
+          </div>
+          <div>
+            <Label className="text-[10px] text-muted-foreground">يمين</Label>
+            <Input type="number" step="0.5" value={settings.marginRight} onChange={(e) => update({ marginRight: +e.target.value })} className="h-8 text-xs" />
+          </div>
+          <div>
+            <Label className="text-[10px] text-muted-foreground">يسار</Label>
+            <Input type="number" step="0.5" value={settings.marginLeft} onChange={(e) => update({ marginLeft: +e.target.value })} className="h-8 text-xs" />
+          </div>
+        </div>
+      </div>
+
+      {/* المسافات بين البطاقات */}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <Label className="text-[10px]">مسافة أفقية (mm)</Label>
+          <Input type="number" step="0.5" value={settings.gapHorizontal} onChange={(e) => update({ gapHorizontal: +e.target.value })} className="h-8 text-xs" />
+        </div>
+        <div>
+          <Label className="text-[10px]">مسافة عمودية (mm)</Label>
+          <Input type="number" step="0.5" value={settings.gapVertical} onChange={(e) => update({ gapVertical: +e.target.value })} className="h-8 text-xs" />
+        </div>
+      </div>
+
+      {/* إزاحة الطباعة (Registration) */}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <Label className="text-[10px]">إزاحة أفقية X (mm)</Label>
+          <div className="flex gap-1">
+            <Input type="number" step="0.1" value={settings.xOffset} onChange={(e) => update({ xOffset: +e.target.value })} className="h-8 text-xs" />
+            <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => update({ xOffset: settings.xOffset + 0.1 })}>+</Button>
+            <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => update({ xOffset: settings.xOffset - 0.1 })}>−</Button>
+          </div>
+        </div>
+        <div>
+          <Label className="text-[10px]">إزاحة عمودية Y (mm)</Label>
+          <div className="flex gap-1">
+            <Input type="number" step="0.1" value={settings.yOffset} onChange={(e) => update({ yOffset: +e.target.value })} className="h-8 text-xs" />
+            <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => update({ yOffset: settings.yOffset + 0.1 })}>+</Button>
+            <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => update({ yOffset: settings.yOffset - 0.1 })}>−</Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Scale + Crop marks */}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <Label className="text-[10px]">التكبير (Scale %)</Label>
+          <Input type="number" step="1" min="50" max="200" value={settings.scale} onChange={(e) => update({ scale: +e.target.value })} className="h-8 text-xs" />
+        </div>
+        <div className="flex items-end">
+          <label className="flex items-center gap-2 text-xs cursor-pointer pb-2">
+            <Checkbox checked={settings.showCropMarks} onCheckedChange={(v) => update({ showCropMarks: !!v })} />
+            علامات القص
+          </label>
+        </div>
+      </div>
+
+      {/* معلومات البطاقة المحسوبة */}
+      <div className="rounded-lg bg-teal-500/5 border border-teal-500/20 p-3 text-xs space-y-1">
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">حجم البطاقة:</span>
+          <span className="font-bold">{layout.cardWidth.toFixed(1)} × {layout.cardHeight.toFixed(1)} mm</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">التوزيع:</span>
+          <span className="font-bold">{settings.cols} × {settings.rows} = {settings.cardsPerPage} بطاقات</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">طريقة القلب:</span>
+          <span className="font-bold">{settings.duplexMode === "long-edge" ? "حافة طويلة" : "حافة قصيرة"}</span>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default CardDesignerPro;
