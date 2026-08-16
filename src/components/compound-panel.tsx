@@ -47,13 +47,77 @@ const SIGNATURES = [
   { id: "insurance", label: "تأشيرة التأمين" },
 ];
 
-// 🔑 تنسيق التاريخ YYYY/MM/DD
+const MONTH_NAMES = ["جانفي", "فيفري", "مارس", "أفريل", "ماي", "جوان", "جويلية", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
+
 function formatDateYMD(dateStr: string): string {
   const d = new Date(dateStr);
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}/${m}/${day}`;
+}
+
+// ★ تحويل الرقم إلى أحرف عربية (تفقيط)
+function numberToArabicWords(num: number): string {
+  if (num === 0) return "صفر";
+  const ones = ["", "واحد", "اثنان", "ثلاثة", "أربعة", "خمسة", "ستة", "سبعة", "ثمانية", "تسعة"];
+  const tens = ["", "عشرة", "عشرون", "ثلاثون", "أربعون", "خمسون", "ستون", "سبعون", "ثمانون", "تسعون"];
+  const hundreds = ["", "مائة", "مئتان", "ثلاثمائة", "أربعمائة", "خمسمائة", "ستمائة", "سبعمائة", "ثمانمائة", "تسعمائة"];
+
+  function threeDigits(n: number): string {
+    let result = "";
+    const h = Math.floor(n / 100);
+    const t = Math.floor((n % 100) / 10);
+    const o = n % 10;
+    if (h > 0) result += hundreds[h];
+    if (t === 1 && o === 0) {
+      if (result) result += " و";
+      result += "عشرة";
+    } else if (t === 1 && o > 0) {
+      if (result) result += " و";
+      result += ones[o] + " عشر";
+    } else if (t === 2 && o === 1) {
+      if (result) result += " و";
+      result += "أحد وعشرون";
+    } else if (t === 2 && o === 2) {
+      if (result) result += " و";
+      result += "اثنان وعشرون";
+    } else if (t > 0 && o > 0) {
+      if (result) result += " و";
+      result += ones[o] + " و" + tens[t];
+    } else if (t > 0) {
+      if (result) result += " و";
+      result += tens[t];
+    } else if (o > 0) {
+      if (result) result += " و";
+      result += ones[o];
+    }
+    return result;
+  }
+
+  let result = "";
+  const millions = Math.floor(num / 1000000);
+  const thousands = Math.floor((num % 1000000) / 1000);
+  const remainder = num % 1000;
+
+  if (millions > 0) {
+    if (millions === 1) result += "مليون";
+    else if (millions === 2) result += "مليونان";
+    else if (millions <= 10) result += ones[millions] + " ملايين";
+    else result += threeDigits(millions) + " مليون";
+  }
+  if (thousands > 0) {
+    if (result) result += " و";
+    if (thousands === 1) result += "ألف";
+    else if (thousands === 2) result += "ألفان";
+    else if (thousands <= 10) result += ones[thousands] + " آلاف";
+    else result += threeDigits(thousands) + " ألف";
+  }
+  if (remainder > 0) {
+    if (result) result += " و";
+    result += threeDigits(remainder);
+  }
+  return result;
 }
 
 export function CompoundPanel() {
@@ -74,7 +138,7 @@ export function CompoundPanel() {
       if (res.ok) {
         const d = await res.json();
         setData(d);
-        setSelectedIds(new Set()); // مسح التحديد عند تغيير الشهر
+        setSelectedIds(new Set());
       }
     } catch {
       toast.error("تعذر تحميل البيانات");
@@ -125,7 +189,6 @@ export function CompoundPanel() {
       params.set("year", String(year));
       params.set("month", String(month));
       if (selectedSigs.length > 0) params.set("sigs", selectedSigs.join(","));
-      // 🔑 إذا حدد منخرطين، أرسل معرفاتهم
       if (selectedOnly && selectedIds.size > 0) {
         params.set("selectedIds", Array.from(selectedIds).join(","));
       }
@@ -153,33 +216,28 @@ export function CompoundPanel() {
 
   const entries = data?.entries || [];
   const stats = data?.stats || { total: 0, newCount: 0, renewalCount: 0, totalCompound: 0 };
+  // ★ المبلغ الإجمالي محسوب تلقائياً
+  const totalAmount = stats.totalCompound || (entries.length * 1000);
+  const amountInWords = numberToArabicWords(totalAmount);
 
   return (
     <div className="space-y-4">
-      {/* Header */}
+      {/* Header — مطابق لورقة حقوق_المركب في Excel */}
       <div className="rounded-2xl border border-border/60 bg-card p-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-2">
             <Building2 className="h-6 w-6 text-teal-600" />
             <div>
-              <h2 className="text-xl font-bold text-teal-900">حقوق المركب — القائمة الشهرية</h2>
-              <p className="text-xs text-muted-foreground">المنخرطون الذين دفعوا 1300 أو 1500 دج (تسجيل جديد أو تجديد)</p>
+              <h2 className="text-xl font-bold text-teal-900">🏊 سجل حقوق المركب — نادي RCS</h2>
+              <p className="text-xs text-muted-foreground">قائمة المسجلين الجدد والمجددين حسب الشهر (حقوق المركب فقط: المبلغ الإجمالي ≥ 1300 دج)</p>
             </div>
           </div>
-          <div className="flex gap-2 flex-wrap">
-            {/* 🔑 تحميل بالشهر المحدد */}
-            <Button size="sm" variant="outline" onClick={() => setSigModal(true)} disabled={exporting || entries.length === 0}>
-              {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4 ml-1" />}
-              تحميل قائمة الشهر
-            </Button>
-            {/* 🔑 تحميل المنخرطين المحددين */}
-            {selectedIds.size > 0 && (
-              <Button size="sm" variant="default" onClick={() => handleExport("pdf", true)} disabled={exporting}
-                className="bg-teal-600 hover:bg-teal-700 text-white">
-                <Download className="h-4 w-4 ml-1" />
-                تحميل المحددين ({selectedIds.size})
-              </Button>
-            )}
+          {/* الشهر + السنة — مطابق للورقة */}
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground">الشهر:</span>
+            <Badge className="bg-teal-100 text-teal-800 border-teal-300">{MONTH_NAMES[month - 1]}</Badge>
+            <span className="text-muted-foreground">السنة:</span>
+            <Badge className="bg-teal-100 text-teal-800 border-teal-300">{year}</Badge>
           </div>
         </div>
       </div>
@@ -192,7 +250,7 @@ export function CompoundPanel() {
           </Button>
           <div className="text-center">
             <p className="text-sm text-muted-foreground">الشهر المحدد</p>
-            <p className="text-lg font-bold text-teal-900">{data?.monthName || `${month}/${year}`}</p>
+            <p className="text-lg font-bold text-teal-900">{MONTH_NAMES[month - 1]} {year}</p>
           </div>
           <Button variant="ghost" size="icon" onClick={goToNextMonth} className="rounded-xl">
             <ChevronLeft className="h-5 w-5" />
@@ -207,34 +265,61 @@ export function CompoundPanel() {
         <StatCard icon={RefreshCw} label="تجديد" count={stats.renewalCount} color="from-violet-600 to-violet-700" />
         <div className="rounded-2xl p-4 text-white bg-gradient-to-br from-amber-600 to-orange-600">
           <TrendingUp className="h-5 w-5 mb-1" />
-          <p className="text-2xl font-extrabold tabular-nums">{stats.totalCompound.toLocaleString()}</p>
+          <p className="text-2xl font-extrabold tabular-nums">{totalAmount.toLocaleString()}</p>
           <p className="text-xs opacity-90">دج (1000 × {stats.total})</p>
         </div>
       </div>
 
-      {/* Selection controls */}
-      {entries.length > 0 && (
+      {/* ★ المبلغ بالأحرف (تفقيط) */}
+      <div className="rounded-xl border border-amber-300/50 bg-amber-50 dark:bg-amber-950/30 px-4 py-3">
+        <p className="text-sm font-bold text-amber-900 dark:text-amber-300">
+          تم تحديد المبلغ بـ: <span className="text-amber-700 dark:text-amber-400">{amountInWords} دينار جزائري</span>
+        </p>
+        <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+          ({totalAmount.toLocaleString("en-US")} دج) — محسوب تلقائياً من عدد المنخرطين × 1000 دج
+        </p>
+      </div>
+
+      {/* Selection controls + Download */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2 flex-wrap">
-          <Button size="sm" variant="ghost" onClick={selectAll} className="text-teal-700">
-            <CheckSquare className="h-3.5 w-3.5 ml-1" /> تحديد الكل
-          </Button>
-          <Button size="sm" variant="ghost" onClick={deselectAll} className="text-muted-foreground">
-            <Square className="h-3.5 w-3.5 ml-1" /> إلغاء التحديد
-          </Button>
-          {selectedIds.size > 0 && (
-            <Badge className="bg-teal-100 text-teal-800 border-teal-300">
-              محدد: {selectedIds.size} من {entries.length}
-            </Badge>
+          {entries.length > 0 && (
+            <>
+              <Button size="sm" variant="ghost" onClick={selectAll} className="text-teal-700">
+                <CheckSquare className="h-3.5 w-3.5 ml-1" /> تحديد الكل
+              </Button>
+              <Button size="sm" variant="ghost" onClick={deselectAll} className="text-muted-foreground">
+                <Square className="h-3.5 w-3.5 ml-1" /> إلغاء التحديد
+              </Button>
+              {selectedIds.size > 0 && (
+                <Badge className="bg-teal-100 text-teal-800 border-teal-300">
+                  محدد: {selectedIds.size} من {entries.length}
+                </Badge>
+              )}
+            </>
           )}
         </div>
-      )}
+        <div className="flex gap-2 flex-wrap">
+          <Button size="sm" variant="outline" onClick={() => setSigModal(true)} disabled={exporting || entries.length === 0}>
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4 ml-1" />}
+            تحميل قائمة الشهر
+          </Button>
+          {selectedIds.size > 0 && (
+            <Button size="sm" variant="default" onClick={() => handleExport("pdf", true)} disabled={exporting}
+              className="bg-teal-600 hover:bg-teal-700 text-white">
+              <Download className="h-4 w-4 ml-1" />
+              تحميل المحددين ({selectedIds.size})
+            </Button>
+          )}
+        </div>
+      </div>
 
-      {/* Table */}
+      {/* Table — مطابق لهيكل ورقة حقوق_المركب */}
       <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
         <div className="overflow-x-auto max-h-[55vh] overflow-y-auto">
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-10">
-              <tr className="bg-teal-700 text-white">
+              <tr className="bg-muted/60 text-foreground border-b-2 border-primary/20">
                 <th className="p-3 text-center w-10">
                   <input
                     type="checkbox"
@@ -244,18 +329,20 @@ export function CompoundPanel() {
                   />
                 </th>
                 <th className="p-3 text-right w-12">#</th>
+                <th className="p-3 text-right">رقم الملف</th>
                 <th className="p-3 text-right">اللقب</th>
                 <th className="p-3 text-right">الاسم</th>
                 <th className="p-3 text-center w-32">التاريخ</th>
                 <th className="p-3 text-center w-28">النوع</th>
+                <th className="p-3 text-center w-28">المبلغ</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} className="text-center py-12"><Loader2 className="h-6 w-6 animate-spin text-teal-600 mx-auto" /></td></tr>
+                <tr><td colSpan={8} className="text-center py-12"><Loader2 className="h-6 w-6 animate-spin text-teal-600 mx-auto" /></td></tr>
               ) : entries.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-16">
+                  <td colSpan={8} className="text-center py-16">
                     <Calendar className="h-10 w-10 text-muted-foreground/40 mx-auto mb-2" />
                     <p className="text-sm text-muted-foreground">لا يوجد منخرطون في هذا الشهر</p>
                     <p className="text-xs text-muted-foreground/70 mt-1">اختر شهراً آخر للعرض</p>
@@ -266,13 +353,13 @@ export function CompoundPanel() {
                   const isSelected = selectedIds.has(entry.subscriberId);
                   return (
                     <motion.tr
-                      key={entry.subscriberId}
+                      key={entry.subscriberId + "_" + entry.source}
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       transition={{ delay: Math.min(i * 0.005, 0.2) }}
                       className={cn(
-                        "border-b transition",
-                        isSelected ? "bg-teal-50/80 ring-1 ring-inset ring-teal-300" : (i % 2 === 0 ? "bg-white hover:bg-teal-50/40" : "bg-gray-50/50 hover:bg-teal-50/40")
+                        "border-b border-border/40 transition hover:bg-muted/40",
+                        isSelected ? "bg-teal-50/80 ring-1 ring-inset ring-teal-300" : ""
                       )}
                     >
                       <td className="p-3 text-center">
@@ -284,24 +371,32 @@ export function CompoundPanel() {
                         />
                       </td>
                       <td className="p-3 text-center font-mono text-xs text-teal-700 font-bold">{i + 1}</td>
-                      <td className="p-3 text-right font-medium text-gray-900">{entry.lastName}</td>
-                      <td className="p-3 text-right font-medium text-gray-900">{entry.firstName}</td>
-                      <td className="p-3 text-center text-xs font-mono text-gray-700">
-                        {/* 🔑 تنسيق YYYY/MM/DD */}
-                        {formatDateYMD(entry.date)}
-                      </td>
+                      <td className="p-3 text-center font-mono text-xs">{entry.fileNumber}</td>
+                      <td className="p-3 text-right font-medium">{entry.lastName}</td>
+                      <td className="p-3 text-right font-medium">{entry.firstName}</td>
+                      <td className="p-3 text-center text-xs font-mono">{formatDateYMD(entry.date)}</td>
                       <td className="p-3 text-center">
                         {entry.source === "new" ? (
                           <Badge className="bg-sky-100 text-sky-800 border-sky-300 text-xs">تسجيل جديد</Badge>
                         ) : (
-                          <Badge className="bg-violet-100 text-violet-800 border-violet-300 text-xs">تجديد</Badge>
+                          <Badge className="bg-violet-100 text-violet-800 border-violet-300 text-xs">🔄 تجديد</Badge>
                         )}
                       </td>
+                      <td className="p-3 text-center font-bold text-amber-600">1000</td>
                     </motion.tr>
                   );
                 })
               )}
             </tbody>
+            {/* ★ صف المجموع */}
+            {entries.length > 0 && !loading && (
+              <tfoot>
+                <tr className="bg-amber-50 dark:bg-amber-950/30 font-bold border-t-2 border-amber-500/20">
+                  <td colSpan={7} className="p-3 text-center">المجموع</td>
+                  <td className="p-3 text-center text-amber-700 dark:text-amber-400 text-base">{totalAmount.toLocaleString()} دج</td>
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </div>
@@ -311,22 +406,29 @@ export function CompoundPanel() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>تصدير قائمة حقوق المركب</DialogTitle>
-            <DialogDescription>اختر الإمضاءات وصيغة التصدير — {data?.monthName}</DialogDescription>
+            <DialogDescription>اختر الإمضاءات وصيغة التصدير — {MONTH_NAMES[month - 1]} {year}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <p className="text-sm font-semibold mb-2 text-gray-900">الإمضاءات (تظهر في أسفل الملف في سطر واحد):</p>
+              <p className="text-sm font-semibold mb-2">الإمضاءات (تظهر في أسفل الملف):</p>
               <div className="grid grid-cols-1 gap-2">
                 {SIGNATURES.map((sig) => (
                   <label key={sig.id} className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-accent/40">
                     <Checkbox checked={selectedSigs.includes(sig.id)} onCheckedChange={() => toggleSig(sig.id)} />
-                    <span className="text-sm text-gray-900">{sig.label}</span>
+                    <span className="text-sm">{sig.label}</span>
                   </label>
                 ))}
               </div>
             </div>
+            {/* ★ معاينة المبلغ بالأحرف */}
+            <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-300/50 p-3">
+              <p className="text-xs text-amber-800 dark:text-amber-300">
+                <strong>المبلغ الإجمالي:</strong> {totalAmount.toLocaleString()} دج<br />
+                <strong>بالأحرف:</strong> {amountInWords} دينار جزائري
+              </p>
+            </div>
             <div>
-              <p className="text-sm font-semibold mb-2 text-gray-900">صيغة التصدير:</p>
+              <p className="text-sm font-semibold mb-2">صيغة التصدير:</p>
               <div className="grid grid-cols-3 gap-2">
                 <Button variant="outline" size="sm" onClick={() => handleExport("pdf")}>PDF</Button>
                 <Button variant="outline" size="sm" onClick={() => handleExport("excel")}>Excel</Button>
