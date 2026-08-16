@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { computeSubscriberFields, isExemptStatus } from "@/lib/rcs";
+import { computeSubscriberFields, computeSubscriberFieldsDynamic, isExemptStatus, type SubscriptionTypeConfig } from "@/lib/rcs";
 import { getCurrentUser } from "@/lib/session";
 
 /**
@@ -128,7 +128,22 @@ export async function GET() {
       },
     });
 
-    const computed = subsForComputation.map((s) => ({ ...s, ...computeSubscriberFields(s) }));
+    // ★ جلب أنواع الاشتراك من قاعدة البيانات لحساب الرسوم الصحيحة حسب العمر
+    const dbTypesMap: Record<string, SubscriptionTypeConfig> = {};
+    for (const t of dbSubTypes) {
+      dbTypesMap[t.code] = {
+        code: t.code, name: t.name,
+        subscriptionFee: t.subscriptionFee, insuranceFee: t.insuranceFee,
+        compoundRights: t.compoundRights, durationDays: t.durationDays,
+        givesMembershipNumber: t.givesMembershipNumber, requiresInsurance: t.requiresInsurance,
+        requiresCompoundFee: t.requiresCompoundFee, renewableMonthly: t.renewableMonthly,
+        freeSubscription: t.freeSubscription,
+      };
+    }
+    const computed = subsForComputation.map((s) => {
+      const tc = dbTypesMap[s.subscriptionType as string];
+      return { ...s, ...(tc ? computeSubscriberFieldsDynamic(s, tc) : computeSubscriberFields(s)) };
+    });
 
     // ★ paid = subscribers who paid AND are NOT exempt (exempt is a separate category)
     //   unpaid = explicitly "لم يدفع"

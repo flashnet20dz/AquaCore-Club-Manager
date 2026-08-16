@@ -202,7 +202,9 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
         subscriptionFee = 0;
         insuranceFee = 0;
       } else {
-        subscriptionFee = typeConfig.subscriptionFee;
+        // ★ تطبيق منطق العمر: ≥ 14 سنة = subscriptionFee + 200
+        const baseFee = typeConfig.subscriptionFee;
+        subscriptionFee = (age !== null && age >= 14 && baseFee > 0) ? baseFee + 200 : baseFee;
         insuranceFee = typeConfig.requiresInsurance ? typeConfig.insuranceFee : 0;
       }
     } else {
