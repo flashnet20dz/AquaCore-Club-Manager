@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Plus, Pencil, Trash2, ShieldCheck, Loader2, Users as UsersIcon, Power, Eye, EyeOff, Clock, CheckCircle2, XCircle } from "lucide-react";
+import { Plus, Pencil, Trash2, ShieldCheck, Loader2, Users as UsersIcon, Power, Eye, EyeOff, Clock, CheckCircle2, XCircle, KeyRound, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -49,6 +49,11 @@ export function UserManagement() {
   const [showPassword, setShowPassword] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", password: "", role: "lifeguard", phone: "" });
   const [saving, setSaving] = useState(false);
+  // ★ Cashier PIN (quick login code)
+  const [pinModal, setPinModal] = useState<User | null>(null);
+  const [pinValue, setPinValue] = useState("");
+  const [pinSaving, setPinSaving] = useState(false);
+  const [copiedPin, setCopiedPin] = useState(false);
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -76,6 +81,40 @@ export function UserManagement() {
     setEditingUser(user);
     setForm({ name: user.name, email: user.email, password: "", role: user.role, phone: user.phone || "" });
     setModalOpen(true);
+  };
+
+  // ★ إنشاء/تحديث كود الكاشير السريع (PIN)
+  const handleGeneratePin = async (user: User) => {
+    // توليد PIN عشوائي من 4 أرقام
+    const newPin = Math.floor(1000 + Math.random() * 9000).toString();
+    setPinValue(newPin);
+    setPinModal(user);
+  };
+
+  const handleSavePin = async () => {
+    if (!pinModal || !pinValue || pinValue.length < 4) return;
+    setPinSaving(true);
+    try {
+      const res = await fetch("/api/cashier-pin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: pinModal.id, pin: pinValue }),
+      });
+      if (!res.ok) throw new Error("فشل حفظ الكود");
+      toast.success(`تم إنشاء كود الكاشير لـ ${pinModal.name}: ${pinValue}`);
+      setPinModal(null);
+      setPinValue("");
+    } catch {
+      toast.error("فشل إنشاء كود الكاشير");
+    } finally {
+      setPinSaving(false);
+    }
+  };
+
+  const copyPin = () => {
+    navigator.clipboard.writeText(pinValue);
+    setCopiedPin(true);
+    setTimeout(() => setCopiedPin(false), 2000);
   };
 
   const handleSave = async () => {
@@ -291,6 +330,10 @@ export function UserManagement() {
                     <Button size="sm" variant="ghost" className="h-7 px-2 text-xs flex-1" onClick={() => handleOpenEdit(u)}>
                       <Pencil className="h-3 w-3 ml-1" /> تعديل
                     </Button>
+                    {/* ★ زر كود الكاشير السريع */}
+                    <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => handleGeneratePin(u)} title="إنشاء كود كاشير سريع">
+                      <KeyRound className="h-3.5 w-3.5 ml-1" /> كود
+                    </Button>
                     <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleToggleActive(u)} title={u.active ? "تعطيل" : "تفعيل"}>
                       <Power className="h-3.5 w-3.5" />
                     </Button>
@@ -384,6 +427,57 @@ export function UserManagement() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ★ نافذة كود الكاشير السريع */}
+      <Dialog open={!!pinModal} onOpenChange={(o) => !o && setPinModal(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="h-5 w-5 text-teal-600" /> كود الكاشير السريع
+            </DialogTitle>
+            <DialogDescription>
+              كود سريع من 4 أرقام لتسجيل الدخول السريع — {pinModal?.name}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-lg bg-teal-50 dark:bg-teal-950/30 border border-teal-300/50 p-4 text-center">
+              <p className="text-xs text-muted-foreground mb-1">الكود المُولَّد:</p>
+              <div className="flex items-center justify-center gap-2">
+                <span className="text-3xl font-extrabold tracking-widest text-teal-700 dark:text-teal-400 font-mono">{pinValue}</span>
+                <button onClick={copyPin} className="p-1.5 rounded-lg hover:bg-teal-100 dark:hover:bg-teal-900 transition" title="نسخ">
+                  {copiedPin ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
+                </button>
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">أدخل كوداً مخصصاً (اختياري — 4 أرقام):</Label>
+              <Input
+                type="text"
+                maxLength={4}
+                value={pinValue}
+                onChange={(e) => setPinValue(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                className="h-10 text-center text-lg font-bold tracking-widest font-mono"
+                placeholder="0000"
+              />
+            </div>
+            <div className="flex gap-1">
+              <Button size="sm" variant="outline" className="flex-1 h-8 text-xs" onClick={() => setPinValue(Math.floor(1000 + Math.random() * 9000).toString())}>
+                توليد عشوائي
+              </Button>
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              يمكن للمستخدم تسجيل الدخول بهذا الكود من صفحة تسجيل الدخول بدلاً من البريد وكلمة المرور.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPinModal(null)}>إلغاء</Button>
+            <Button onClick={handleSavePin} disabled={pinSaving || pinValue.length < 4} className="bg-teal-600 hover:bg-teal-700">
+              {pinSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4 ml-1" />}
+              حفظ الكود
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

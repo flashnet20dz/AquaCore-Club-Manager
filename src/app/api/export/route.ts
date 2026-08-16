@@ -368,13 +368,42 @@ async function exportExcel(type: string, filters: ExportFilters = { club: {}, su
     sheetName = "التأمين";
 
   } else if (queryType === "compound") {
-    // قائمة حقوق ديوان المركب - كل من مجموعه 2000/1800/1500/1300 (1000 دج منها للديوان)
-    const subs = await db.subscriber.findMany({ where: filters.sub, orderBy: { createdAt: "asc" } });
-    const computed = subs
+    // ★ قائمة حقوق ديوان المركب — مطابقة لـ compound-rights API
+    // استخدم نفس منطق /api/compound-rights: دمج التسجيلات + التجديدات مع dedup
+    const startDate = compoundParams?.year && compoundParams?.month
+      ? new Date(parseInt(compoundParams.year), parseInt(compoundParams.month) - 1, 1)
+      : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const endDate = compoundParams?.year && compoundParams?.month
+      ? new Date(parseInt(compoundParams.year), parseInt(compoundParams.month), 0, 23, 59, 59)
+      : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59);
+
+    // 1) التسجيلات الجديدة (lastPaymentDate within month)
+    const newSubs = await db.subscriber.findMany({
+      where: { ...filters.sub, lastPaymentDate: { gte: startDate, lte: endDate } },
+      orderBy: { lastPaymentDate: "asc" },
+    });
+    const computedNew = newSubs
       .map((s) => ({ ...s, ...computeSubscriberFields(s) }))
       .filter((s) => s.compoundRights !== null && s.compoundRights > 0);
 
-    dataRows = computed.map((s, i) => ({
+    // 2) التجديدات (renewalDate within month)
+    const rens = await db.renewal.findMany({
+      where: { ...filters.ren, renewalDate: { gte: startDate, lte: endDate } },
+      include: { subscriber: true },
+      orderBy: { renewalDate: "asc" },
+    });
+    const renewalEntries = rens
+      .filter((r) => r.amount === 1300 || r.amount === 1500)
+      .map((r) => {
+        const c = computeSubscriberFields(r.subscriber);
+        return { ...r.subscriber, ...c, _renewalDate: r.renewalDate, _source: "renewal" as const };
+      });
+
+    // 3) دمج بدون تكرار (deduplicate by subscriber id)
+    const seenIds = new Set(computedNew.map((s) => s.id));
+    const merged = [...computedNew, ...renewalEntries.filter((s) => !seenIds.has(s.id))];
+
+    dataRows = merged.map((s, i) => ({
       "رقم": i + 1,
       "رقم الملف": s.fileNumber,
       "اللقب": s.lastName,
@@ -536,12 +565,39 @@ async function exportPdf(type: string, _sigs: string[], _enteteConfig: EnteteCon
       s.gender, s.age, s.subscriptionType, s.insuranceFee,
     ]);
   } else if (queryType === "compound") {
-    const subs = await db.subscriber.findMany({ where: filters.sub, orderBy: { createdAt: "asc" } });
-    const computed = subs
+    // ★ PDF compound — same logic as Excel: merge new + renewals with dedup
+    const startDate = compoundParams?.year && compoundParams?.month
+      ? new Date(parseInt(compoundParams.year), parseInt(compoundParams.month) - 1, 1)
+      : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const endDate = compoundParams?.year && compoundParams?.month
+      ? new Date(parseInt(compoundParams.year), parseInt(compoundParams.month), 0, 23, 59, 59)
+      : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59);
+
+    const newSubs = await db.subscriber.findMany({
+      where: { ...filters.sub, lastPaymentDate: { gte: startDate, lte: endDate } },
+      orderBy: { lastPaymentDate: "asc" },
+    });
+    const computedNew = newSubs
       .map((s) => ({ ...s, ...computeSubscriberFields(s) }))
       .filter((s) => s.compoundRights !== null && s.compoundRights > 0);
+
+    const rens = await db.renewal.findMany({
+      where: { ...filters.ren, renewalDate: { gte: startDate, lte: endDate } },
+      include: { subscriber: true },
+      orderBy: { renewalDate: "asc" },
+    });
+    const renewalEntries = rens
+      .filter((r) => r.amount === 1300 || r.amount === 1500)
+      .map((r) => {
+        const c = computeSubscriberFields(r.subscriber);
+        return { ...r.subscriber, ...c };
+      });
+
+    const seenIds = new Set(computedNew.map((s) => s.id));
+    const merged = [...computedNew, ...renewalEntries.filter((s) => !seenIds.has(s.id))];
+
     head = ["#", "File", "Last Name", "First Name", "Birth Date", "Gender", "Age", "Fee", "Total", "Compound Rights"];
-    body = computed.map((s, i) => [
+    body = merged.map((s, i) => [
       i + 1, s.fileNumber, s.lastName, s.firstName,
       formatDate(new Date(s.birthDate)),
       s.gender, s.age, s.subscriptionFee, s.totalAmount, s.compoundRights,
@@ -816,26 +872,39 @@ async function exportWord(type: string, sigs: string[] = [], enteteConfig: Entet
       <td style="text-align:center;">${formatDate(new Date(s.birthDate))}</td>
     </tr>`).join("");
   } else if (queryType === "compound") {
-    // ★ Compound rights list — filtered by month if compoundParams provided
-    const subs = await db.subscriber.findMany({ where: filters.sub, orderBy: { createdAt: "asc" } });
-    const computed = subs.map((s) => ({ ...s, ...computeSubscriberFields(s) })).filter((s) => s.compoundRights !== null && s.compoundRights > 0);
-    // ★ Also include renewals from that month
-    const rens = await db.renewal.findMany({
-      where: filters.ren,
-      include: { subscriber: true },
+    // ★ Compound rights list (Word) — same logic as Excel/PDF: merge new + renewals with dedup
+    const startDate = compoundParams?.year && compoundParams?.month
+      ? new Date(parseInt(compoundParams.year), parseInt(compoundParams.month) - 1, 1)
+      : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const endDate = compoundParams?.year && compoundParams?.month
+      ? new Date(parseInt(compoundParams.year), parseInt(compoundParams.month), 0, 23, 59, 59)
+      : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59);
+
+    // 1) التسجيلات الجديدة
+    const newSubs = await db.subscriber.findMany({
+      where: { ...filters.sub, lastPaymentDate: { gte: startDate, lte: endDate } },
+      orderBy: { lastPaymentDate: "asc" },
     });
-    const renewalSubs = rens
-      .filter((r) => {
-        const c = computeSubscriberFields(r.subscriber);
-        return c.compoundRights !== null && c.compoundRights > 0;
-      })
+    const computedNew = newSubs
+      .map((s) => ({ ...s, ...computeSubscriberFields(s) }))
+      .filter((s) => s.compoundRights !== null && s.compoundRights > 0);
+
+    // 2) التجديدات
+    const rens = await db.renewal.findMany({
+      where: { ...filters.ren, renewalDate: { gte: startDate, lte: endDate } },
+      include: { subscriber: true },
+      orderBy: { renewalDate: "asc" },
+    });
+    const renewalEntries = rens
+      .filter((r) => r.amount === 1300 || r.amount === 1500)
       .map((r) => {
         const c = computeSubscriberFields(r.subscriber);
-        return { ...r.subscriber, ...c, _renewalDate: r.renewalDate, _source: "renewal" as const };
+        return { ...r.subscriber, ...c };
       });
-    // Merge: new subscribers + renewal subscribers (deduplicate by id)
-    const seenIds = new Set(computed.map((s) => s.id));
-    const merged = [...computed, ...renewalSubs.filter((s) => !seenIds.has(s.id))];
+
+    // 3) دمج بدون تكرار
+    const seenIds = new Set(computedNew.map((s) => s.id));
+    const merged = [...computedNew, ...renewalEntries.filter((s) => !seenIds.has(s.id))];
     const totalAmount = merged.length * 1000;
     tableHeaders = "<th>#</th><th>اللقب</th><th>الاسم</th><th>المبلغ (دج)</th>";
     tableRows = merged.map((s, i) => `<tr>
