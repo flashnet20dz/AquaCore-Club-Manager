@@ -857,7 +857,7 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
     const pages: string[] = [];
     for (let i = 0; i < subsWithPhotos.length; i += cardsPerPage) {
       const pageSubs = subsWithPhotos.slice(i, i + cardsPerPage);
-      const fillers = Array.from({ length: cardsPerPage - pageSubs.length }).map(() => `<div style="width:9.3cm;height:6.625cm;"></div>`).join("");
+      const fillers = Array.from({ length: cardsPerPage - pageSubs.length }).map(() => `<div style="width:9cm;height:6.4cm;"></div>`).join("");
       // الوجه الأمامي (Recto) — direction:rtl: البطاقات تبدأ من أقصى اليمين
       const frontCards = pageSubs.map((s: any) => buildCardHTMLString(s, "front")).join("");
       pages.push(`<div class="print-page" style="direction:rtl;">${frontCards}${fillers}</div>`);
@@ -882,11 +882,11 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
       w.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>طباعة بطاقات — AquaCore</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
-@page{size:A4 portrait;margin:10mm;}
+@page{size:A4 portrait;margin:8mm;}
 body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important;}
-.print-page{display:grid;grid-template-columns:repeat(2,9.3cm);grid-template-rows:repeat(4,6.625cm);gap:4mm;width:19cm;page-break-after:always;}
+.print-page{display:grid;grid-template-columns:repeat(2,9cm);grid-template-rows:repeat(4,6.4cm);gap:3mm;width:18.3cm;page-break-after:always;}
 .print-page:last-child{page-break-after:auto;}
-@media screen{body{background:#f0f0f0;padding:20px;}.print-page{margin:0 auto 20px;background:#fff;padding:10mm;box-shadow:0 4px 12px rgba(0,0,0,0.15);}}
+@media screen{body{background:#f0f0f0;padding:20px;}.print-page{margin:0 auto 20px;background:#fff;padding:8mm;box-shadow:0 4px 12px rgba(0,0,0,0.15);}}
 </style></head><body>${pagesHTML}</body></html>`);
       w.document.close();
       setTimeout(() => { try { w.focus(); w.print(); } catch (e) { console.error(e); } }, 600);
@@ -908,9 +908,9 @@ body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-we
       w.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>PDF بطاقات — AquaCore</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
-@page{size:A4 portrait;margin:10mm;}
+@page{size:A4 portrait;margin:8mm;}
 body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important;}
-.print-page{display:grid;grid-template-columns:repeat(2,9.3cm);grid-template-rows:repeat(4,6.625cm);gap:4mm;width:19cm;page-break-after:always;}
+.print-page{display:grid;grid-template-columns:repeat(2,9cm);grid-template-rows:repeat(4,6.4cm);gap:3mm;width:18.3cm;page-break-after:always;}
 .print-page:last-child{page-break-after:auto;}
 </style></head><body>${pagesHTML}</body></html>`);
       w.document.close();
@@ -962,9 +962,9 @@ body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-we
       w.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>A4 — AquaCore</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
-@page{size:A4 portrait;margin:10mm;}
+@page{size:A4 portrait;margin:8mm;}
 body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important;}
-.print-page{display:grid;grid-template-columns:repeat(2,9.3cm);grid-template-rows:repeat(4,6.625cm);gap:4mm;width:19cm;page-break-after:always;}
+.print-page{display:grid;grid-template-columns:repeat(2,9cm);grid-template-rows:repeat(4,6.4cm);gap:3mm;width:18.3cm;page-break-after:always;}
 .print-page:last-child{page-break-after:auto;}
 </style></head><body>${pagesHTML}</body></html>`);
       w.document.close();
