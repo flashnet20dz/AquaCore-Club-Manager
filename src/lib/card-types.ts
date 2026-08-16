@@ -8,7 +8,7 @@ export type ElementType =
   | "customText" | "shape" | "logo" | "qr" | "photo" | "uploadedImage"
   | "fullName" | "memberId" | "bloodType" | "dateOfBirth" | "paymentDate"
   | "swimmingDays" | "swimmingTime" | "subscriptionType" | "expiryDate"
-  | "clubName" | "cardTitle" | "barcode";
+  | "clubName" | "cardTitle" | "barcode" | "frame";
 
 export type ShapeKind = "rectangle" | "circle" | "line";
 
@@ -36,6 +36,9 @@ export interface CardElement {
   borderStyle?: string;
   borderRadius?: number;
   shapeKind?: ShapeKind;
+  // ★ Frame properties
+  frameKind?: string;
+  frameInset?: number;
   imageData?: string;
   locked?: boolean;
   shadow?: boolean;

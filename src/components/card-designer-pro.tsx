@@ -33,7 +33,7 @@ import {
   Barcode, Grid3x3, Magnet, Undo2, Redo2, FolderOpen, BringToFront,
   SendToBack, PanelRightClose, PanelLeftClose, PanelLeftOpen, PanelRightOpen,
   Moon, Sun, ZoomIn, ZoomOut, Maximize, Users,
-  Droplets, Wand2, CalendarRange, Frame,
+  Droplets, Wand2, CalendarRange, Frame, RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
