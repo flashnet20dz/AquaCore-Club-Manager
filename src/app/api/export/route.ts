@@ -229,23 +229,47 @@ export async function GET(req: NextRequest) {
     const format = url.searchParams.get("format") || "xlsx";
     const type = url.searchParams.get("type") || "subscribers";
     const sigs = url.searchParams.get("sigs")?.split(",").filter(Boolean) || [];
-    const origin = url.origin; // e.g. https://aladine-pool-manager.vercel.app
+    const origin = url.origin;
 
     // ── New filter params: ids (subscriber selection) + from/to (date range) ──
     const ids = url.searchParams.get("ids")?.split(",").filter(Boolean) || [];
     const dateFrom = url.searchParams.get("from") || "";
     const dateTo = url.searchParams.get("to") || "";
-    const filters = buildExportFilters(clubFilter, ids, dateFrom, dateTo);
+
+    // ★ Compound-specific params: year, month, selectedIds
+    const compoundYear = url.searchParams.get("year");
+    const compoundMonth = url.searchParams.get("month");
+    const compoundSelectedIds = url.searchParams.get("selectedIds")?.split(",").filter(Boolean) || [];
+
+    // Build filters — for compound, filter by lastPaymentDate within the specified month
+    let filters = buildExportFilters(clubFilter, ids, dateFrom, dateTo);
+
+    // ★ If compound type with year/month, add lastPaymentDate filter
+    if ((type === "compound") && compoundYear && compoundMonth) {
+      const y = parseInt(compoundYear);
+      const m = parseInt(compoundMonth);
+      const startDate = new Date(y, m - 1, 1);
+      const endDate = new Date(y, m, 0, 23, 59, 59);
+      // Merge into sub filter
+      (filters.sub as Record<string, unknown>).lastPaymentDate = { gte: startDate, lte: endDate };
+      // ★ Also check Renewal table — we need to include renewals in that month
+      (filters.ren as Record<string, unknown>).renewalDate = { gte: startDate, lte: endDate };
+    }
+
+    // ★ If compound with selectedIds, override sub filter to only those IDs
+    if ((type === "compound") && compoundSelectedIds.length > 0) {
+      (filters.sub as Record<string, unknown>).id = { in: compoundSelectedIds };
+    }
 
     // Load EN-TETE config once (used by PDF + Word)
     const enteteConfig = await loadEnteteConfig(currentUser.clubId);
 
     if (format === "xlsx") {
-      return await exportExcel(type, filters);
+      return await exportExcel(type, filters, { year: compoundYear, month: compoundMonth });
     } else if (format === "pdf") {
-      return await exportPdf(type, sigs, enteteConfig, origin, filters);
+      return await exportPdf(type, sigs, enteteConfig, origin, filters, { year: compoundYear, month: compoundMonth });
     } else if (format === "word") {
-      return await exportWord(type, sigs, enteteConfig, origin, filters);
+      return await exportWord(type, sigs, enteteConfig, origin, filters, { year: compoundYear, month: compoundMonth });
     }
 
     return NextResponse.json({ error: "Invalid format" }, { status: 400 });
@@ -255,7 +279,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-async function exportExcel(type: string, filters: ExportFilters = { club: {}, sub: {}, att: {}, ren: {} }) {
+async function exportExcel(type: string, filters: ExportFilters = { club: {}, sub: {}, att: {}, ren: {} }, compoundParams?: { year?: string | null; month?: string | null }) {
   const queryType = TYPE_ALIASES[type] || type;
   const wb = XLSX.utils.book_new();
   const today = formatDate(new Date());
@@ -476,7 +500,7 @@ async function exportExcel(type: string, filters: ExportFilters = { club: {}, su
   });
 }
 
-async function exportPdf(type: string, _sigs: string[], _enteteConfig: EnteteConfig, _origin: string, filters: ExportFilters = { club: {}, sub: {}, att: {}, ren: {} }) {
+async function exportPdf(type: string, _sigs: string[], _enteteConfig: EnteteConfig, _origin: string, filters: ExportFilters = { club: {}, sub: {}, att: {}, ren: {} }, compoundParams?: { year?: string | null; month?: string | null }) {
   const queryType = TYPE_ALIASES[type] || type;
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
 
@@ -744,7 +768,7 @@ function generateEnteteHTML(title: string, config: EnteteConfig, origin: string)
   `;
 }
 
-async function exportWord(type: string, sigs: string[] = [], enteteConfig: EnteteConfig = DEFAULT_ENTETE_CONFIG, origin: string = "", filters: ExportFilters = { club: {}, sub: {}, att: {}, ren: {} }) {
+async function exportWord(type: string, sigs: string[] = [], enteteConfig: EnteteConfig = DEFAULT_ENTETE_CONFIG, origin: string = "", filters: ExportFilters = { club: {}, sub: {}, att: {}, ren: {} }, compoundParams?: { year?: string | null; month?: string | null }) {
   const queryType = TYPE_ALIASES[type] || type;
   const today = new Date();
   const year = today.getFullYear();
@@ -792,23 +816,40 @@ async function exportWord(type: string, sigs: string[] = [], enteteConfig: Entet
       <td style="text-align:center;">${formatDate(new Date(s.birthDate))}</td>
     </tr>`).join("");
   } else if (queryType === "compound") {
-    // Compound rights list: only (اللقب، الاسم، المبلغ = 1000 دج) per user requirement
+    // ★ Compound rights list — filtered by month if compoundParams provided
     const subs = await db.subscriber.findMany({ where: filters.sub, orderBy: { createdAt: "asc" } });
     const computed = subs.map((s) => ({ ...s, ...computeSubscriberFields(s) })).filter((s) => s.compoundRights !== null && s.compoundRights > 0);
-    const totalAmount = computed.length * 1000;
+    // ★ Also include renewals from that month
+    const rens = await db.renewal.findMany({
+      where: filters.ren,
+      include: { subscriber: true },
+    });
+    const renewalSubs = rens
+      .filter((r) => {
+        const c = computeSubscriberFields(r.subscriber);
+        return c.compoundRights !== null && c.compoundRights > 0;
+      })
+      .map((r) => {
+        const c = computeSubscriberFields(r.subscriber);
+        return { ...r.subscriber, ...c, _renewalDate: r.renewalDate, _source: "renewal" as const };
+      });
+    // Merge: new subscribers + renewal subscribers (deduplicate by id)
+    const seenIds = new Set(computed.map((s) => s.id));
+    const merged = [...computed, ...renewalSubs.filter((s) => !seenIds.has(s.id))];
+    const totalAmount = merged.length * 1000;
     tableHeaders = "<th>#</th><th>اللقب</th><th>الاسم</th><th>المبلغ (دج)</th>";
-    tableRows = computed.map((s, i) => `<tr>
+    tableRows = merged.map((s, i) => `<tr>
       <td style="text-align:center;">${i + 1}</td>
       <td>${s.lastName}</td>
       <td>${s.firstName}</td>
       <td style="text-align:center;font-weight:bold;color:#0369a1;">1000</td>
     </tr>`).join("");
-    // Add total row + "تم تحديد المبلغ بـ:" with amount in words
+    // Add total row
     tableRows += `<tr style="background:#fef3c7;font-weight:bold;">
       <td colspan="3" style="text-align:center;">المجموع</td>
       <td style="text-align:center;color:#0369a1;">${totalAmount} دج</td>
     </tr>`;
-    // Store the "تم تحديد المبلغ بـ:" for this type — will be appended after table
+    // Store the "تم تحديد المبلغ بـ:" for this type
     (tableRows as any) += `<!--COMPOUND_TOTAL:${totalAmount}-->`;
   } else if (queryType === "incoming") {
     const subs = await db.subscriber.findMany({ where: filters.sub, orderBy: { createdAt: "asc" } });
@@ -883,14 +924,18 @@ async function exportWord(type: string, sigs: string[] = [], enteteConfig: Entet
   const sigsHTML = generateSignaturesHTML(sigs);
   // Narrow margins for "incoming" (étroites), normal for others
   const pageMargin = queryType === "incoming" ? "margin: 1.27cm;" : "margin: 15mm;";
-  // Compound total amount in words
+  // Compound total amount in words — ★ recompute using same merged list as above
   let compoundTotalText = "";
   if (queryType === "compound") {
-    const subs = await db.subscriber.findMany({ where: filters.sub });
-    const computed = subs.map((s) => ({ ...s, ...computeSubscriberFields(s) })).filter((s) => s.compoundRights !== null && s.compoundRights > 0);
-    const total = computed.length * 1000;
-    const amountInWords = numberToArabicWords(total);
-    compoundTotalText = `<p style="text-align:right;font-size:12pt;font-weight:bold;margin-top:15px;font-family:'Cairo','Tahoma',Arial;direction:rtl;">تم تحديد المبلغ بـ: <span style="color:#0369a1;">${amountInWords} دينار جزائري (${total.toLocaleString("en-US")} دج)</span></p>`;
+    // Extract total from the tableRows comment we stored earlier
+    const match = (tableRows as string).match(/<!--COMPOUND_TOTAL:(\d+)-->/);
+    const total = match ? parseInt(match[1]) : 0;
+    if (total > 0) {
+      const amountInWords = numberToArabicWords(total);
+      compoundTotalText = `<p style="text-align:right;font-size:12pt;font-weight:bold;margin-top:15px;font-family:'Cairo','Tahoma',Arial;direction:rtl;">تم تحديد المبلغ بـ: <span style="color:#0369a1;">${amountInWords} دينار جزائري (${total.toLocaleString("en-US")} دج)</span></p>`;
+    }
+    // Clean the comment from tableRows for the final HTML
+    tableRows = (tableRows as string).replace(/<!--COMPOUND_TOTAL:\d+-->/, "");
   }
 
   const html = `<!DOCTYPE html>
