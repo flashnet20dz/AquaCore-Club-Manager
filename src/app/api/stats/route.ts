@@ -85,7 +85,6 @@ export async function GET() {
     const subTypeWhere = isSuperadmin ? { active: true } : { clubId: currentUser.clubId!, active: true };
     const dbSubTypes = await db.subscriptionType.findMany({
       where: subTypeWhere,
-      select: { code: true, name: true },
       orderBy: { sortOrder: "asc" },
     });
     const bySubscriptionType = dbSubTypes.map((t) => ({
@@ -142,7 +141,7 @@ export async function GET() {
     }
     const computed = subsForComputation.map((s) => {
       const tc = dbTypesMap[s.subscriptionType as string];
-      return { ...s, ...(tc ? computeSubscriberFieldsDynamic(s, tc) : computeSubscriberFields(s)) };
+      return { ...s, ...(tc ? computeSubscriberFieldsDynamic(s as any, tc) : computeSubscriberFields(s as any)) };
     });
 
     // ★ paid = subscribers who paid AND are NOT exempt (exempt is a separate category)

@@ -34,8 +34,8 @@ export async function GET(
       freeSubscription: subType.freeSubscription,
     } as SubscriptionTypeConfig : undefined;
     const fields = typeConfig
-      ? computeSubscriberFieldsDynamic(subscriber, typeConfig)
-      : computeSubscriberFields(subscriber);
+      ? computeSubscriberFieldsDynamic(subscriber as any, typeConfig)
+      : computeSubscriberFields(subscriber as any);
     return NextResponse.json({ subscriber: { ...subscriber, ...fields } });
   } catch (error) {
     console.error("GET /api/subscribers/[id] error:", error);
@@ -180,8 +180,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       freeSubscription: putSubType.freeSubscription,
     } as SubscriptionTypeConfig : undefined;
     const fields = putTypeConfig
-      ? computeSubscriberFieldsDynamic(subscriber, putTypeConfig)
-      : computeSubscriberFields(subscriber);
+      ? computeSubscriberFieldsDynamic(subscriber as any, putTypeConfig)
+      : computeSubscriberFields(subscriber as any);
     return NextResponse.json({ subscriber: { ...subscriber, ...fields } });
   } catch (error) {
     console.error("PUT /api/subscribers/[id] error:", error);

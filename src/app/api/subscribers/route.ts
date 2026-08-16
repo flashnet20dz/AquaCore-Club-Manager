@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
       const typeConfig = getTypeConfigFor(s.subscriptionType as string);
       return {
         ...s,
-        ...(typeConfig ? computeSubscriberFieldsDynamic(s, typeConfig) : computeSubscriberFields(s)),
+        ...(typeConfig ? computeSubscriberFieldsDynamic(s as any, typeConfig) : computeSubscriberFields(s as any)),
       };
     });
 
@@ -226,8 +226,8 @@ export async function POST(req: NextRequest) {
       freeSubscription: subType.freeSubscription,
     } as SubscriptionTypeConfig : undefined;
     const fields = postTypeConfig
-      ? computeSubscriberFieldsDynamic(subscriber, postTypeConfig)
-      : computeSubscriberFields(subscriber);
+      ? computeSubscriberFieldsDynamic(subscriber as any, postTypeConfig)
+      : computeSubscriberFields(subscriber as any);
     return NextResponse.json({ subscriber: { ...subscriber, ...fields } }, { status: 201 });
   } catch (error) {
     console.error("POST /api/subscribers error:", error);
