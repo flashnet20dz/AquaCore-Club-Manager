@@ -857,7 +857,7 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
     const pages: string[] = [];
     for (let i = 0; i < subsWithPhotos.length; i += cardsPerPage) {
       const pageSubs = subsWithPhotos.slice(i, i + cardsPerPage);
-      const fillers = Array.from({ length: cardsPerPage - pageSubs.length }).map(() => `<div style="width:9cm;height:6.4cm;"></div>`).join("");
+      const fillers = Array.from({ length: cardsPerPage - pageSubs.length }).map(() => `<div style="width:8.5cm;height:6.2cm;"></div>`).join("");
       // الوجه الأمامي (Recto) — direction:rtl: البطاقات تبدأ من أقصى اليمين
       const frontCards = pageSubs.map((s: any) => buildCardHTMLString(s, "front")).join("");
       pages.push(`<div class="print-page" style="direction:rtl;">${frontCards}${fillers}</div>`);
@@ -884,7 +884,7 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
 *{margin:0;padding:0;box-sizing:border-box;}
 @page{size:A4 portrait;margin:8mm;}
 body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important;}
-.print-page{display:grid;grid-template-columns:repeat(2,9cm);grid-template-rows:repeat(4,6.4cm);gap:3mm;width:18.3cm;margin:0 auto;page-break-after:always;justify-content:center;}
+.print-page{display:grid;grid-template-columns:repeat(2,8.5cm);grid-template-rows:repeat(4,6.2cm);gap:8mm;width:18.4cm;margin:0 auto;page-break-after:always;justify-content:center;}
 .print-page:last-child{page-break-after:auto;}
 @media screen{body{background:#f0f0f0;padding:20px;}.print-page{margin:0 auto 20px;background:#fff;padding:8mm;box-shadow:0 4px 12px rgba(0,0,0,0.15);display:grid;justify-content:center;}}
 </style></head><body>${pagesHTML}</body></html>`);
@@ -910,7 +910,7 @@ body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-we
 *{margin:0;padding:0;box-sizing:border-box;}
 @page{size:A4 portrait;margin:8mm;}
 body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important;}
-.print-page{display:grid;grid-template-columns:repeat(2,9cm);grid-template-rows:repeat(4,6.4cm);gap:3mm;width:18.3cm;margin:0 auto;page-break-after:always;justify-content:center;}
+.print-page{display:grid;grid-template-columns:repeat(2,8.5cm);grid-template-rows:repeat(4,6.2cm);gap:8mm;width:18.4cm;margin:0 auto;page-break-after:always;justify-content:center;}
 .print-page:last-child{page-break-after:auto;}
 </style></head><body>${pagesHTML}</body></html>`);
       w.document.close();
@@ -964,7 +964,7 @@ body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-we
 *{margin:0;padding:0;box-sizing:border-box;}
 @page{size:A4 portrait;margin:8mm;}
 body{font-family:'Cairo','Tajawal','Tahoma',Arial,sans-serif;background:#fff;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important;}
-.print-page{display:grid;grid-template-columns:repeat(2,9cm);grid-template-rows:repeat(4,6.4cm);gap:3mm;width:18.3cm;margin:0 auto;page-break-after:always;justify-content:center;}
+.print-page{display:grid;grid-template-columns:repeat(2,8.5cm);grid-template-rows:repeat(4,6.2cm);gap:8mm;width:18.4cm;margin:0 auto;page-break-after:always;justify-content:center;}
 .print-page:last-child{page-break-after:auto;}
 </style></head><body>${pagesHTML}</body></html>`);
       w.document.close();
