@@ -4,10 +4,12 @@ import { getCurrentUser } from "@/lib/session";
 import { recordSyncOutbox } from "@/lib/sync-outbox";
 import {
   computeSubscriberFields,
+  computeSubscriberFieldsDynamic,
   generateFileNumber,
   type Gender,
   type SubscriptionType,
   type PaymentStatus,
+  type SubscriptionTypeConfig,
   normalizePaymentStatus,
   isExemptStatus,
 } from "@/lib/rcs";
@@ -58,10 +60,35 @@ export async function GET(req: NextRequest) {
       db.subscriber.count({ where }),
     ]);
 
-    const computed = subscribers.map((s) => ({
-      ...s,
-      ...computeSubscriberFields(s),
-    }));
+    // ★ جلب أنواع الاشتراك من قاعدة البيانات لحساب الرسوم الصحيحة
+    const dbTypes = await db.subscriptionType.findMany({
+      where: currentUser.role === "superadmin" ? {} : { clubId: currentUser.clubId! },
+    });
+    const typesMap: Record<string, SubscriptionTypeConfig> = {};
+    for (const t of dbTypes) {
+      typesMap[t.code] = {
+        code: t.code,
+        name: t.name,
+        subscriptionFee: t.subscriptionFee,
+        insuranceFee: t.insuranceFee,
+        compoundRights: t.compoundRights,
+        durationDays: t.durationDays,
+        givesMembershipNumber: t.givesMembershipNumber,
+        requiresInsurance: t.requiresInsurance,
+        requiresCompoundFee: t.requiresCompoundFee,
+        renewableMonthly: t.renewableMonthly,
+        freeSubscription: t.freeSubscription,
+      };
+    }
+    const getTypeConfigFor = (code: string): SubscriptionTypeConfig | undefined => typesMap[code];
+
+    const computed = subscribers.map((s) => {
+      const typeConfig = getTypeConfigFor(s.subscriptionType as string);
+      return {
+        ...s,
+        ...(typeConfig ? computeSubscriberFieldsDynamic(s, typeConfig) : computeSubscriberFields(s)),
+      };
+    });
 
     let filtered = computed;
     if (renewalStatus === "سارية") {
@@ -114,10 +141,9 @@ export async function POST(req: NextRequest) {
 
     const count = await db.subscriber.count({ where: { clubId: currentUser.clubId } });
 
-    // التحقق من نوع الاشتراك و numberingGroup
+    // التحقق من نوع الاشتراك و numberingGroup + جلب الإعدادات الكاملة
     const subType = await db.subscriptionType.findFirst({
       where: { clubId: currentUser.clubId, code: body.subscriptionType },
-      select: { givesMembershipNumber: true, freeSubscription: true, numberingGroup: true },
     });
 
     let fileNumber: string;
@@ -190,7 +216,18 @@ export async function POST(req: NextRequest) {
       payload: subscriber,
     });
 
-    const fields = computeSubscriberFields(subscriber);
+    // ★ حساب الحقول باستخدام إعدادات نوع الاشتراك من قاعدة البيانات
+    const postTypeConfig = subType ? {
+      code: subType.code, name: subType.name,
+      subscriptionFee: subType.subscriptionFee, insuranceFee: subType.insuranceFee,
+      compoundRights: subType.compoundRights, durationDays: subType.durationDays,
+      givesMembershipNumber: subType.givesMembershipNumber, requiresInsurance: subType.requiresInsurance,
+      requiresCompoundFee: subType.requiresCompoundFee, renewableMonthly: subType.renewableMonthly,
+      freeSubscription: subType.freeSubscription,
+    } as SubscriptionTypeConfig : undefined;
+    const fields = postTypeConfig
+      ? computeSubscriberFieldsDynamic(subscriber, postTypeConfig)
+      : computeSubscriberFields(subscriber);
     return NextResponse.json({ subscriber: { ...subscriber, ...fields } }, { status: 201 });
   } catch (error) {
     console.error("POST /api/subscribers error:", error);

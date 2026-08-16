@@ -262,6 +262,11 @@ export function getTypeConfig(typeCode: string, dbConfig?: Partial<SubscriptionT
 /**
  * حساب رسوم الاشتراك بناءً على خصائص النوع الديناميكية
  * لا يوجد شرط ثابت — كل القرار من typeConfig
+ *
+ * ★ منطق العمر:
+ * - ≥ 14 سنة: subscriptionFee + 200 (فرق البالغين)
+ * - < 14 سنة: subscriptionFee كما هو
+ * - مطبق على كل الأنواع التي لها subscriptionFee > 0
  */
 export function calculateSubscriptionFeeDynamic(
   paymentStatus: PaymentStatus,
@@ -273,19 +278,13 @@ export function calculateSubscriptionFeeDynamic(
   if (paymentStatus === "لم يدفع") return null;
   if (typeConfig.freeSubscription) return 0;
 
-  // 🔑 حساب الرسوم حسب العمر لكل الأنواع
-  // ≥ 14 سنة: subscriptionFee + 200 (فرق البالغين)
+  // ★ إذا كان subscriptionFee = 0، لا نضيف شيئاً
+  if (typeConfig.subscriptionFee === 0) return 0;
+
+  // ★ حساب الرسوم حسب العمر لكل الأنواع التي لها رسوم > 0
+  // ≥ 14 سنة: subscriptionFee + 200
   // < 14 سنة: subscriptionFee كما هو
-  // هذا يطبيق منطق 1300/1500 لـ "/" و 300/500 لـ "DJS"
-  if (typeConfig.subscriptionFee > 0 && typeConfig.subscriptionFee < 1000) {
-    // الأنواع المخفّضة (DJS=300, OPOW=300): +200 للبالغين
-    return age >= 14 ? typeConfig.subscriptionFee + 200 : typeConfig.subscriptionFee;
-  }
-  if (typeConfig.subscriptionFee >= 1000) {
-    // الأنواع العادية (/=1300): +200 للبالغين = 1500
-    return age >= 14 ? typeConfig.subscriptionFee + 200 : typeConfig.subscriptionFee;
-  }
-  return typeConfig.subscriptionFee;
+  return age >= 14 ? typeConfig.subscriptionFee + 200 : typeConfig.subscriptionFee;
 }
 
 /**

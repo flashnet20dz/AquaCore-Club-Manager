@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { computeSubscriberFields, normalizePaymentStatus } from "@/lib/rcs";
+import { computeSubscriberFields, computeSubscriberFieldsDynamic, normalizePaymentStatus, type SubscriptionTypeConfig } from "@/lib/rcs";
 import { getCurrentUser } from "@/lib/session";
 import { recordSyncOutbox } from "@/lib/sync-outbox";
 import { checkWaitlistPromotion } from "@/lib/waitlist";
@@ -21,7 +21,21 @@ export async function GET(
     if (!subscriber) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
-    const fields = computeSubscriberFields(subscriber);
+    // ★ جلب إعدادات نوع الاشتراك من قاعدة البيانات
+    const subType = subscriber.clubId ? await db.subscriptionType.findFirst({
+      where: { clubId: subscriber.clubId, code: subscriber.subscriptionType },
+    }) : null;
+    const typeConfig = subType ? {
+      code: subType.code, name: subType.name,
+      subscriptionFee: subType.subscriptionFee, insuranceFee: subType.insuranceFee,
+      compoundRights: subType.compoundRights, durationDays: subType.durationDays,
+      givesMembershipNumber: subType.givesMembershipNumber, requiresInsurance: subType.requiresInsurance,
+      requiresCompoundFee: subType.requiresCompoundFee, renewableMonthly: subType.renewableMonthly,
+      freeSubscription: subType.freeSubscription,
+    } as SubscriptionTypeConfig : undefined;
+    const fields = typeConfig
+      ? computeSubscriberFieldsDynamic(subscriber, typeConfig)
+      : computeSubscriberFields(subscriber);
     return NextResponse.json({ subscriber: { ...subscriber, ...fields } });
   } catch (error) {
     console.error("GET /api/subscribers/[id] error:", error);
@@ -153,7 +167,21 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       await checkWaitlistPromotion(existing.clubId, existing.swimmingDays, existing.timeSlot);
     }
 
-    const fields = computeSubscriberFields(subscriber);
+    // ★ حساب الحقول باستخدام إعدادات نوع الاشتراك من قاعدة البيانات
+    const putSubType = subscriber.clubId ? await db.subscriptionType.findFirst({
+      where: { clubId: subscriber.clubId, code: subscriber.subscriptionType },
+    }) : null;
+    const putTypeConfig = putSubType ? {
+      code: putSubType.code, name: putSubType.name,
+      subscriptionFee: putSubType.subscriptionFee, insuranceFee: putSubType.insuranceFee,
+      compoundRights: putSubType.compoundRights, durationDays: putSubType.durationDays,
+      givesMembershipNumber: putSubType.givesMembershipNumber, requiresInsurance: putSubType.requiresInsurance,
+      requiresCompoundFee: putSubType.requiresCompoundFee, renewableMonthly: putSubType.renewableMonthly,
+      freeSubscription: putSubType.freeSubscription,
+    } as SubscriptionTypeConfig : undefined;
+    const fields = putTypeConfig
+      ? computeSubscriberFieldsDynamic(subscriber, putTypeConfig)
+      : computeSubscriberFields(subscriber);
     return NextResponse.json({ subscriber: { ...subscriber, ...fields } });
   } catch (error) {
     console.error("PUT /api/subscribers/[id] error:", error);
