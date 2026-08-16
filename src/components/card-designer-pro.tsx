@@ -814,11 +814,8 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
       const topPct = (el.y / c.height) * 100;
       const widthPct = (el.width / c.width) * 100;
       const heightPct = (el.height / c.height) * 100;
-      // ★ للوجه الخلفي: عكس الموضع الأفقي لعناصر البطاقة لمحاذاة القلب المزدوج (duplex flip)
-      // عند قلب الورقة أفقياً، العنصر الذي كان يميناً (leftPct صغير) يجب أن يصبح يساراً
-      // newLeft = 100 - leftPct - widthPct
-      const finalLeftPct = side === "back" ? (100 - leftPct - widthPct) : leftPct;
-      const base = `position:absolute;left:${finalLeftPct}%;top:${topPct}%;width:${widthPct}%;height:${heightPct}%;display:flex;align-items:center;justify-content:${el.textAlign === "center" ? "center" : el.textAlign === "left" ? "flex-start" : "flex-end"};direction:rtl;overflow:hidden;box-sizing:border-box;transform:rotate(${el.rotation || 0}deg);opacity:${(el.opacity ?? 100) / 100};z-index:${el.zIndex || 1};${el.bgColor ? `background-color:${el.bgColor}${bgAlpha};` : ""}${el.borderWidth ? `border:${el.borderWidth}px ${el.borderStyle || "solid"} ${el.borderColor || "#000"};` : ""}border-radius:${br};padding:0.5mm;`;
+      // ★ النصوص والعناصر تبقى ثابتة في مكانها (لا عكس للمحتوى)
+      const base = `position:absolute;left:${leftPct}%;top:${topPct}%;width:${widthPct}%;height:${heightPct}%;display:flex;align-items:center;justify-content:${el.textAlign === "center" ? "center" : el.textAlign === "left" ? "flex-start" : "flex-end"};direction:rtl;overflow:hidden;box-sizing:border-box;transform:rotate(${el.rotation || 0}deg);opacity:${(el.opacity ?? 100) / 100};z-index:${el.zIndex || 1};${el.bgColor ? `background-color:${el.bgColor}${bgAlpha};` : ""}${el.borderWidth ? `border:${el.borderWidth}px ${el.borderStyle || "solid"} ${el.borderColor || "#000"};` : ""}border-radius:${br};padding:0.5mm;`;
 
       if (el.type === "qr") return `<div style="${base}"><img src="${qrUrl}" style="width:100%;height:100%;object-fit:contain;" /></div>`;
       if (el.type === "barcode") return `<div style="${base}"><img src="https://api.qrserver.com/v1/create-barcode/?data=${encodeURIComponent(sub?.fileNumber || "RCS")}&type=code128" style="width:100%;height:100%;object-fit:contain;" /></div>`;
@@ -851,37 +848,23 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
     return `<div style="width:${c.width}cm;height:${c.height}cm;${bg}border:${c.borderWidth}px ${c.borderStyle} ${c.borderColor};border-radius:${c.borderRadius}px;position:relative;overflow:hidden;direction:rtl;box-sizing:border-box;break-inside:avoid;">${elsHTML}</div>`;
   }, [design]);
 
-  // 🔑 مولّد صفحات Recto/Verso — لكل 8 منخرطين: صفحة أمامية + صفحة خلفية
-  // الواجهة الخلفية: عناصر البطاقة معكوسة أفقياً + ترتيب البطاقات معكوس per-row
-  // ★ كلا الصفحتين direction:rtl — العكس يأتي من:
-  //   1) عكس ترتيب كل صف: [c1,c2] → [c2,c1]  (في RTL: c1=يسار بدل يمين)
-  //   2) عكس محتوى كل بطاقة: finalLeftPct = 100 - leftPct - widthPct
+  // 🔑 مولّد صفحات Recto/Verso
+  // ★ أمامية: direction:rtl (البطاقات تبدأ من أقصى اليمين)
+  // ★ خلفية: direction:ltr (البطاقات تبدأ من أقصى اليسار) — نفس الترتيب، لكن الاتجاه معكوس
+  // ★ محتوى البطاقة (نصوص/صور/QR) يبقى ثابتاً في مكانها — لا عكس للعناصر
   const buildRectoVersoPages = useCallback((subsWithPhotos: any[]): string => {
     const cardsPerPage = 8;
     const pages: string[] = [];
     for (let i = 0; i < subsWithPhotos.length; i += cardsPerPage) {
       const pageSubs = subsWithPhotos.slice(i, i + cardsPerPage);
-      const frontFillers = Array.from({ length: cardsPerPage - pageSubs.length }).map(() => `<div style="width:9.3cm;height:6.625cm;"></div>`).join("");
-      // الوجه الأمامي (Recto) — ترتيب طبيعي
+      const fillers = Array.from({ length: cardsPerPage - pageSubs.length }).map(() => `<div style="width:9.3cm;height:6.625cm;"></div>`).join("");
+      // الوجه الأمامي (Recto) — direction:rtl: البطاقات تبدأ من أقصى اليمين
       const frontCards = pageSubs.map((s: any) => buildCardHTMLString(s, "front")).join("");
-      pages.push(`<div class="print-page" style="direction:rtl;">${frontCards}${frontFillers}</div>`);
-
-      // الوجه الخلفي (Verso) — عكس ترتيب كل صف
-      // أمامية (RTL): Row1=[c2 يسار, c1 يمين] → خلفية يجب: [c1 يسار, c2 يمين]
-      // نعكس: [c2, c1] → مع RTL: c2=يمين, c1=يسار ✓
-      // ★ للصفوف الناقصة: الفارغ يُضاف BEFORE البطاقة (ليأخذ يمين، والبطاقة تأخذ يسار)
-      const backChunk: any[] = [];
-      for (let r = 0; r < 4; r++) {
-        const rowStart = r * 2;
-        const rowEnd = Math.min(rowStart + 2, pageSubs.length);
-        const rowCards = pageSubs.slice(rowStart, rowEnd);
-        const fillCount = 2 - rowCards.length;
-        // ★ الفارغ أولاً (يأخذ يمين في RTL)، ثم البطاقات المعكوسة (تأخذ يسار)
-        for (let f = 0; f < fillCount; f++) backChunk.push(null);
-        backChunk.push(...rowCards.reverse());
-      }
-      const backCards = backChunk.map((s) => s ? buildCardHTMLString(s, "back") : `<div style="width:9.3cm;height:6.625cm;"></div>`).join("");
-      pages.push(`<div class="print-page" style="direction:rtl;">${backCards}</div>`);
+      pages.push(`<div class="print-page" style="direction:rtl;">${frontCards}${fillers}</div>`);
+      // الوجه الخلفي (Verso) — direction:ltr: نفس البطاقات تبدأ من أقصى اليسار
+      // نفس الترتيب تماماً، فقط الاتجاه معكوس → البطاقات تتطابق عند قلب الورقة
+      const backCards = pageSubs.map((s: any) => buildCardHTMLString(s, "back")).join("");
+      pages.push(`<div class="print-page" style="direction:ltr;">${backCards}${fillers}</div>`);
     }
     return pages.join("");
   }, [buildCardHTMLString]);
@@ -2775,10 +2758,8 @@ function MobileTabButton({
 // ════════════════════════════ PRINT HTML GENERATORS ════════════════════════════
 
 function buildElementHTML(el: CardElement, sub: SubscriberWithComputed | null, side: "front" | "back" = "front"): string {
-  // ★ للوجه الخلفي: عكس الموضع الأفقي لمحاذاة القلب المزدوج (duplex flip)
-  const cardWidth = el.type ? 10 : 10; // fallback
-  const finalX = side === "back" ? (cardWidth - el.x - el.width) : el.x;
-  const base = `position:absolute;left:${finalX}cm;top:${el.y}cm;width:${el.width}cm;height:${el.height}cm;display:flex;align-items:center;justify-content:${el.textAlign === "center" ? "center" : el.textAlign === "left" ? "flex-start" : "flex-end"};direction:rtl;overflow:hidden;box-sizing:border-box;transform:rotate(${el.rotation}deg);opacity:${el.opacity / 100};z-index:${el.zIndex};${el.bgColor ? `background-color:${el.bgColor}${alphaHex(el.bgOpacity ?? 100)};` : ""}${el.borderWidth ? `border:${el.borderWidth}px ${el.borderStyle} ${el.borderColor};` : ""}border-radius:${el.shapeKind === "circle" ? "50%" : `${el.borderRadius || 0}px`};padding:1mm;${el.shadow ? "box-shadow:0 2px 8px rgba(0,0,0,0.15);" : ""}`;
+  // ★ العناصر تبقى ثابتة في مكانها (لا عكس للمحتوى)
+  const base = `position:absolute;left:${el.x}cm;top:${el.y}cm;width:${el.width}cm;height:${el.height}cm;display:flex;align-items:center;justify-content:${el.textAlign === "center" ? "center" : el.textAlign === "left" ? "flex-start" : "flex-end"};direction:rtl;overflow:hidden;box-sizing:border-box;transform:rotate(${el.rotation}deg);opacity:${el.opacity / 100};z-index:${el.zIndex};${el.bgColor ? `background-color:${el.bgColor}${alphaHex(el.bgOpacity ?? 100)};` : ""}${el.borderWidth ? `border:${el.borderWidth}px ${el.borderStyle} ${el.borderColor};` : ""}border-radius:${el.shapeKind === "circle" ? "50%" : `${el.borderRadius || 0}px`};padding:1mm;${el.shadow ? "box-shadow:0 2px 8px rgba(0,0,0,0.15);" : ""}`;
   if (el.type === "qr") return `<div style="${base}"><img src="https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent(sub?.fileNumber || "RCS")}&color=000000&bgcolor=ffffff" style="width:100%;height:100%;object-fit:contain;" /></div>`;
   if (el.type === "barcode") return `<div style="${base}"><img src="https://api.qrserver.com/v1/create-barcode/?data=${encodeURIComponent(sub?.fileNumber || "RCS")}&type=code128" style="width:100%;height:100%;object-fit:contain;" /></div>`;
   if (el.type === "logo") return `<div style="${base}"><img src="/images/rcs-logo-official.png" style="width:100%;height:100%;object-fit:contain;" onerror="this.style.display='none'" /></div>`;
