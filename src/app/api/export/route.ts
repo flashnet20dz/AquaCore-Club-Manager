@@ -264,11 +264,11 @@ export async function GET(req: NextRequest) {
     // Load EN-TETE config once (used by PDF + Word)
     const enteteConfig = await loadEnteteConfig(currentUser.clubId);
 
-    if (format === "xlsx") {
+    if (format === "xlsx" || format === "excel") {
       return await exportExcel(type, filters, { year: compoundYear, month: compoundMonth });
     } else if (format === "pdf") {
       return await exportPdf(type, sigs, enteteConfig, origin, filters, { year: compoundYear, month: compoundMonth });
-    } else if (format === "word") {
+    } else if (format === "word" || format === "doc") {
       return await exportWord(type, sigs, enteteConfig, origin, filters, { year: compoundYear, month: compoundMonth });
     }
 
@@ -1038,7 +1038,10 @@ ${sigsHTML}
   const filename = `RCS_${type}_${new Date().toISOString().split("T")[0]}.doc`;
   return new NextResponse(html, {
     headers: {
-      "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      // ★ application/msword is the correct MIME for HTML-based .doc files
+      // (the previous .docx MIME caused Word to render the file as empty
+      // because .docx is a ZIP-based format, not HTML)
+      "Content-Type": "application/msword; charset=utf-8",
       "Content-Disposition": `attachment; filename="${filename}"`,
     },
   });

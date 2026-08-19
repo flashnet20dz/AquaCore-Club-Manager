@@ -12,7 +12,7 @@
  *    - "pending"     : النادي بانتظار موافقة السوبر أدمن
  *    - "trial"       : في فترة التجربة المجانية (7-15 يوم)
  *    - "active"      : اشتراك مدفوع ساري
- *    - "grace"       : انتهى الاشتراك، في فترة السماح (أسبوع)
+ *    - "grace"       : انتهى الاشتراك، في فترة السماح (24 ساعة)
  *    - "locked"      : انتهت فترة السماح، الوصول مقفل
  *    - "suspended"   : موقوف يدوياً من السوبر أدمن
  */
@@ -46,7 +46,7 @@ export interface SubscriptionStatus {
 }
 
 const TRIAL_DAYS = 7;       // مدة التجربة الافتراضية
-const GRACE_DAYS = 7;       // مدة السماح بعد انتهاء الاشتراك
+const GRACE_DAYS = 1;       // مدة السماح بعد انتهاء الاشتراك (24 ساعة = يوم واحد)
 
 export function daysBetween(from: Date, to: Date): number {
   const ms = to.getTime() - from.getTime();
@@ -150,7 +150,7 @@ export function computeSubscriptionStatus(
         endDate: effectiveGraceEnd,
         daysRemaining: days,
         hasAccess: true,
-        message: `انتهى اشتراكك. لديك ${days} يوم في فترة السماح قبل قفل الحساب. فعّل كوداً جديداً فوراً.`,
+        message: `انتهى اشتراكك. لديك ${days} يوم في فترة السماح (24 ساعة) قبل قفل الحساب. فعّل كوداً جديداً فوراً.`,
         plan: activeSubscription.type,
       };
     }
