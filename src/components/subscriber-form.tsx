@@ -21,6 +21,8 @@ import {
   Waves,
   UserPlus,
   Save,
+  Hash,
+  Loader2,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -53,7 +55,8 @@ export interface SubscriberFormValues {
   swimmingDays: SwimmingDays | null;
   timeSlot: TimeSlot | null;
   phone: string;
-  photoUrl?: string;  // مسار الصورة الشخصية (data URL أو مسار نسبي)
+  photoUrl?: string;
+  fileNumber?: string; // ★ رقم الملف (قابل للتعديل)
 }
 
 interface SubscriberFormProps {
@@ -75,6 +78,7 @@ const emptyForm: SubscriberFormValues = {
   swimmingDays: null,
   timeSlot: null,
   phone: "",
+  fileNumber: "",
 };
 
 export function SubscriberForm({ open, onOpenChange, initial, onSaved }: SubscriberFormProps) {
@@ -82,10 +86,60 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
   const { activeTypes: subTypes } = useSubscriptionTypes();
   const [saving, setSaving] = useState(false);
   const isEdit = !!initial?.id;
+  // ★ معاينة رقم الملف التالي
+  const [previewFileNumber, setPreviewFileNumber] = useState<string>("");
+  const [loadingFileNumber, setLoadingFileNumber] = useState(false);
+
   // 🔑 الصورة المؤقتة للمنخرط الجديد (قبل الحفظ)
   const [pendingPhoto, setPendingPhoto] = useState<{
     original: string; cropped: string; thumbnail: string; faceDetected: boolean;
   } | null>(null);
+
+  // ★ جلب رقم الملف التالي فور اختيار نوع الاشتراك
+  useEffect(() => {
+    if (form.subscriptionType && !isEdit) {
+      setLoadingFileNumber(true);
+      fetch(`/api/subscribers?limit=1&sortBy=fileNumber&sortOrder=desc`)
+        .then(r => r.json())
+        .then(data => {
+          // استخراج أكبر رقم من القائمة الحالية
+          const subs = data.subscribers || [];
+          let maxNum = 0;
+          const typeConfig = subTypes.find(t => t.code === form.subscriptionType);
+          const group = typeConfig?.numberingGroup || "RCS";
+          for (const s of subs) {
+            const match = s.fileNumber?.match(new RegExp(`^${group}(\\d+)$`));
+            if (match) {
+              const num = parseInt(match[1]);
+              if (num > maxNum) maxNum = num;
+            }
+          }
+          // جلب كل المنخرطين لإيجاد الرقم الأكبر
+          return fetch(`/api/subscribers?limit=10000`);
+        })
+        .then(r => r.json())
+        .then(data => {
+          const subs = data.subscribers || [];
+          const typeConfig = subTypes.find(t => t.code === form.subscriptionType);
+          const group = typeConfig?.numberingGroup || "RCS";
+          let maxNum = 0;
+          for (const s of subs) {
+            const match = s.fileNumber?.match(new RegExp(`^${group}(\\d+)$`));
+            if (match) {
+              const num = parseInt(match[1]);
+              if (num > maxNum) maxNum = num;
+            }
+          }
+          const next = `${group}${String(maxNum + 1).padStart(3, "0")}`;
+          setPreviewFileNumber(next);
+          setForm(f => ({ ...f, fileNumber: next }));
+        })
+        .catch(() => {})
+        .finally(() => setLoadingFileNumber(false));
+    } else {
+      setPreviewFileNumber("");
+    }
+  }, [form.subscriptionType, isEdit, subTypes]);
 
   useEffect(() => {
     if (open) {
@@ -350,6 +404,31 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
               columns={3}
               hint="OPOW/DJS/POLICE = 300 دج • FCS/RCS = 0 دج"
             />
+
+            {/* ★ رقم الملف — معاينة فورية + قابل للتعديل */}
+            {!isEdit && form.subscriptionType && (
+              <div className="space-y-1.5">
+                <Label className="text-sm font-semibold flex items-center gap-1">
+                  <Hash className="h-3.5 w-3.5" /> رقم الملف
+                  {loadingFileNumber && <Loader2 className="h-3 w-3 animate-spin" />}
+                </Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={form.fileNumber || ""}
+                    onChange={(e) => setForm({ ...form, fileNumber: e.target.value })}
+                    className="h-10 font-mono font-bold"
+                    placeholder="RCS001"
+                    dir="ltr"
+                  />
+                  <Badge variant="outline" className="text-[10px] whitespace-nowrap">
+                    مقترح: {previewFileNumber || "—"}
+                  </Badge>
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  يتم توليد الرقم تلقائياً — يمكنك تعديله (فارغ أو ناقص في التسلسل)
+                </p>
+              </div>
+            )}
 
             <ChipSelector
               label="حالة الدفع"

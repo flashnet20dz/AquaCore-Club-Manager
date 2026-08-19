@@ -56,6 +56,7 @@ import { ImportPanel } from "@/components/import-panel";
 import { CardDesignerPro } from "@/components/card-designer-pro";
 import { InsurancePanel } from "@/components/insurance-panel";
 import { CompoundPanel } from "@/components/compound-panel";
+import { MembersDirectoryPanel } from "@/components/members-directory-panel";
 import { CompensationsPanel } from "@/components/compensations-panel";
 import { StaffCompensationsPanel } from "@/components/staff-compensations-panel";
 import { WaitlistPanel } from "@/components/waitlist-panel";
@@ -502,6 +503,7 @@ export default function Home() {
                  activeTab === "financial-dashboard" ? "لوحة المالية" :
                  activeTab === "financial-payments" ? "الدفعات" :
                  activeTab === "financial-reports" ? "التقارير المالية" :
+                 activeTab === "members-directory" ? "سجل المنخرطين" :
                  activeTab === "contracts" ? "عقود العمال" :
                  activeTab === "users" ? "المستخدمون" :
                  activeTab === "backup" ? "النسخ الاحتياطي" :
@@ -559,6 +561,12 @@ export default function Home() {
               {hasPermission(sessionUser.role, "subscribers") && (
                 <TabsTrigger value="compound" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
                   <Building2 className="h-4 w-4" /> حقوق المركب
+                </TabsTrigger>
+              )}
+              {/* ★ سجل المنخرطين الكامل */}
+              {hasPermission(sessionUser.role, "subscribers") && (
+                <TabsTrigger value="members-directory" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
+                  <Users className="h-4 w-4" /> سجل المنخرطين
                 </TabsTrigger>
               )}
               {hasPermission(sessionUser.role, "subscribers") && (
@@ -1064,6 +1072,13 @@ export default function Home() {
             </TabsContent>
           )}
 
+          {/* ★ MEMBERS DIRECTORY TAB */}
+          {hasPermission(sessionUser.role, "subscribers") && (
+            <TabsContent value="members-directory" className="mt-0">
+              <MembersDirectoryPanel />
+            </TabsContent>
+          )}
+
           {/* CATEGORIES TAB */}
           <TabsContent value="categories" className="space-y-4 mt-0">
             {loading || !stats ? (
@@ -1285,6 +1300,15 @@ export default function Home() {
                 label="التأمين"
                 active={activeTab === "insurance"}
                 onClick={() => { setActiveTab("insurance"); setMobileNavOpen(false); }}
+              />
+            )}
+            {/* ★ سجل المنخرطين mobile nav */}
+            {hasPermission(sessionUser.role, "subscribers") && (
+              <MobileNavItem
+                icon={Users}
+                label="سجل المنخرطين"
+                active={activeTab === "members-directory"}
+                onClick={() => { setActiveTab("members-directory"); setMobileNavOpen(false); }}
               />
             )}
             {hasPermission(sessionUser.role, "subscribers") && (

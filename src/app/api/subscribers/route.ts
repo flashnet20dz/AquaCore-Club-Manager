@@ -147,7 +147,10 @@ export async function POST(req: NextRequest) {
     });
 
     let fileNumber: string;
-    if (subType && !subType.givesMembershipNumber) {
+    // ★ إذا قدم المستخدم رقم ملف يدوياً، استخدمه
+    if (body.fileNumber && body.fileNumber.trim()) {
+      fileNumber = body.fileNumber.trim();
+    } else if (subType && !subType.givesMembershipNumber) {
       // النوع لا يمنح رقم عضوية — استخدم الكود نفسه
       fileNumber = body.subscriptionType;
     } else {
