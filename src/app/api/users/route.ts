@@ -12,8 +12,14 @@ export async function GET() {
     // 🔑 جلب كل العمال (Users) + Employees
     const clubFilter = currentUser.role === "superadmin" ? {} : { clubId: currentUser.clubId! };
 
+    // ★ Superadmin يرى كل المستخدمين بما فيهم حساب المدير العام (superadmin)
+    // غير السوبر أدمن لا يرى حسابات السوبر أدمن (تجنّب الصلاحيات)
+    const roleFilter = currentUser.role === "superadmin"
+      ? {}  // لا فلترة — يشمل superadmin
+      : { role: { not: "superadmin" } };  // يستثني superadmin
+
     const users = await db.user.findMany({
-      where: { role: { not: "superadmin" }, ...clubFilter },
+      where: { ...clubFilter, ...roleFilter },
       select: { id: true, email: true, name: true, role: true, phone: true, active: true, pending: true, createdAt: true },
       orderBy: { createdAt: "asc" },
     });

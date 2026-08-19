@@ -33,6 +33,7 @@ interface User {
 }
 
 const ROLE_INFO: Record<string, { label: string; icon: string; color: string }> = {
+  superadmin: { label: "المدير العام", icon: "⭐", color: "bg-rose-500/15 text-rose-700 border-rose-500/30" },
   admin: { label: "مدير", icon: "👑", color: "bg-amber-500/15 text-amber-700 border-amber-500/30" },
   accountant: { label: "محاسب مالي", icon: "💰", color: "bg-emerald-500/15 text-emerald-700 border-emerald-500/30" },
   assistant: { label: "مساعد إداري", icon: "💼", color: "bg-sky-500/15 text-sky-700 border-sky-500/30" },
@@ -330,16 +331,24 @@ export function UserManagement() {
                     <Button size="sm" variant="ghost" className="h-7 px-2 text-xs flex-1" onClick={() => handleOpenEdit(u)}>
                       <Pencil className="h-3 w-3 ml-1" /> تعديل
                     </Button>
-                    {/* ★ زر كود الكاشير السريع */}
-                    <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => handleGeneratePin(u)} title="إنشاء كود كاشير سريع">
-                      <KeyRound className="h-3.5 w-3.5 ml-1" /> كود
-                    </Button>
-                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleToggleActive(u)} title={u.active ? "تعطيل" : "تفعيل"}>
-                      <Power className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={() => setDeleteTarget(u)}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    {/* ★ زر كود الكاشير السريع — مخفي للمدير العام */}
+                    {u.role !== "superadmin" && (
+                      <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => handleGeneratePin(u)} title="إنشاء كود كاشير سريع">
+                        <KeyRound className="h-3.5 w-3.5 ml-1" /> كود
+                      </Button>
+                    )}
+                    {/* ★ زر التعطيل/التفعيل — مخفي للمدير العام */}
+                    {u.role !== "superadmin" && (
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleToggleActive(u)} title={u.active ? "تعطيل" : "تفعيل"}>
+                        <Power className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    {/* ★ زر الحذف — مخفي للمدير العام (حساب محمي) */}
+                    {u.role !== "superadmin" && (
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={() => setDeleteTarget(u)}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                   </div>
                 </motion.div>
               );
@@ -383,7 +392,7 @@ export function UserManagement() {
             </div>
             <div className="space-y-1.5">
               <Label className="text-sm font-semibold">الدور *</Label>
-              <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
+              <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })} disabled={editingUser?.role === "superadmin"}>
                 <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {Object.entries(ROLE_INFO).map(([key, info]) => (
@@ -393,6 +402,11 @@ export function UserManagement() {
                   ))}
                 </SelectContent>
               </Select>
+              {editingUser?.role === "superadmin" && (
+                <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                  ⚠ لا يمكن تغيير دور المدير العام (superadmin) — حساب محمي
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label className="text-sm font-semibold">رقم الهاتف</Label>

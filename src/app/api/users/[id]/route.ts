@@ -23,9 +23,17 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const data: Record<string, unknown> = {};
     if (name !== undefined) data.name = name;
     if (role !== undefined) {
+      // ★ حماية دور السوبر أدمن: لا يمكن تخفيضه
+      // إذا كان المستخدم الحالي superadmin، يُسمح بتحديث الأدوار الأخرى فقط
       const validRoles = ["admin", "accountant", "assistant", "lifeguard", "observer"];
       if (!validRoles.includes(role)) {
         return NextResponse.json({ error: "دور غير صالح" }, { status: 400 });
+      }
+      // ★ لا يمكن تغيير دور superadmin إلى دور آخر (حماية المدير العام)
+      if (existing.role === "superadmin" && role !== "superadmin") {
+        return NextResponse.json({
+          error: "لا يمكن تغيير دور المدير العام (superadmin) إلى دور آخر",
+        }, { status: 400 });
       }
       data.role = role;
     }

@@ -6,11 +6,12 @@ import { motion } from "framer-motion";
 import {
   Shield, Building, Users, AlertCircle, CheckCircle2, XCircle, Clock,
   Calendar, Wallet, Loader2, RefreshCw, Eye, Power, Ban, Trash2,
-  Plus, KeyRound, Settings, LogOut, TrendingUp,
+  Plus, KeyRound, Settings, LogOut, TrendingUp, UserCog,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -73,6 +74,11 @@ export default function SuperAdminPage() {
   const [subType, setSubType] = useState("monthly");
   const [subMonths, setSubMonths] = useState(1);
   const [codesPanelOpen, setCodesPanelOpen] = useState(false);
+  // ★ حسابي: تعديل بيانات المدير العام
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profile, setProfile] = useState({ name: "", email: "", phone: "", password: "" });
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [myUserId, setMyUserId] = useState<string | null>(null);
 
   const fetchClubs = useCallback(async () => {
     setLoading(true);
@@ -90,11 +96,57 @@ export default function SuperAdminPage() {
       .then((data) => {
         if (!data.user || data.user.role !== "superadmin") {
           window.location.href = "/login";
+        } else {
+          // ★ املأ بيانات الحساب
+          setMyUserId(data.user.id);
+          setProfile({
+            name: data.user.name || "",
+            email: data.user.email || "",
+            phone: data.user.phone || "",
+            password: "",
+          });
         }
       })
       .catch(() => { window.location.href = "/login"; });
     fetchClubs();
   }, [fetchClubs]);
+
+  // ★ حفظ تعديلات حساب المدير العام
+  const handleSaveProfile = async () => {
+    if (!myUserId) return;
+    if (!profile.name.trim()) {
+      toast.error("الاسم مطلوب");
+      return;
+    }
+    if (profile.password && profile.password.length < 6) {
+      toast.error("كلمة المرور يجب أن تكون 6 أحرف على الأقل");
+      return;
+    }
+    setProfileSaving(true);
+    try {
+      const body: Record<string, unknown> = {
+        name: profile.name.trim(),
+        phone: profile.phone.trim() || null,
+      };
+      if (profile.password) body.password = profile.password;
+      const res = await fetch(`/api/users/${myUserId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || "فشل التحديث");
+      }
+      toast.success("تم تحديث بياناتك بنجاح");
+      setProfileOpen(false);
+      setProfile((p) => ({ ...p, password: "" }));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "فشل التحديث");
+    } finally {
+      setProfileSaving(false);
+    }
+  };
 
   const handleAction = async (club: Club, action: string) => {
     try {
@@ -155,6 +207,10 @@ export default function SuperAdminPage() {
             <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30">SuperAdmin</Badge>
           </div>
           <div className="flex items-center gap-2">
+            {/* ★ زر حسابي — تعديل بيانات المدير العام */}
+            <Button variant="outline" size="sm" onClick={() => setProfileOpen(true)} className="h-9 border-primary/30 bg-primary/5 text-primary hover:bg-primary/10">
+              <UserCog className="h-4 w-4 ml-1" /> حسابي
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setCodesPanelOpen(true)} className="h-9 border-primary/30 bg-primary/5 text-primary hover:bg-primary/10">
               <KeyRound className="h-4 w-4 ml-1" /> أكواد التفعيل
             </Button>
@@ -180,17 +236,55 @@ export default function SuperAdminPage() {
           <StatCard icon={Calendar} label="تنتهي خلال 30 يوم" value={stats.expiring30} color="text-blue-700 bg-blue-500/10" />
         </div>
 
-        {/* Alerts */}
-        {(stats.pending > 0 || stats.expiringSoon > 0 || stats.expired > 0) && (
-          <div className="rounded-xl border-2 border-amber-500/30 bg-amber-500/5 p-3 space-y-1">
-            <h3 className="font-bold text-xs text-amber-800 dark:text-amber-200 flex items-center gap-1.5">
+        {/* Alerts — تنبيهات النوادي */}
+        <div className="rounded-xl border-2 border-amber-500/30 bg-amber-500/5 p-4 space-y-2">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h3 className="font-bold text-sm text-amber-800 dark:text-amber-200 flex items-center gap-1.5">
               <AlertCircle className="h-4 w-4" /> التنبيهات
             </h3>
-            {stats.pending > 0 && <p className="text-xs text-amber-700">• {stats.pending} طلب تسجيل جديد بانتظار المراجعة</p>}
-            {stats.expiringSoon > 0 && <p className="text-xs text-orange-700">• {stats.expiringSoon} اشتراك ينتهي خلال 7 أيام</p>}
-            {stats.expired > 0 && <p className="text-xs text-rose-700">• {stats.expired} اشتراك منتهي</p>}
+            <Badge variant="outline" className="text-[10px] bg-amber-500/10 text-amber-700 border-amber-500/30">
+              مهلة قفل الحساب بعد انتهاء الاشتراك: 24 ساعة
+            </Badge>
           </div>
-        )}
+          {stats.pending === 0 && stats.expiringSoon === 0 && stats.expired === 0 && stats.suspended === 0 ? (
+            <p className="text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-1">
+              <CheckCircle2 className="h-3.5 w-3.5" /> لا توجد تنبيهات حالياً — كل النوادي نشطة وسارية
+            </p>
+          ) : (
+            <ul className="space-y-1">
+              {stats.pending > 0 && (
+                <li className="text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+                  {stats.pending} طلب تسجيل نادٍ جديد بانتظار المراجعة
+                </li>
+              )}
+              {stats.expiringSoon > 0 && (
+                <li className="text-xs text-orange-700 dark:text-orange-300 flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-orange-500 shrink-0" />
+                  {stats.expiringSoon} نادٍ ينتهي اشتراكه خلال 7 أيام
+                </li>
+              )}
+              {stats.expiring30 > 0 && (
+                <li className="text-xs text-blue-700 dark:text-blue-300 flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-blue-500 shrink-0" />
+                  {stats.expiring30} نادٍ ينتهي اشتراكه خلال 30 يوم
+                </li>
+              )}
+              {stats.expired > 0 && (
+                <li className="text-xs text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-rose-500 shrink-0" />
+                  {stats.expired} نادٍ منتهي الاشتراك (مهلة 24 ساعة قبل القفل)
+                </li>
+              )}
+              {stats.suspended > 0 && (
+                <li className="text-xs text-violet-700 dark:text-violet-300 flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-violet-500 shrink-0" />
+                  {stats.suspended} نادٍ موقوف
+                </li>
+              )}
+            </ul>
+          )}
+        </div>
 
         {/* Clubs table */}
         <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
@@ -316,6 +410,77 @@ export default function SuperAdminPage() {
 
       {/* Activation Codes Management Panel */}
       <ActivationCodesPanel open={codesPanelOpen} onClose={() => setCodesPanelOpen(false)} />
+
+      {/* ★ Modal حسابي — تعديل بيانات المدير العام */}
+      <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserCog className="h-5 w-5 text-primary" /> حسابي — المدير العام
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-lg bg-rose-500/10 border border-rose-500/30 p-3 flex items-center gap-2">
+              <span className="text-2xl">⭐</span>
+              <div>
+                <p className="text-sm font-bold text-rose-700 dark:text-rose-300">حساب المدير العام (SuperAdmin)</p>
+                <p className="text-[11px] text-muted-foreground">يمكنك تعديل اسمك وهاتفك وكلمة المرور. الدور محمي ولا يمكن تغييره.</p>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm font-semibold">الاسم الكامل *</Label>
+              <Input
+                value={profile.name}
+                onChange={(e) => setProfile({ ...profile, name: e.target.value })}
+                className="h-10"
+                placeholder="المدير العام"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm font-semibold">البريد الإلكتروني (غير قابل للتعديل)</Label>
+              <Input
+                type="email"
+                value={profile.email}
+                disabled
+                className="h-10 bg-muted/40"
+                dir="ltr"
+              />
+              <p className="text-[10px] text-muted-foreground">لتغيير البريد، تواصل مع الدعم.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm font-semibold">رقم الهاتف</Label>
+              <Input
+                value={profile.phone}
+                onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
+                className="h-10"
+                dir="ltr"
+                placeholder="0550000000"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm font-semibold">
+                كلمة المرور <span className="text-muted-foreground font-normal">(اتركها فارغة للإبقاء عليها)</span>
+              </Label>
+              <Input
+                type="password"
+                value={profile.password}
+                onChange={(e) => setProfile({ ...profile, password: e.target.value })}
+                className="h-10"
+                dir="ltr"
+                placeholder="••••••"
+              />
+              <p className="text-[10px] text-muted-foreground">6 أحرف على الأقل.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setProfileOpen(false)}>إلغاء</Button>
+            <Button onClick={handleSaveProfile} disabled={profileSaving || !profile.name.trim()}>
+              {profileSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCog className="h-4 w-4 ml-1" />}
+              حفظ التعديلات
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
