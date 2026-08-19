@@ -519,6 +519,8 @@ export async function POST(req: NextRequest) {
     const cleanRows = financialCheck.filter((r) => !r.hasFinancialConflict);
 
     if (dryRun) {
+      // 🔑 بناء Map<row, validRow> لتسريع البحث (تجنب O(n²))
+      const financialCheckByRow = new Map(financialCheck.map(r => [r.row, r]));
       // إرجاع جميع الصفوف للمراجعة الكاملة (وليس فقط عينة)
       return NextResponse.json({
         preview: true,
@@ -555,8 +557,8 @@ export async function POST(req: NextRequest) {
         errorSamples: parsed.filter((r) => r.errors.length > 0),
         // جميع الصفوف مع حالة (صالح/تحذير/خطأ) للمراجعة الكاملة
         allRows: parsed.map((r) => {
-          // إذا كان صالحاً، أضف البيانات المالية المحسوبة
-          const validRow = financialCheck.find((v) => v.row === r.row);
+          // 🔑 O(1) lookup بدلاً من O(n)
+          const validRow = financialCheckByRow.get(r.row);
           // تحديد الحالة بناءً على errorDetails (critical = error, warning = warning)
           const hasCritical = r.errorDetails.some((e) => e.type === "critical");
           const hasWarning = r.errorDetails.some((e) => e.type === "warning");
@@ -705,35 +707,54 @@ export async function POST(req: NextRequest) {
     let exemptImported = 0;
     const importErrors: { row: number; name: string; error: string }[] = [];
 
-    // ═══ المرحلة 2: إنشاء المنخرطين — إدراج فردي لكل صف ═══
-    // 🔑 نستخدم إدراج فردي (وليس createMany) لضمان:
-    // 1. معرفة كل صف فشل وسبب الفشل
-    // 2. عدم تجاهل صفوف بصمت (skipDuplicates يتجاهل بصمت)
-    // 3. عدّ دقيق للمستورد والمتخطّى
-    for (let i = 0; i < records.length; i++) {
-      const r = newRows[i];
+    // ═══ المرحلة 2: إنشاء المنخرطين — إدراج دفعة (batched createMany) ═══
+    // 🔑 نستخدم createMany في دفعات من 100 صف لكل دفعة (بدلاً من إدراج فردي)
+    // هذا يقلل عدد round-trips إلى DB بـ 100x، مما يسرّع الاستيراد بشكل كبير.
+    // skipDuplicates يضمن عدم فشل الدفعة بأكملها إذا كان هناك تكرار.
+    const CREATE_BATCH_SIZE = 100;
+    for (let i = 0; i < records.length; i += CREATE_BATCH_SIZE) {
+      const batch = records.slice(i, i + CREATE_BATCH_SIZE);
+      const batchRows = newRows.slice(i, i + CREATE_BATCH_SIZE);
       try {
-        await db.subscriber.create({ data: records[i] });
-        imported++;
-        // ★ Count exempt imports
-        if (isExemptStatus(r.paymentStatus)) exemptImported++;
-      } catch (e) {
-        const errMsg = e instanceof Error ? e.message : "خطأ غير معروف";
-        skipped++;
-        importErrors.push({
-          row: r.row,
-          name: `${r.lastName} ${r.firstName} (${r.fileNumber || "بدون رقم"})`,
-          error: errMsg,
+        const result = await db.subscriber.createMany({
+          data: batch as any,
+          skipDuplicates: true,
         });
+        imported += result.count;
+        // ★ Count exempt imports in this batch
+        for (const r of batchRows) {
+          if (isExemptStatus(r.paymentStatus)) exemptImported++;
+        }
+      } catch (batchErr) {
+        // فشل الدفعة بأكملها — عدّها كأخطاء وواصل
+        const errMsg = batchErr instanceof Error ? batchErr.message : "خطأ في الدفعة";
+        for (let j = 0; j < batchRows.length; j++) {
+          const r = batchRows[j];
+          // جرّب إدراج فردي لمعرفة الصف المسبب
+          try {
+            await db.subscriber.create({ data: batch[j] as any });
+            imported++;
+            if (isExemptStatus(r.paymentStatus)) exemptImported++;
+          } catch (e2) {
+            skipped++;
+            importErrors.push({
+              row: r.row,
+              name: `${r.lastName} ${r.firstName} (${r.fileNumber || "بدون رقم"})`,
+              error: e2 instanceof Error ? e2.message : errMsg,
+            });
+          }
+        }
       }
     }
 
-    // ═══ المرحلة 2.5: تحديث المنخرطين الموجودين (upsert) ═══
+    // ═══ المرحلة 2.5: تحديث المنخرطين الموجودين (upsert) — بدفعات متوازية ═══
     // 🔑 بدلاً من تجاهل المكررات، حدّث بياناتهم من Excel
+    // نستخدم Promise.all بحد تزامن 10 لتحديث عدة صفوف في وقت واحد.
     let updated = 0;
-    const BATCH_SIZE = 500;
-    for (const { row: r, existingId } of existingToUpdate) {
-      try {
+    const UPDATE_CONCURRENCY = 10;
+    for (let i = 0; i < existingToUpdate.length; i += UPDATE_CONCURRENCY) {
+      const chunk = existingToUpdate.slice(i, i + UPDATE_CONCURRENCY);
+      const results = await Promise.allSettled(chunk.map(async ({ row: r, existingId }) => {
         await db.subscriber.update({
           where: { id: existingId },
           data: {
@@ -750,15 +771,24 @@ export async function POST(req: NextRequest) {
             phone: r.phone,
           },
         });
-        updated++;
-        imported++; // عدّ المحديثين ضمن المستوردين
-      } catch (e) {
-        skipped++;
-        importErrors.push({
-          row: r.row,
-          name: `${r.lastName} ${r.firstName}`,
-          error: e instanceof Error ? e.message : "فشل التحديث",
-        });
+        return r;
+      }));
+      for (let j = 0; j < results.length; j++) {
+        const result = results[j];
+        if (result.status === "fulfilled") {
+          updated++;
+          imported++; // عدّ المحديثين ضمن المستوردين
+          // ★ Count exempt among updates
+          if (isExemptStatus(result.value.paymentStatus)) exemptImported++;
+        } else {
+          skipped++;
+          const r = chunk[j].row;
+          importErrors.push({
+            row: r.row,
+            name: `${r.lastName} ${r.firstName}`,
+            error: result.reason instanceof Error ? result.reason.message : "فشل التحديث",
+          });
+        }
       }
     }
 
@@ -771,8 +801,7 @@ export async function POST(req: NextRequest) {
     const renewalSheetName = wb.SheetNames.find((n) => n.includes("التجديد"));
     if (renewalSheetName && imported > 0) {
       try {
-        // 🔑 انتظر قليلاً حتى تكتمل المعاملة في DB
-        await new Promise((r) => setTimeout(r, 500));
+        // 🔑 لا حاجة لانتظار 500ms — createMany التزامني ينعكس فوراً في DB.
 
         // 🔑 اجلب IDs للمنخرطين المستوردين حديثاً فقط (بأرقام ملفاتهم)
         const newFileNumbers = records.map(r => r.fileNumber);
@@ -882,13 +911,14 @@ export async function POST(req: NextRequest) {
               }
 
               // إدراج التجديدات على دفعات
-              for (let i = 0; i < renewalRecords.length; i += BATCH_SIZE) {
-                const batch = renewalRecords.slice(i, i + BATCH_SIZE);
+              const RENEWAL_BATCH_SIZE = 500;
+              for (let i = 0; i < renewalRecords.length; i += RENEWAL_BATCH_SIZE) {
+                const batch = renewalRecords.slice(i, i + RENEWAL_BATCH_SIZE);
                 try {
                   const result = await db.renewal.createMany({ data: batch, skipDuplicates: true });
                   renewalsImported += result.count;
                 } catch (e) {
-                  console.warn(`Renewal batch ${i / BATCH_SIZE + 1} failed:`, e);
+                  console.warn(`Renewal batch ${i / RENEWAL_BATCH_SIZE + 1} failed:`, e);
                   renewalsSkipped += batch.length;
                 }
               }

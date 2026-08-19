@@ -30,6 +30,24 @@ export async function GET(req: NextRequest) {
   }
 }
 
+// ═══ Helper: parse a manual date string (YYYY/MM/DD or YYYY-MM-DD) ═══
+// Returns Date | null.
+function parseManualDate(value: string): Date | null {
+  if (!value) return null;
+  const normalized = value.trim().replace(/[-.]/g, "/");
+  const m = normalized.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+  if (!m) return null;
+  const y = parseInt(m[1], 10);
+  const mo = parseInt(m[2], 10);
+  const d = parseInt(m[3], 10);
+  if (mo < 1 || mo > 12) return null;
+  if (d < 1 || d > 31) return null;
+  if (y < 1900 || y > 2100) return null;
+  const dt = new Date(y, mo - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+  return dt;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const currentUser = await getCurrentUser();
@@ -38,7 +56,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { subscriberId, months, amount, paymentStatus, note } = body;
+    const { subscriberId, months, amount, paymentStatus, note, renewalDate: renewalDateInput } = body;
 
     // ★ EXEMPT renewals don't require an amount (amount = 0)
     // Normalize the status first to detect exempt
@@ -53,7 +71,22 @@ export async function POST(req: NextRequest) {
     const sub = await db.subscriber.findFirst({ where: { id: subscriberId, ...clubFilter } });
     if (!sub) return NextResponse.json({ error: "Subscriber not found" }, { status: 404 });
 
-    const renewalDate = new Date();
+    // ═══ تاريخ التجديد ═══
+    // ★ إذا قُدم تاريخ تجديد خاص (manual YYYY/MM/DD) — استخدمه
+    // خلاف ذلك استخدم تاريخ اليوم
+    let renewalDate: Date;
+    if (renewalDateInput && typeof renewalDateInput === "string" && renewalDateInput.trim()) {
+      const parsed = parseManualDate(renewalDateInput);
+      if (!parsed) {
+        return NextResponse.json({
+          error: "تاريخ التجديد غير صالح — استخدم الصيغة YYYY/MM/DD",
+        }, { status: 400 });
+      }
+      renewalDate = parsed;
+    } else {
+      renewalDate = new Date();
+    }
+
     const expiryDate = new Date(renewalDate);
     expiryDate.setDate(expiryDate.getDate() + (months || 1) * 30);
 
@@ -94,7 +127,7 @@ export async function POST(req: NextRequest) {
         type: "renewal",
         description: exempt
           ? `تم تجديد اشتراك ${sub.lastName} ${sub.firstName} — معفى (بدون مطالبة مالية)`
-          : `تم تجديد اشتراك ${sub.lastName} ${sub.firstName} لمدة ${months || 1} شهر بمبلغ ${finalAmount} دج`,
+          : `تم تجديد اشتراك ${sub.lastName} ${sub.firstName} لمدة ${months || 1} شهر بمبلغ ${finalAmount} دج بتاريخ ${renewalDate.toISOString().split("T")[0]}`,
       },
     });
 

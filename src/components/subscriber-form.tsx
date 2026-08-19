@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { ChipSelector } from "@/components/chip-selector";
 import {
   User,
@@ -24,6 +25,10 @@ import {
   Hash,
   Loader2,
   X,
+  CheckCircle2,
+  Printer,
+  UserRound,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useSubscriptionTypes } from "@/hooks/use-subscription-types";
@@ -46,17 +51,18 @@ import {
 export interface SubscriberFormValues {
   lastName: string;
   firstName: string;
-  birthDate: string;
+  birthDate: string;          // YYYY/MM/DD (manual text)
   gender: Gender | null;
   bloodType: BloodType | null;
   subscriptionType: SubscriptionType | null;
-  lastPaymentDate: string;
+  lastPaymentDate: string;    // YYYY/MM/DD (manual text)
   paymentStatus: PaymentStatus | null;
   swimmingDays: SwimmingDays | null;
   timeSlot: TimeSlot | null;
   phone: string;
   photoUrl?: string;
   fileNumber?: string; // ★ رقم الملف (قابل للتعديل)
+  startDate?: string;   // ★ تاريخ بداية خاص (اختياري) — YYYY/MM/DD
 }
 
 interface SubscriberFormProps {
@@ -79,7 +85,65 @@ const emptyForm: SubscriberFormValues = {
   timeSlot: null,
   phone: "",
   fileNumber: "",
+  startDate: "",
 };
+
+// ═══ Manual date helpers (YYYY/MM/DD) ═══
+// Format today as YYYY/MM/DD
+function todayYMD(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}/${m}/${day}`;
+}
+
+// Validate a YYYY/MM/DD string. Returns Date | null.
+// Accepts YYYY/MM/DD or YYYY-MM-DD (we normalize to /).
+function parseManualDate(value: string): Date | null {
+  if (!value) return null;
+  // Normalize separators to /
+  const normalized = value.trim().replace(/[-.]/g, "/");
+  const m = normalized.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+  if (!m) return null;
+  const y = parseInt(m[1], 10);
+  const mo = parseInt(m[2], 10);
+  const d = parseInt(m[3], 10);
+  if (mo < 1 || mo > 12) return null;
+  if (d < 1 || d > 31) return null;
+  if (y < 1900 || y > 2100) return null;
+  const dt = new Date(y, mo - 1, d);
+  // Verify round-trip (reject e.g. 2024/02/30)
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+  return dt;
+}
+
+// Format a Date as YYYY/MM/DD
+function dateToYMD(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}/${m}/${day}`;
+}
+
+// Convert ISO date (from DB) to YYYY/MM/DD for the form
+function isoToYMD(iso: string | Date | undefined | null): string {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    return dateToYMD(d);
+  } catch {
+    return "";
+  }
+}
+
+// Convert YYYY/MM/DD (form value) to ISO string for API (YYYY-MM-DD)
+function ymdToIso(ymd: string): string | null {
+  const d = parseManualDate(ymd);
+  if (!d) return null;
+  return d.toISOString().split("T")[0];
+}
 
 export function SubscriberForm({ open, onOpenChange, initial, onSaved }: SubscriberFormProps) {
   const [form, setForm] = useState<SubscriberFormValues>(emptyForm);
@@ -95,68 +159,55 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
     original: string; cropped: string; thumbnail: string; faceDetected: boolean;
   } | null>(null);
 
-  // ★ جلب رقم الملف التالي فور اختيار نوع الاشتراك
+  // ★ Success view (after save): shows the file number prominently
+  const [savedResult, setSavedResult] = useState<{
+    fileNumber: string;
+    fullName: string;
+    subscriberId: string;
+    subscriptionType: string;
+  } | null>(null);
+
+  // ★ جلب رقم الملف التالي فور اختيار نوع الاشتراك — استخدام endpoint خفيف
   useEffect(() => {
     if (form.subscriptionType && !isEdit) {
       setLoadingFileNumber(true);
-      fetch(`/api/subscribers?limit=1&sortBy=fileNumber&sortOrder=desc`)
-        .then(r => r.json())
+      // 🔑 Endpoint خفيف: يعيد فقط الرقم التالي — لا يجلب 10000 منخرط
+      fetch(`/api/subscribers/next-file-number?subscriptionType=${encodeURIComponent(form.subscriptionType)}`)
+        .then(r => r.ok ? r.json() : null)
         .then(data => {
-          // استخراج أكبر رقم من القائمة الحالية
-          const subs = data.subscribers || [];
-          let maxNum = 0;
-          const typeConfig = subTypes.find(t => t.code === form.subscriptionType);
-          const group = typeConfig?.numberingGroup || "RCS";
-          for (const s of subs) {
-            const match = s.fileNumber?.match(new RegExp(`^${group}(\\d+)$`));
-            if (match) {
-              const num = parseInt(match[1]);
-              if (num > maxNum) maxNum = num;
-            }
+          if (data?.fileNumber) {
+            setPreviewFileNumber(data.fileNumber);
+            setForm(f => ({ ...f, fileNumber: data.fileNumber }));
           }
-          // جلب كل المنخرطين لإيجاد الرقم الأكبر
-          return fetch(`/api/subscribers?limit=10000`);
         })
-        .then(r => r.json())
-        .then(data => {
-          const subs = data.subscribers || [];
-          const typeConfig = subTypes.find(t => t.code === form.subscriptionType);
-          const group = typeConfig?.numberingGroup || "RCS";
-          let maxNum = 0;
-          for (const s of subs) {
-            const match = s.fileNumber?.match(new RegExp(`^${group}(\\d+)$`));
-            if (match) {
-              const num = parseInt(match[1]);
-              if (num > maxNum) maxNum = num;
-            }
-          }
-          const next = `${group}${String(maxNum + 1).padStart(3, "0")}`;
-          setPreviewFileNumber(next);
-          setForm(f => ({ ...f, fileNumber: next }));
-        })
-        .catch(() => {})
+        .catch(() => {/* silent */})
         .finally(() => setLoadingFileNumber(false));
     } else {
       setPreviewFileNumber("");
     }
-  }, [form.subscriptionType, isEdit, subTypes]);
+     
+  }, [form.subscriptionType, isEdit]);
 
   useEffect(() => {
     if (open) {
-      setPendingPhoto(null); // امسح الصورة المؤقتة عند فتح النموذج
+      setSavedResult(null); // reset success view on open
+      setPendingPhoto(null);
       setForm({
         ...emptyForm,
         ...initial,
-        birthDate: initial?.birthDate
-          ? new Date(initial.birthDate).toISOString().split("T")[0]
-          : "",
-        lastPaymentDate: initial?.lastPaymentDate
-          ? new Date(initial.lastPaymentDate).toISOString().split("T")[0]
-          : "",
+        // Convert DB ISO dates to manual YYYY/MM/DD
+        birthDate: initial?.birthDate ? isoToYMD(initial.birthDate) : "",
+        lastPaymentDate: initial?.lastPaymentDate ? isoToYMD(initial.lastPaymentDate) : "",
+        startDate: initial?.startDate ? isoToYMD(initial.startDate) : "",
       } as SubscriberFormValues);
     } else {
+      // When dialog closes, clear everything
       setForm(emptyForm);
+      setSavedResult(null);
+      setPreviewFileNumber("");
+      setPendingPhoto(null);
     }
+     
   }, [open, initial]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -166,8 +217,14 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
       toast.error("يرجى إدخال اللقب والاسم");
       return;
     }
+    // ★ تحقق من صحة تاريخ الميلاد المكتوب يدوياً
     if (!form.birthDate) {
       toast.error("يرجى إدخال تاريخ الميلاد");
+      return;
+    }
+    const birthDate = parseManualDate(form.birthDate);
+    if (!birthDate) {
+      toast.error("تاريخ الميلاد غير صالح — استخدم الصيغة YYYY/MM/DD (مثال: 2010/05/15)");
       return;
     }
     if (!form.gender) {
@@ -183,15 +240,44 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
       return;
     }
 
+    // ★ إذا قُدم تاريخ بداية خاص، تحقق من صحته
+    let startDateIso: string | null = null;
+    if (form.startDate && form.startDate.trim()) {
+      const sd = parseManualDate(form.startDate);
+      if (!sd) {
+        toast.error("تاريخ البداية الخاص غير صالح — استخدم YYYY/MM/DD");
+        return;
+      }
+      startDateIso = ymdToIso(form.startDate);
+    }
+
+    // ★ تحقق من تاريخ آخر دفعة إن وُجد
+    let lastPaymentIso: string | null = null;
+    if (form.lastPaymentDate && form.lastPaymentDate.trim()) {
+      const lp = parseManualDate(form.lastPaymentDate);
+      if (!lp) {
+        toast.error("تاريخ آخر دفعة غير صالح — استخدم YYYY/MM/DD");
+        return;
+      }
+      lastPaymentIso = ymdToIso(form.lastPaymentDate);
+    }
+
     setSaving(true);
     try {
       const url = isEdit ? `/api/subscribers/${initial!.id}` : "/api/subscribers";
       const method = isEdit ? "PUT" : "POST";
       const { offlineFetch } = await import("@/hooks/use-offline-mutation");
+      // ★ Build body with normalized ISO dates
+      const body: Record<string, unknown> = {
+        ...form,
+        birthDate: ymdToIso(form.birthDate),
+        lastPaymentDate: lastPaymentIso,
+        startDate: startDateIso,
+      };
       const res = await offlineFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -202,8 +288,6 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
         toast.success("✓ تم الحفظ محلياً — سيُزامن عند عودة الاتصال", {
           description: "المنخرط محفوظ على هذا الجهاز",
         });
-      } else {
-        toast.success(isEdit ? "تم تحديث بيانات المنخرط" : "تم تسجيل منخرط جديد بنجاح");
       }
 
       // 🔑 ارفع الصورة المؤقتة بعد حفظ المنخرط الجديد
@@ -220,7 +304,20 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
         }
       }
 
-      onOpenChange(false);
+      // ★ اعرض صفحة النجاح مع رقم الملف (بدلاً من إغلاق النافذة مباشرة)
+      if (data.subscriber) {
+        const s = data.subscriber;
+        setSavedResult({
+          fileNumber: s.fileNumber || form.fileNumber || previewFileNumber || "—",
+          fullName: `${s.lastName || form.lastName} ${s.firstName || form.firstName}`.trim(),
+          subscriberId: s.id,
+          subscriptionType: s.subscriptionType || form.subscriptionType || "",
+        });
+        // لا نُغلق النافذة — نُظهر صفحة النجاح
+      } else {
+        // fallback: إغلاق عادي
+        onOpenChange(false);
+      }
       onSaved();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "خطأ غير متوقع");
@@ -231,7 +328,7 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
 
   // Live preview of computed fees
   const today = new Date();
-  const birthDate = form.birthDate ? new Date(form.birthDate) : null;
+  const birthDate = form.birthDate ? parseManualDate(form.birthDate) : null;
   const age = birthDate
     ? today.getFullYear() -
       birthDate.getFullYear() -
@@ -274,6 +371,98 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
     }
   }
   const total = subscriptionFee !== null && insuranceFee !== null ? subscriptionFee + insuranceFee : null;
+
+  // ─── Success view (file number confirmation) ───
+  if (savedResult) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-md p-0 gap-0 overflow-hidden">
+          <div className="px-6 pt-8 pb-6 text-center bg-gradient-to-b from-emerald-500/15 via-emerald-500/5 to-transparent border-b border-emerald-500/20">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 mb-3">
+              <CheckCircle2 className="h-9 w-9" />
+            </div>
+            <h2 className="text-lg font-bold">تم تسجيل المنخرط بنجاح</h2>
+            <p className="text-sm text-muted-foreground mt-0.5">{savedResult.fullName}</p>
+          </div>
+
+          <div className="px-6 py-6 space-y-4">
+            {/* ★ رقم الملف — بارز */}
+            <div className="rounded-2xl border-2 border-primary/40 bg-primary/5 p-5 text-center">
+              <div className="flex items-center justify-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
+                <Hash className="h-3.5 w-3.5" /> رقم ملف المنخرط
+              </div>
+              <div className="text-4xl font-extrabold font-mono text-primary tracking-wider" dir="ltr">
+                {savedResult.fileNumber}
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-2">
+                احتفظ بهذا الرقم لاستخدامه في التجديد والبطاقة والبحث
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded-lg bg-muted/50 p-2.5">
+                <p className="text-muted-foreground mb-0.5">نوع الاشتراك</p>
+                <p className="font-semibold">{savedResult.subscriptionType || "—"}</p>
+              </div>
+              <div className="rounded-lg bg-muted/50 p-2.5">
+                <p className="text-muted-foreground mb-0.5">المعرّف</p>
+                <p className="font-mono text-[10px]" dir="ltr">{savedResult.subscriberId.slice(0, 12)}…</p>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-amber-300/40 bg-amber-50 dark:bg-amber-950/20 p-3 flex items-start gap-2">
+              <Sparkles className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-700 dark:text-amber-300">
+                يمكنك الآن طباعة بطاقة المنخرط، إضافة صورة شخصية، أو تسجيل منخرط جديد.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="px-6 py-4 border-t bg-muted/30 gap-2 flex flex-row-reverse">
+            <Button
+              type="button"
+              onClick={() => {
+                setSavedResult(null);
+                setForm({ ...emptyForm, birthDate: "", lastPaymentDate: todayYMD(), startDate: "" });
+                setPreviewFileNumber("");
+                setPendingPhoto(null);
+                // إبقاء النافذة مفتوحة لتسجيل منخرط جديد
+              }}
+              className="flex-1 h-11"
+            >
+              <UserPlus className="h-4 w-4 ml-1" /> تسجيل منخرط آخر
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                // فتح صفحة البطاقة / الطباعة في تبويب جديد إن أمكن
+                if (savedResult.subscriberId) {
+                  window.dispatchEvent(new CustomEvent("print-subscriber-card", { detail: { id: savedResult.subscriberId } }));
+                }
+                onOpenChange(false);
+              }}
+              className="flex-1 h-11"
+            >
+              <Printer className="h-4 w-4 ml-1" /> طباعة البطاقة
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => onOpenChange(false)}
+              className="h-11"
+            >
+              تم
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  // ★ تعيين القيمة الافتراضية لتاريخ آخر دفعة عند إنشاء (today)
+  // لكن فقط إذا لم يُحدد قيمة مسبقاً
+  const effectiveLastPayment = form.lastPaymentDate || (isEdit ? "" : todayYMD());
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -327,41 +516,87 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-sm font-semibold flex items-center gap-1.5">
+                <Label htmlFor="birthDate" className="text-sm font-semibold flex items-center gap-1.5">
                   <Calendar className="h-3.5 w-3.5" /> تاريخ الميلاد *
+                  <span className="text-[10px] font-normal text-muted-foreground">(YYYY/MM/DD)</span>
                 </Label>
                 <Input
-                  type="date"
+                  id="birthDate"
+                  type="text"
+                  inputMode="numeric"
                   value={form.birthDate}
                   onChange={(e) => setForm({ ...form, birthDate: e.target.value })}
-                  className="h-11"
+                  placeholder="2010/05/15"
+                  className="h-11 font-mono"
+                  dir="ltr"
+                  pattern="\d{4}[/-]\d{1,2}[/-]\d{1,2}"
+                  maxLength={10}
                   required
                 />
+                {form.birthDate && !parseManualDate(form.birthDate) && (
+                  <p className="text-xs text-rose-600">⚠ الصيغة غير صحيحة — استخدم YYYY/MM/DD</p>
+                )}
                 {age !== null && (
                   <p className="text-xs text-muted-foreground">العمر الحالي: <span className="font-bold text-foreground">{age} سنة</span></p>
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label className="text-sm font-semibold flex items-center gap-1.5">
+                <Label htmlFor="lastPaymentDate" className="text-sm font-semibold flex items-center gap-1.5">
                   <Calendar className="h-3.5 w-3.5" /> تاريخ آخر دفعة
+                  <span className="text-[10px] font-normal text-muted-foreground">(YYYY/MM/DD)</span>
                 </Label>
                 <Input
-                  type="date"
-                  value={form.lastPaymentDate}
+                  id="lastPaymentDate"
+                  type="text"
+                  inputMode="numeric"
+                  value={effectiveLastPayment}
                   onChange={(e) => setForm({ ...form, lastPaymentDate: e.target.value })}
-                  className="h-11"
+                  placeholder={todayYMD()}
+                  className="h-11 font-mono"
+                  dir="ltr"
+                  pattern="\d{4}[/-]\d{1,2}[/-]\d{1,2}"
+                  maxLength={10}
                 />
+                {form.lastPaymentDate && !parseManualDate(form.lastPaymentDate) && (
+                  <p className="text-xs text-rose-600">⚠ الصيغة غير صحيحة — استخدم YYYY/MM/DD</p>
+                )}
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-sm font-semibold">رقم الهاتف (لإشعارات WhatsApp)</Label>
+              <Label htmlFor="phone" className="text-sm font-semibold">رقم الهاتف (لإشعارات WhatsApp)</Label>
               <Input
+                id="phone"
                 value={form.phone}
                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
                 placeholder="0550000000"
                 className="h-11"
                 dir="ltr"
               />
+            </div>
+            {/* ★ تاريخ بداية خاص — اختياري، إن أراد المنخرط تاريخاً مختلفاً عن اليوم */}
+            <div className="space-y-1.5">
+              <Label htmlFor="startDate" className="text-sm font-semibold flex items-center gap-1.5">
+                <UserRound className="h-3.5 w-3.5" /> تاريخ بداية خاص (اختياري)
+                <span className="text-[10px] font-normal text-muted-foreground">(YYYY/MM/DD)</span>
+              </Label>
+              <Input
+                id="startDate"
+                type="text"
+                inputMode="numeric"
+                value={form.startDate || ""}
+                onChange={(e) => setForm({ ...form, startDate: e.target.value })}
+                placeholder={todayYMD()}
+                className="h-11 font-mono"
+                dir="ltr"
+                pattern="\d{4}[/-]\d{1,2}[/-]\d{1,2}"
+                maxLength={10}
+              />
+              {form.startDate && !parseManualDate(form.startDate) && (
+                <p className="text-xs text-rose-600">⚠ الصيغة غير صحيحة — استخدم YYYY/MM/DD</p>
+              )}
+              <p className="text-[10px] text-muted-foreground">
+                إن تركته فارغاً يُستخدم تاريخ اليوم كتاريخ بداية للاشتراك.
+              </p>
             </div>
           </section>
 

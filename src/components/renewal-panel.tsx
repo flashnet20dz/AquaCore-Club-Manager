@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   RefreshCw,
@@ -345,6 +345,34 @@ function RenewalModal({ open, onOpenChange, subscriber, onSaved }: {
   const [paymentStatus, setPaymentStatus] = useState("مدفوع");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+  // ★ تاريخ التجديد اليدوي (YYYY/MM/DD) — افتراضياً تاريخ اليوم
+  const [renewalDate, setRenewalDate] = useState("");
+
+  // Helper: format today as YYYY/MM/DD
+  const todayYMD = () => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}/${m}/${day}`;
+  };
+
+  // Helper: validate YYYY/MM/DD
+  const parseManualDate = (value: string): Date | null => {
+    if (!value) return null;
+    const normalized = value.trim().replace(/[-.]/g, "/");
+    const m = normalized.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+    if (!m) return null;
+    const y = parseInt(m[1], 10);
+    const mo = parseInt(m[2], 10);
+    const d = parseInt(m[3], 10);
+    if (mo < 1 || mo > 12) return null;
+    if (d < 1 || d > 31) return null;
+    if (y < 1900 || y > 2100) return null;
+    const dt = new Date(y, mo - 1, d);
+    if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+    return dt;
+  };
 
   useEffect(() => {
     if (open && subscriber) {
@@ -354,11 +382,36 @@ function RenewalModal({ open, onOpenChange, subscriber, onSaved }: {
       setAmount(String(defaultAmount || ""));
       setPaymentStatus("مدفوع");
       setNote("");
+      // ★ تاريخ التجديد الافتراضي = اليوم
+      setRenewalDate(todayYMD());
     }
+     
   }, [open, subscriber]);
+
+  // ★ احسب تاريخ الانتهاء المتوقع (renewalDate + months × 30)
+  const computedExpiry = useMemo(() => {
+    const d = parseManualDate(renewalDate);
+    if (!d) return "";
+    const exp = new Date(d);
+    exp.setDate(exp.getDate() + (parseInt(months) || 1) * 30);
+    const y = exp.getFullYear();
+    const m = String(exp.getMonth() + 1).padStart(2, "0");
+    const day = String(exp.getDate()).padStart(2, "0");
+    return `${y}/${m}/${day}`;
+  }, [renewalDate, months]);
 
   const handleSubmit = async () => {
     if (!subscriber || !amount) return;
+    // ★ تحقق من تاريخ التجديد
+    if (!renewalDate.trim()) {
+      toast.error("يرجى إدخال تاريخ التجديد");
+      return;
+    }
+    const parsedDate = parseManualDate(renewalDate);
+    if (!parsedDate) {
+      toast.error("تاريخ التجديد غير صالح — استخدم الصيغة YYYY/MM/DD");
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch("/api/renewals", {
@@ -370,14 +423,18 @@ function RenewalModal({ open, onOpenChange, subscriber, onSaved }: {
           amount: parseInt(amount),
           paymentStatus,
           note: note || null,
+          renewalDate, // ★ تاريخ التجديد اليدوي (تاريخ بداية خاص)
         }),
       });
-      if (!res.ok) throw new Error("فشل");
-      toast.success(`تم تجديد اشتراك ${subscriber.lastName} ${subscriber.firstName} لمدة ${months} شهر`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "فشل");
+      }
+      toast.success(`تم تجديد اشتراك ${subscriber.lastName} ${subscriber.firstName} لمدة ${months} شهر بتاريخ ${renewalDate}`);
       onOpenChange(false);
       onSaved();
-    } catch {
-      toast.error("فشل التجديد");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "فشل التجديد");
     } finally {
       setSaving(false);
     }
@@ -403,6 +460,36 @@ function RenewalModal({ open, onOpenChange, subscriber, onSaved }: {
                 الانتهاء الحالي: <span className="font-semibold">{new Date(subscriber.expiryDate).toISOString().split("T")[0].replace(/-/g,"/")}</span>
               </p>
             )}
+          </div>
+
+          {/* ★ تاريخ التجديد — كتابة يدوية YYYY/MM/DD (تاريخ بداية خاص) */}
+          <div className="space-y-1.5">
+            <Label className="text-sm flex items-center gap-1">
+              <Calendar className="h-3.5 w-3.5" /> تاريخ التجديد *
+              <span className="text-[10px] font-normal text-muted-foreground">(YYYY/MM/DD)</span>
+            </Label>
+            <Input
+              type="text"
+              inputMode="numeric"
+              value={renewalDate}
+              onChange={(e) => setRenewalDate(e.target.value)}
+              placeholder="2025/01/15"
+              className="h-10 font-mono"
+              dir="ltr"
+              pattern="\d{4}[/-]\d{1,2}[/-]\d{1,2}"
+              maxLength={10}
+            />
+            {renewalDate && !parseManualDate(renewalDate) && (
+              <p className="text-xs text-rose-600">⚠ الصيغة غير صحيحة — استخدم YYYY/MM/DD</p>
+            )}
+            {computedExpiry && (
+              <p className="text-xs text-muted-foreground">
+                تاريخ الانتهاء المتوقع: <span className="font-semibold text-foreground">{computedExpiry}</span>
+              </p>
+            )}
+            <p className="text-[10px] text-muted-foreground">
+              افتراضياً يُستخدم تاريخ اليوم. يمكنك تحديد تاريخ بداية خاص للمنخرط.
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -436,6 +523,7 @@ function RenewalModal({ open, onOpenChange, subscriber, onSaved }: {
                 <SelectItem value="لم يدفع">لم يدفع</SelectItem>
                 <SelectItem value="تأمين فقط">تأمين فقط</SelectItem>
                 <SelectItem value="اشتراك 300">اشتراك 300</SelectItem>
+                <SelectItem value="معفى">🎁 معفى</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -447,7 +535,7 @@ function RenewalModal({ open, onOpenChange, subscriber, onSaved }: {
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>إلغاء</Button>
-          <Button onClick={handleSubmit} disabled={saving || !amount}>
+          <Button onClick={handleSubmit} disabled={saving || (!amount && paymentStatus !== "معفى")}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4 ml-1" />}
             تجديد الاشتراك
           </Button>
