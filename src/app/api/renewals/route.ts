@@ -30,16 +30,17 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// ═══ Helper: parse a manual date string (YYYY/MM/DD or YYYY-MM-DD) ═══
-// Returns Date | null.
+// ═══ Helper: parse a manual date string (DD/MM/YYYY — day/month/year) ═══
+// Returns Date | null. Accepts DD/MM/YYYY or DD-MM-YYYY (we normalize to /).
 function parseManualDate(value: string): Date | null {
   if (!value) return null;
   const normalized = value.trim().replace(/[-.]/g, "/");
-  const m = normalized.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+  // Match DD/MM/YYYY (day first, then month, then 4-digit year)
+  const m = normalized.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (!m) return null;
-  const y = parseInt(m[1], 10);
+  const d = parseInt(m[1], 10);
   const mo = parseInt(m[2], 10);
-  const d = parseInt(m[3], 10);
+  const y = parseInt(m[3], 10);
   if (mo < 1 || mo > 12) return null;
   if (d < 1 || d > 31) return null;
   if (y < 1900 || y > 2100) return null;
@@ -79,7 +80,7 @@ export async function POST(req: NextRequest) {
       const parsed = parseManualDate(renewalDateInput);
       if (!parsed) {
         return NextResponse.json({
-          error: "تاريخ التجديد غير صالح — استخدم الصيغة YYYY/MM/DD",
+          error: "تاريخ التجديد غير صالح — استخدم الصيغة DD/MM/YYYY (يوم/شهر/سنة)",
         }, { status: 400 });
       }
       renewalDate = parsed;

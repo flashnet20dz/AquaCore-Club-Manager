@@ -36,6 +36,21 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { SubscriberWithComputed } from "@/lib/rcs";
 
+// ═══ Format any ISO/date value as DD/MM/YYYY (day/month/year — Arabic/French format) ═══
+function formatDMY(iso: string | Date | undefined | null): string {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "—";
+    const day = String(d.getDate()).padStart(2, "0");
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const y = d.getFullYear();
+    return `${day}/${m}/${y}`;
+  } catch {
+    return "—";
+  }
+}
+
 interface Renewal {
   id: string;
   renewalDate: string;
@@ -116,7 +131,7 @@ export function RenewalPanel({ subscribers, onRefresh }: RenewalPanelProps) {
     }
     const msg = `مرحباً ${sub.lastName} ${sub.firstName}،%0A%0Aاشتراكك في نادي RCS ${
       sub.renewalStatus === "⛔ منتهي - يتطلب تجديد" ? "منتهي" : "قريب الانتهاء"
-    }.%0A${sub.expiryDate ? `تاريخ الانتهاء: ${new Date(sub.expiryDate).toISOString().split("T")[0].replace(/-/g,"/")}` : ""}%0A%0Aيرجى التجديد في أقرب وقت لتجنب تجميد الاشتراك.%0A%0Aشكراً.%0Aنادي RCS للسباحة`;
+    }.%0A${sub.expiryDate ? `تاريخ الانتهاء: ${formatDMY(sub.expiryDate)}` : ""}%0A%0Aيرجى التجديد في أقرب وقت لتجنب تجميد الاشتراك.%0A%0Aشكراً.%0Aنادي RCS للسباحة`;
     window.open(`https://wa.me/213${sub.phone.replace(/^0/, "")}?text=${msg}`, "_blank");
   };
 
@@ -229,7 +244,7 @@ export function RenewalPanel({ subscribers, onRefresh }: RenewalPanelProps) {
                     {s.expiryDate && (
                       <>
                         <span>•</span>
-                        <span>انتهاء: {new Date(s.expiryDate).toISOString().split("T")[0].replace(/-/g,"/")}</span>
+                        <span>انتهاء: {formatDMY(s.expiryDate)}</span>
                       </>
                     )}
                   </div>
@@ -279,7 +294,7 @@ export function RenewalPanel({ subscribers, onRefresh }: RenewalPanelProps) {
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold truncate">{r.subscriber.lastName} {r.subscriber.firstName}</p>
                   <p className="text-xs text-muted-foreground">
-                    {new Date(r.renewalDate).toISOString().split("T")[0].replace(/-/g,"/")} → {new Date(r.expiryDate).toISOString().split("T")[0].replace(/-/g,"/")} ({r.months} شهر)
+                    {formatDMY(r.renewalDate)} → {formatDMY(r.expiryDate)} ({r.months} شهر)
                   </p>
                 </div>
                 <Badge variant="outline" className="bg-emerald-500/15 text-emerald-700 border-emerald-500/30">
@@ -345,27 +360,28 @@ function RenewalModal({ open, onOpenChange, subscriber, onSaved }: {
   const [paymentStatus, setPaymentStatus] = useState("مدفوع");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
-  // ★ تاريخ التجديد اليدوي (YYYY/MM/DD) — افتراضياً تاريخ اليوم
+  // ★ تاريخ التجديد اليدوي (DD/MM/YYYY — يوم/شهر/سنة) — افتراضياً تاريخ اليوم
   const [renewalDate, setRenewalDate] = useState("");
 
-  // Helper: format today as YYYY/MM/DD
+  // Helper: format today as DD/MM/YYYY (day/month/year)
   const todayYMD = () => {
     const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
     const day = String(d.getDate()).padStart(2, "0");
-    return `${y}/${m}/${day}`;
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const y = d.getFullYear();
+    return `${day}/${m}/${y}`;
   };
 
-  // Helper: validate YYYY/MM/DD
+  // Helper: validate DD/MM/YYYY (day/month/year)
   const parseManualDate = (value: string): Date | null => {
     if (!value) return null;
     const normalized = value.trim().replace(/[-.]/g, "/");
-    const m = normalized.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+    // Match DD/MM/YYYY (day first, then month, then 4-digit year)
+    const m = normalized.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
     if (!m) return null;
-    const y = parseInt(m[1], 10);
+    const d = parseInt(m[1], 10);
     const mo = parseInt(m[2], 10);
-    const d = parseInt(m[3], 10);
+    const y = parseInt(m[3], 10);
     if (mo < 1 || mo > 12) return null;
     if (d < 1 || d > 31) return null;
     if (y < 1900 || y > 2100) return null;
@@ -388,16 +404,16 @@ function RenewalModal({ open, onOpenChange, subscriber, onSaved }: {
      
   }, [open, subscriber]);
 
-  // ★ احسب تاريخ الانتهاء المتوقع (renewalDate + months × 30)
+  // ★ احسب تاريخ الانتهاء المتوقع (renewalDate + months × 30) — بصيغة DD/MM/YYYY
   const computedExpiry = useMemo(() => {
     const d = parseManualDate(renewalDate);
     if (!d) return "";
     const exp = new Date(d);
     exp.setDate(exp.getDate() + (parseInt(months) || 1) * 30);
-    const y = exp.getFullYear();
-    const m = String(exp.getMonth() + 1).padStart(2, "0");
     const day = String(exp.getDate()).padStart(2, "0");
-    return `${y}/${m}/${day}`;
+    const m = String(exp.getMonth() + 1).padStart(2, "0");
+    const y = exp.getFullYear();
+    return `${day}/${m}/${y}`;
   }, [renewalDate, months]);
 
   const handleSubmit = async () => {
@@ -409,7 +425,7 @@ function RenewalModal({ open, onOpenChange, subscriber, onSaved }: {
     }
     const parsedDate = parseManualDate(renewalDate);
     if (!parsedDate) {
-      toast.error("تاريخ التجديد غير صالح — استخدم الصيغة YYYY/MM/DD");
+      toast.error("تاريخ التجديد غير صالح — استخدم الصيغة DD/MM/YYYY");
       return;
     }
     setSaving(true);
@@ -457,30 +473,30 @@ function RenewalModal({ open, onOpenChange, subscriber, onSaved }: {
             <p className="text-xs text-muted-foreground font-mono">{subscriber.fileNumber}</p>
             {subscriber.expiryDate && (
               <p className="text-xs mt-1">
-                الانتهاء الحالي: <span className="font-semibold">{new Date(subscriber.expiryDate).toISOString().split("T")[0].replace(/-/g,"/")}</span>
+                الانتهاء الحالي: <span className="font-semibold">{formatDMY(subscriber.expiryDate)}</span>
               </p>
             )}
           </div>
 
-          {/* ★ تاريخ التجديد — كتابة يدوية YYYY/MM/DD (تاريخ بداية خاص) */}
+          {/* ★ تاريخ التجديد — كتابة يدوية DD/MM/YYYY (تاريخ بداية خاص) */}
           <div className="space-y-1.5">
             <Label className="text-sm flex items-center gap-1">
               <Calendar className="h-3.5 w-3.5" /> تاريخ التجديد *
-              <span className="text-[10px] font-normal text-muted-foreground">(YYYY/MM/DD)</span>
+              <span className="text-[10px] font-normal text-muted-foreground">(DD/MM/YYYY)</span>
             </Label>
             <Input
               type="text"
               inputMode="numeric"
               value={renewalDate}
               onChange={(e) => setRenewalDate(e.target.value)}
-              placeholder="2025/01/15"
+              placeholder="15/01/2025"
               className="h-10 font-mono"
               dir="ltr"
-              pattern="\d{4}[/-]\d{1,2}[/-]\d{1,2}"
+              pattern="\d{1,2}[/-]\d{1,2}[/-]\d{4}"
               maxLength={10}
             />
             {renewalDate && !parseManualDate(renewalDate) && (
-              <p className="text-xs text-rose-600">⚠ الصيغة غير صحيحة — استخدم YYYY/MM/DD</p>
+              <p className="text-xs text-rose-600">⚠ الصيغة غير صحيحة — استخدم DD/MM/YYYY</p>
             )}
             {computedExpiry && (
               <p className="text-xs text-muted-foreground">

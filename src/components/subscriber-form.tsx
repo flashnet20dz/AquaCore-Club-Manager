@@ -51,18 +51,18 @@ import {
 export interface SubscriberFormValues {
   lastName: string;
   firstName: string;
-  birthDate: string;          // YYYY/MM/DD (manual text)
+  birthDate: string;          // DD/MM/YYYY (manual text)
   gender: Gender | null;
   bloodType: BloodType | null;
   subscriptionType: SubscriptionType | null;
-  lastPaymentDate: string;    // YYYY/MM/DD (manual text)
+  lastPaymentDate: string;    // DD/MM/YYYY (manual text)
   paymentStatus: PaymentStatus | null;
   swimmingDays: SwimmingDays | null;
   timeSlot: TimeSlot | null;
   phone: string;
   photoUrl?: string;
   fileNumber?: string; // ★ رقم الملف (قابل للتعديل)
-  startDate?: string;   // ★ تاريخ بداية خاص (اختياري) — YYYY/MM/DD
+  startDate?: string;   // ★ تاريخ بداية خاص (اختياري) — DD/MM/YYYY
 }
 
 interface SubscriberFormProps {
@@ -88,45 +88,46 @@ const emptyForm: SubscriberFormValues = {
   startDate: "",
 };
 
-// ═══ Manual date helpers (YYYY/MM/DD) ═══
-// Format today as YYYY/MM/DD
+// ═══ Manual date helpers (DD/MM/YYYY — day/month/year, Arabic/French format) ═══
+// Format today as DD/MM/YYYY
 function todayYMD(): string {
   const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
-  return `${y}/${m}/${day}`;
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const y = d.getFullYear();
+  return `${day}/${m}/${y}`;
 }
 
-// Validate a YYYY/MM/DD string. Returns Date | null.
-// Accepts YYYY/MM/DD or YYYY-MM-DD (we normalize to /).
+// Validate a DD/MM/YYYY string. Returns Date | null.
+// Accepts DD/MM/YYYY or DD-MM-YYYY (we normalize to /).
 function parseManualDate(value: string): Date | null {
   if (!value) return null;
   // Normalize separators to /
   const normalized = value.trim().replace(/[-.]/g, "/");
-  const m = normalized.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+  // Match DD/MM/YYYY (day first, then month, then 4-digit year)
+  const m = normalized.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (!m) return null;
-  const y = parseInt(m[1], 10);
+  const d = parseInt(m[1], 10);
   const mo = parseInt(m[2], 10);
-  const d = parseInt(m[3], 10);
+  const y = parseInt(m[3], 10);
   if (mo < 1 || mo > 12) return null;
   if (d < 1 || d > 31) return null;
   if (y < 1900 || y > 2100) return null;
   const dt = new Date(y, mo - 1, d);
-  // Verify round-trip (reject e.g. 2024/02/30)
+  // Verify round-trip (reject e.g. 31/02/2024)
   if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
   return dt;
 }
 
-// Format a Date as YYYY/MM/DD
+// Format a Date as DD/MM/YYYY
 function dateToYMD(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
-  return `${y}/${m}/${day}`;
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const y = d.getFullYear();
+  return `${day}/${m}/${y}`;
 }
 
-// Convert ISO date (from DB) to YYYY/MM/DD for the form
+// Convert ISO date (from DB) to DD/MM/YYYY for the form
 function isoToYMD(iso: string | Date | undefined | null): string {
   if (!iso) return "";
   try {
@@ -138,7 +139,7 @@ function isoToYMD(iso: string | Date | undefined | null): string {
   }
 }
 
-// Convert YYYY/MM/DD (form value) to ISO string for API (YYYY-MM-DD)
+// Convert DD/MM/YYYY (form value) to ISO string for API (YYYY-MM-DD)
 function ymdToIso(ymd: string): string | null {
   const d = parseManualDate(ymd);
   if (!d) return null;
@@ -195,7 +196,7 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
       setForm({
         ...emptyForm,
         ...initial,
-        // Convert DB ISO dates to manual YYYY/MM/DD
+        // Convert DB ISO dates to manual DD/MM/YYYY
         birthDate: initial?.birthDate ? isoToYMD(initial.birthDate) : "",
         lastPaymentDate: initial?.lastPaymentDate ? isoToYMD(initial.lastPaymentDate) : "",
         startDate: initial?.startDate ? isoToYMD(initial.startDate) : "",
@@ -224,7 +225,7 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
     }
     const birthDate = parseManualDate(form.birthDate);
     if (!birthDate) {
-      toast.error("تاريخ الميلاد غير صالح — استخدم الصيغة YYYY/MM/DD (مثال: 2010/05/15)");
+      toast.error("تاريخ الميلاد غير صالح — استخدم الصيغة DD/MM/YYYY (مثال: 15/05/2010)");
       return;
     }
     if (!form.gender) {
@@ -245,7 +246,7 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
     if (form.startDate && form.startDate.trim()) {
       const sd = parseManualDate(form.startDate);
       if (!sd) {
-        toast.error("تاريخ البداية الخاص غير صالح — استخدم YYYY/MM/DD");
+        toast.error("تاريخ البداية الخاص غير صالح — استخدم DD/MM/YYYY");
         return;
       }
       startDateIso = ymdToIso(form.startDate);
@@ -256,7 +257,7 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
     if (form.lastPaymentDate && form.lastPaymentDate.trim()) {
       const lp = parseManualDate(form.lastPaymentDate);
       if (!lp) {
-        toast.error("تاريخ آخر دفعة غير صالح — استخدم YYYY/MM/DD");
+        toast.error("تاريخ آخر دفعة غير صالح — استخدم DD/MM/YYYY");
         return;
       }
       lastPaymentIso = ymdToIso(form.lastPaymentDate);
@@ -518,7 +519,7 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
               <div className="space-y-1.5">
                 <Label htmlFor="birthDate" className="text-sm font-semibold flex items-center gap-1.5">
                   <Calendar className="h-3.5 w-3.5" /> تاريخ الميلاد *
-                  <span className="text-[10px] font-normal text-muted-foreground">(YYYY/MM/DD)</span>
+                  <span className="text-[10px] font-normal text-muted-foreground">(DD/MM/YYYY)</span>
                 </Label>
                 <Input
                   id="birthDate"
@@ -526,15 +527,15 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
                   inputMode="numeric"
                   value={form.birthDate}
                   onChange={(e) => setForm({ ...form, birthDate: e.target.value })}
-                  placeholder="2010/05/15"
+                  placeholder="15/05/2010"
                   className="h-11 font-mono"
                   dir="ltr"
-                  pattern="\d{4}[/-]\d{1,2}[/-]\d{1,2}"
+                  pattern="\d{1,2}[/-]\d{1,2}[/-]\d{4}"
                   maxLength={10}
                   required
                 />
                 {form.birthDate && !parseManualDate(form.birthDate) && (
-                  <p className="text-xs text-rose-600">⚠ الصيغة غير صحيحة — استخدم YYYY/MM/DD</p>
+                  <p className="text-xs text-rose-600">⚠ الصيغة غير صحيحة — استخدم DD/MM/YYYY</p>
                 )}
                 {age !== null && (
                   <p className="text-xs text-muted-foreground">العمر الحالي: <span className="font-bold text-foreground">{age} سنة</span></p>
@@ -543,7 +544,7 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
               <div className="space-y-1.5">
                 <Label htmlFor="lastPaymentDate" className="text-sm font-semibold flex items-center gap-1.5">
                   <Calendar className="h-3.5 w-3.5" /> تاريخ آخر دفعة
-                  <span className="text-[10px] font-normal text-muted-foreground">(YYYY/MM/DD)</span>
+                  <span className="text-[10px] font-normal text-muted-foreground">(DD/MM/YYYY)</span>
                 </Label>
                 <Input
                   id="lastPaymentDate"
@@ -554,11 +555,11 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
                   placeholder={todayYMD()}
                   className="h-11 font-mono"
                   dir="ltr"
-                  pattern="\d{4}[/-]\d{1,2}[/-]\d{1,2}"
+                  pattern="\d{1,2}[/-]\d{1,2}[/-]\d{4}"
                   maxLength={10}
                 />
                 {form.lastPaymentDate && !parseManualDate(form.lastPaymentDate) && (
-                  <p className="text-xs text-rose-600">⚠ الصيغة غير صحيحة — استخدم YYYY/MM/DD</p>
+                  <p className="text-xs text-rose-600">⚠ الصيغة غير صحيحة — استخدم DD/MM/YYYY</p>
                 )}
               </div>
             </div>
@@ -577,7 +578,7 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
             <div className="space-y-1.5">
               <Label htmlFor="startDate" className="text-sm font-semibold flex items-center gap-1.5">
                 <UserRound className="h-3.5 w-3.5" /> تاريخ بداية خاص (اختياري)
-                <span className="text-[10px] font-normal text-muted-foreground">(YYYY/MM/DD)</span>
+                <span className="text-[10px] font-normal text-muted-foreground">(DD/MM/YYYY)</span>
               </Label>
               <Input
                 id="startDate"
@@ -588,11 +589,11 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
                 placeholder={todayYMD()}
                 className="h-11 font-mono"
                 dir="ltr"
-                pattern="\d{4}[/-]\d{1,2}[/-]\d{1,2}"
+                pattern="\d{1,2}[/-]\d{1,2}[/-]\d{4}"
                 maxLength={10}
               />
               {form.startDate && !parseManualDate(form.startDate) && (
-                <p className="text-xs text-rose-600">⚠ الصيغة غير صحيحة — استخدم YYYY/MM/DD</p>
+                <p className="text-xs text-rose-600">⚠ الصيغة غير صحيحة — استخدم DD/MM/YYYY</p>
               )}
               <p className="text-[10px] text-muted-foreground">
                 إن تركته فارغاً يُستخدم تاريخ اليوم كتاريخ بداية للاشتراك.
