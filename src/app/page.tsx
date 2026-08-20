@@ -8,7 +8,7 @@ import {
   QrCode, Download, Settings as SettingsIcon, LogOut, Moon, Sun, ChevronLeft,
   UserCheck, RefreshCcw, FileText, Bell, Zap, Award, Pencil, Trash2,
   CreditCard, Inbox, UserCog, Database, Layers, Menu, CalendarOff, ListPlus, Building2,
-  ArrowDownAZ, Banknote, Briefcase,
+  ArrowDownAZ, Banknote, Briefcase, Copy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,9 @@ import { Badge } from "@/components/ui/badge";
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -139,6 +142,8 @@ export default function Home() {
   const [filterGender, setFilterGender] = useState("");
   const [filterRenewal, setFilterRenewal] = useState("");
   const [filterAgeCategory, setFilterAgeCategory] = useState("");
+  // ★ الفئة المحددة لعرض قائمة المنخرطين
+  const [selectedCat, setSelectedCat] = useState<{ key: string; title: string } | null>(null);
   // 🔑 ترتيب حسب رقم الملف
   const [sortBy, setSortBy] = useState("fileNumber");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
@@ -500,7 +505,7 @@ export default function Home() {
                  activeTab === "export" ? "التصدير" :
                  activeTab === "charges" ? "الأعباء" :
                  activeTab === "staff-compensations" ? "تعويضات العمال" :
-                 activeTab === "financial-dashboard" ? "لوحة المالية" :
+                 activeTab === "financial-dashboard" ? "لوحة المالية والتقارير" :
                  activeTab === "financial-payments" ? "الدفعات" :
                  activeTab === "financial-reports" ? "التقارير المالية" :
                  activeTab === "members-directory" ? "سجل المنخرطين" :
@@ -608,19 +613,10 @@ export default function Home() {
               {/* ★ Financial System (المحاسب المالي) — 3 tabs */}
               {hasPermission(sessionUser.role, "financialDashboard") && (
                 <TabsTrigger value="financial-dashboard" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <Briefcase className="h-4 w-4" /> لوحة المالية
+                  <Briefcase className="h-4 w-4" /> لوحة المالية والتقارير
                 </TabsTrigger>
               )}
-              {hasPermission(sessionUser.role, "financialPayments") && (
-                <TabsTrigger value="financial-payments" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <Wallet className="h-4 w-4" /> الدفعات
-                </TabsTrigger>
-              )}
-              {hasPermission(sessionUser.role, "financialReports") && (
-                <TabsTrigger value="financial-reports" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <FileText className="h-4 w-4" /> التقارير المالية
-                </TabsTrigger>
-              )}
+              {/* ★ تم دمج الدفعات ضمن تبويب الأعباء، والتقارير ضمن لوحة المالية */}
               {isAdmin && (
                 <TabsTrigger value="contracts" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
                   <FileText className="h-4 w-4" /> عقود العمال
@@ -1088,10 +1084,10 @@ export default function Home() {
             ) : (
               <>
                 <ResponsiveGrid minCardWidth={140} gap={12}>
-                  <CategoryCard title="ذكور أقل من 13 سنة" count={stats.ageGender.malesUnder13} icon="👦" gradient="from-sky-500/15 to-sky-500/5" border="border-sky-500/30" />
-                  <CategoryCard title="إناث أقل من 13 سنة" count={stats.ageGender.femalesUnder13} icon="👧" gradient="from-pink-500/15 to-pink-500/5" border="border-pink-500/30" />
-                  <CategoryCard title="ذكور 13 سنة فما فوق" count={stats.ageGender.malesOver13} icon="👨" gradient="from-indigo-500/15 to-indigo-500/5" border="border-indigo-500/30" />
-                  <CategoryCard title="إناث 13 سنة فما فوق" count={stats.ageGender.femalesOver13} icon="👩" gradient="from-fuchsia-500/15 to-fuchsia-500/5" border="border-fuchsia-500/30" />
+                  <CategoryCard title="ذكور أقل من 13 سنة" count={stats.ageGender.malesUnder13} icon="👦" gradient="from-sky-500/15 to-sky-500/5" border="border-sky-500/30" onClick={() => setSelectedCat({ key: "males_under_13", title: "ذكور أقل من 13 سنة" })} />
+                  <CategoryCard title="إناث أقل من 13 سنة" count={stats.ageGender.femalesUnder13} icon="👧" gradient="from-pink-500/15 to-pink-500/5" border="border-pink-500/30" onClick={() => setSelectedCat({ key: "females_under_13", title: "إناث أقل من 13 سنة" })} />
+                  <CategoryCard title="ذكور 13 سنة فما فوق" count={stats.ageGender.malesOver13} icon="👨" gradient="from-indigo-500/15 to-indigo-500/5" border="border-indigo-500/30" onClick={() => setSelectedCat({ key: "males_13_plus", title: "ذكور 13 سنة فما فوق" })} />
+                  <CategoryCard title="إناث 13 سنة فما فوق" count={stats.ageGender.femalesOver13} icon="👩" gradient="from-fuchsia-500/15 to-fuchsia-500/5" border="border-fuchsia-500/30" onClick={() => setSelectedCat({ key: "females_13_plus", title: "إناث 13 سنة فما فوق" })} />
                 </ResponsiveGrid>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl border border-border/60 bg-card p-5">
@@ -1128,6 +1124,40 @@ export default function Home() {
             )}
           </TabsContent>
 
+          {/* ★ Modal: قائمة المنخرطين في فئة محددة */}
+          {selectedCat && (
+            <Dialog open={!!selectedCat} onOpenChange={(o) => !o && setSelectedCat(null)}>
+              <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Crown className="h-5 w-5 text-primary" /> {selectedCat.title}
+                    <Badge variant="secondary">
+                      {subscribers.filter((s) => {
+                        const cat = getAgeCategory(s.gender, s.age);
+                        if (selectedCat.key === "males_under_13") return cat === "males_under_13";
+                        if (selectedCat.key === "females_under_13") return cat === "females_under_13";
+                        if (selectedCat.key === "males_13_plus") return cat === "males_13_plus";
+                        if (selectedCat.key === "females_13_plus") return cat === "females_13_plus";
+                        return false;
+                      }).length} منخرط
+                    </Badge>
+                  </DialogTitle>
+                </DialogHeader>
+                <CategorySubscriberList
+                  subscribers={subscribers.filter((s) => {
+                    const cat = getAgeCategory(s.gender, s.age);
+                    if (selectedCat.key === "males_under_13") return cat === "males_under_13";
+                    if (selectedCat.key === "females_under_13") return cat === "females_under_13";
+                    if (selectedCat.key === "males_13_plus") return cat === "males_13_plus";
+                    if (selectedCat.key === "females_13_plus") return cat === "females_13_plus";
+                    return false;
+                  })}
+                  categoryTitle={selectedCat.title}
+                />
+              </DialogContent>
+            </Dialog>
+          )}
+
           {/* EXPORT TAB — مركز التقارير */}
           <TabsContent value="export" className="mt-0">
             {openReportId ? (
@@ -1139,8 +1169,17 @@ export default function Home() {
 
           {/* CHARGES TAB (admin only) */}
           {hasPermission(sessionUser.role, "charges") && (
-            <TabsContent value="charges" className="mt-0">
+            <TabsContent value="charges" className="mt-0 space-y-4">
               <ChargesPanel subscribers={subscribers} />
+              {/* ★ دمج الدفعات مع الأعباء والتسديدات */}
+              {hasPermission(sessionUser.role, "financialPayments") && (
+                <div className="mt-4">
+                  <h3 className="font-bold text-sm mb-3 flex items-center gap-2 text-primary">
+                    <Wallet className="h-4 w-4" /> الدفعات والمعاملات المالية
+                  </h3>
+                  <FinancialPayments />
+                </div>
+              )}
             </TabsContent>
           )}
 
@@ -1152,20 +1191,19 @@ export default function Home() {
             </TabsContent>
           )}
 
-          {/* ★ FINANCIAL SYSTEM TABS (المحاسب المالي) */}
+          {/* ★ FINANCIAL SYSTEM: دمج لوحة المالية + التقارير المالية في تبويب واحد */}
           {hasPermission(sessionUser.role, "financialDashboard") && (
-            <TabsContent value="financial-dashboard" className="mt-0">
+            <TabsContent value="financial-dashboard" className="mt-0 space-y-4">
               <FinancialDashboard />
-            </TabsContent>
-          )}
-          {hasPermission(sessionUser.role, "financialPayments") && (
-            <TabsContent value="financial-payments" className="mt-0">
-              <FinancialPayments />
-            </TabsContent>
-          )}
-          {hasPermission(sessionUser.role, "financialReports") && (
-            <TabsContent value="financial-reports" className="mt-0">
-              <FinancialReports />
+              {/* ★ دمج التقارير المالية مع لوحة المالية */}
+              {hasPermission(sessionUser.role, "financialReports") && (
+                <div className="mt-4">
+                  <h3 className="font-bold text-sm mb-3 flex items-center gap-2 text-primary">
+                    <FileText className="h-4 w-4" /> التقارير المالية
+                  </h3>
+                  <FinancialReports />
+                </div>
+              )}
             </TabsContent>
           )}
 
@@ -1372,27 +1410,12 @@ export default function Home() {
             {hasPermission(sessionUser.role, "financialDashboard") && (
               <MobileNavItem
                 icon={Briefcase}
-                label="لوحة المالية"
+                label="لوحة المالية والتقارير"
                 active={activeTab === "financial-dashboard"}
                 onClick={() => { handleTabChange("financial-dashboard"); setMobileNavOpen(false); }}
               />
             )}
-            {hasPermission(sessionUser.role, "financialPayments") && (
-              <MobileNavItem
-                icon={Wallet}
-                label="الدفعات"
-                active={activeTab === "financial-payments"}
-                onClick={() => { handleTabChange("financial-payments"); setMobileNavOpen(false); }}
-              />
-            )}
-            {hasPermission(sessionUser.role, "financialReports") && (
-              <MobileNavItem
-                icon={FileText}
-                label="التقارير المالية"
-                active={activeTab === "financial-reports"}
-                onClick={() => { handleTabChange("financial-reports"); setMobileNavOpen(false); }}
-              />
-            )}
+            {/* ★ تم دمج الدفعات ضمن تبويب الأعباء، والتقارير ضمن لوحة المالية */}
             {isAdmin && (
               <MobileNavItem
                 icon={FileText}
@@ -1609,13 +1632,20 @@ function FinanceRow({ label, count, total, color }: { label: string; count: numb
   );
 }
 
-function CategoryCard({ title, count, icon, gradient, border }: { title: string; count: number; icon: string; gradient: string; border: string }) {
+function CategoryCard({ title, count, icon, gradient, border, onClick }: { title: string; count: number; icon: string; gradient: string; border: string; onClick?: () => void }) {
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} whileHover={{ y: -3 }} className={`relative overflow-hidden rounded-2xl border ${border} bg-gradient-to-br ${gradient} p-5`}>
+    <motion.button
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      whileHover={{ y: -3 }}
+      onClick={onClick}
+      className={`relative overflow-hidden rounded-2xl border ${border} bg-gradient-to-br ${gradient} p-5 text-right cursor-pointer hover:shadow-lg transition-shadow`}
+    >
       <div className="text-4xl mb-2">{icon}</div>
       <p className="text-3xl font-extrabold tabular-nums">{count}</p>
       <p className="text-xs text-muted-foreground mt-1">{title}</p>
-    </motion.div>
+      {onClick && <p className="text-[10px] text-primary mt-1 opacity-70">اضغط للتفاصيل ←</p>}
+    </motion.button>
   );
 }
 
@@ -1682,5 +1712,146 @@ function MobileNavItem({
         <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">{badge}</Badge>
       )}
     </button>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════
+// ★ CategorySubscriberList — قائمة المنخرطين في فئة محددة
+// تعرض الجدول + أزرار نسخ وتحميل (Word/Excel)
+// ═════════════════════════════════════════════════════════════
+function CategorySubscriberList({ subscribers, categoryTitle }: {
+  subscribers: SubscriberWithComputed[];
+  categoryTitle: string;
+}) {
+  const [search, setSearch] = useState("");
+  const filtered = subscribers.filter((s) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return s.lastName?.toLowerCase().includes(q) ||
+      s.firstName?.toLowerCase().includes(q) ||
+      s.fileNumber?.toLowerCase().includes(q);
+  });
+
+  // ★ نسخ القائمة إلى الحافظة
+  const handleCopy = async () => {
+    if (filtered.length === 0) { toast.error("لا يوجد منخرطون للنسخ"); return; }
+    const header = "#\tرقم الملف\tاللقب\tالاسم\tالميلاد\tالجنس\tالعمر\tنوع الاشتراك\tحالة الدفع";
+    const rows = filtered.map((s, i) =>
+      `${i + 1}\t${s.fileNumber}\t${s.lastName}\t${s.firstName}\t${s.birthDate ? new Date(s.birthDate).toLocaleDateString("en-GB") : "—"}\t${s.gender}\t${s.age}\t${s.subscriptionType}\t${s.paymentStatus}`
+    ).join("\n");
+    const text = `${categoryTitle}\n\n${header}\n${rows}\n\nالإجمالي: ${filtered.length} منخرط`;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`تم نسخ ${filtered.length} منخرط`);
+    } catch {
+      toast.error("تعذر النسخ");
+    }
+  };
+
+  // ★ تحميل Word
+  const handleDownloadWord = () => {
+    if (filtered.length === 0) { toast.error("لا يوجد منخرطون"); return; }
+    const tableRows = filtered.map((s, i) => `<tr>
+      <td style="text-align:center;padding:5px;border:1px solid #ccc;">${i + 1}</td>
+      <td style="text-align:center;font-family:monospace;padding:5px;border:1px solid #ccc;">${s.fileNumber}</td>
+      <td style="padding:5px;border:1px solid #ccc;">${s.lastName}</td>
+      <td style="padding:5px;border:1px solid #ccc;">${s.firstName}</td>
+      <td style="text-align:center;padding:5px;border:1px solid #ccc;">${s.birthDate ? new Date(s.birthDate).toLocaleDateString("en-GB") : "—"}</td>
+      <td style="text-align:center;padding:5px;border:1px solid #ccc;">${s.gender}</td>
+      <td style="text-align:center;padding:5px;border:1px solid #ccc;">${s.age}</td>
+      <td style="text-align:center;padding:5px;border:1px solid #ccc;">${s.subscriptionType}</td>
+      <td style="text-align:center;padding:5px;border:1px solid #ccc;">${s.paymentStatus}</td>
+    </tr>`).join("");
+    const html = `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
+      <style>body{font-family:'Cairo','Tahoma',Arial;font-size:10pt;direction:rtl}
+      table{border-collapse:collapse;width:100%}th{background:#0f766e;color:white;padding:5px;border:1px solid #ccc}
+      td{padding:5px;border:1px solid #ccc}tr:nth-child(even){background:#f0fdfa}</style></head><body>
+      <h2 style="color:#0f766e;text-align:center">${categoryTitle}</h2>
+      <p style="text-align:center;color:#555">عدد المنخرطين: ${filtered.length} — ${new Date().toLocaleDateString("ar-DZ")}</p>
+      <table><thead><tr><th>#</th><th>رقم الملف</th><th>اللقب</th><th>الاسم</th><th>الميلاد</th><th>الجنس</th><th>العمر</th><th>نوع الاشتراك</th><th>حالة الدفع</th></tr></thead>
+      <tbody>${tableRows}</tbody></table></body></html>`;
+    const blob = new Blob([html], { type: "application/msword; charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `AquaCore_${categoryTitle.replace(/\s/g, "_")}.doc`;
+    a.click(); URL.revokeObjectURL(url);
+    toast.success("تم تحميل قائمة الفئة بصيغة Word");
+  };
+
+  // ★ تحميل Excel
+  const handleDownloadExcel = () => {
+    if (filtered.length === 0) { toast.error("لا يوجد منخطرطون"); return; }
+    import("xlsx").then((XLSX) => {
+      const data = filtered.map((s, i) => ({
+        "#": i + 1, "رقم الملف": s.fileNumber, "اللقب": s.lastName, "الاسم": s.firstName,
+        "الميلاد": s.birthDate ? new Date(s.birthDate).toLocaleDateString("en-GB") : "—",
+        "الجنس": s.gender, "العمر": s.age, "نوع الاشتراك": s.subscriptionType, "حالة الدفع": s.paymentStatus,
+      }));
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "الفئة");
+      XLSX.writeFile(wb, `AquaCore_${categoryTitle.replace(/\s/g, "_")}.xlsx`);
+      toast.success("تم تحميل قائمة الفئة بصيغة Excel");
+    });
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* أزرار النسخ والتحميل */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <Input placeholder="بحث..." value={search} onChange={(e) => setSearch(e.target.value)} className="h-9 flex-1 max-w-xs" />
+        <div className="flex gap-1.5">
+          <Button size="sm" variant="outline" onClick={handleCopy} disabled={filtered.length === 0}
+            className="border-sky-500/40 bg-sky-500/5 text-sky-700 hover:bg-sky-500/10">
+            <Copy className="h-3.5 w-3.5 ml-1" /> نسخ
+          </Button>
+          <Button size="sm" variant="outline" onClick={handleDownloadWord} disabled={filtered.length === 0}>
+            <Download className="h-3.5 w-3.5 ml-1" /> Word
+          </Button>
+          <Button size="sm" variant="outline" onClick={handleDownloadExcel} disabled={filtered.length === 0}>
+            <Download className="h-3.5 w-3.5 ml-1" /> Excel
+          </Button>
+        </div>
+      </div>
+
+      {/* جدول المنخرطين */}
+      <div className="rounded-xl border overflow-y-auto max-h-[50vh]">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-muted/60 z-10">
+            <tr className="text-right border-b-2 border-primary/20">
+              <th className="p-2 w-10">#</th>
+              <th className="p-2">رقم الملف</th>
+              <th className="p-2">اللقب</th>
+              <th className="p-2">الاسم</th>
+              <th className="p-2 text-center">الميلاد</th>
+              <th className="p-2 text-center w-12">الجنس</th>
+              <th className="p-2 text-center w-12">العمر</th>
+              <th className="p-2 text-center">الاشتراك</th>
+              <th className="p-2 text-center">الدفع</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 ? (
+              <tr><td colSpan={9} className="text-center py-8 text-muted-foreground">لا يوجد منخخطون في هذه الفئة</td></tr>
+            ) : (
+              filtered.map((s, i) => (
+                <tr key={s.id} className="border-b border-border/40 hover:bg-muted/40">
+                  <td className="p-2 text-center text-xs text-muted-foreground">{i + 1}</td>
+                  <td className="p-2 text-center font-mono text-xs">{s.fileNumber}</td>
+                  <td className="p-2 font-medium">{s.lastName}</td>
+                  <td className="p-2 font-medium">{s.firstName}</td>
+                  <td className="p-2 text-center text-xs">{s.birthDate ? new Date(s.birthDate).toLocaleDateString("en-GB") : "—"}</td>
+                  <td className="p-2 text-center">{s.gender === "ذكر" ? "♂" : "♀"}</td>
+                  <td className="p-2 text-center text-xs">{s.age}</td>
+                  <td className="p-2 text-center"><Badge variant="outline" className="text-[9px]">{s.subscriptionType}</Badge></td>
+                  <td className="p-2 text-center"><Badge variant="outline" className={cn("text-[9px]", s.paymentStatus === "مدفوع" ? "bg-emerald-100 text-emerald-700" : s.paymentStatus === "معفى" ? "bg-violet-100 text-violet-700" : "bg-rose-100 text-rose-700")}>{s.paymentStatus}</Badge></td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-muted-foreground text-center">الإجمالي: {filtered.length} منخرط</p>
+    </div>
   );
 }

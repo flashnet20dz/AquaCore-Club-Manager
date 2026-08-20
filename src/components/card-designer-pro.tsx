@@ -1898,14 +1898,33 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
               <ScrollArea className="max-h-80">
                 <div className="space-y-2">
                   {templates.map((t: any) => (
-                    <button key={t.id} onClick={() => handleApplyTemplate(t.id)}
-                      className="w-full text-right p-3 rounded-lg border hover:bg-accent hover:border-teal-400/40 transition">
-                      <div className="font-semibold text-sm">{t.name}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">
-                        {t.cardSize || "custom"} • {t.width}×{t.height}سم
-                        {t.isShared && <span className="text-teal-600"> • مشترك</span>}
-                      </div>
-                    </button>
+                    <div key={t.id} className="flex items-center gap-1 p-3 rounded-lg border hover:bg-accent hover:border-teal-400/40 transition">
+                      <button onClick={() => handleApplyTemplate(t.id)}
+                        className="flex-1 text-right">
+                        <div className="font-semibold text-sm">{t.name}</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {t.cardSize || "custom"} • {t.width}×{t.height}سم
+                          {t.isShared && <span className="text-teal-600"> • مشترك</span>}
+                        </div>
+                      </button>
+                      {/* ★ زر حذف القالب */}
+                      <button
+                        onClick={async () => {
+                          if (!confirm(`حذف قالب "${t.name}"؟ لا يمكن التراجع.`)) return;
+                          try {
+                            const res = await fetch(`/api/card-templates/${t.id}`, { method: "DELETE" });
+                            if (res.ok) {
+                              toast.success("تم حذف القالب");
+                              setTemplates((prev) => prev.filter((p) => p.id !== t.id));
+                            } else { toast.error("فشل حذف القالب"); }
+                          } catch { toast.error("فشل الحذف"); }
+                        }}
+                        className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-500/10 transition shrink-0"
+                        title="حذف القالب"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   ))}
                 </div>
               </ScrollArea>
