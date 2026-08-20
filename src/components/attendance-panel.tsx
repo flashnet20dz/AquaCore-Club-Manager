@@ -337,7 +337,14 @@ export function AttendancePanel({ subscribers, onRefresh }: AttendancePanelProps
           <Badge variant="outline" className="h-7">
             {new Date(selectedDate).toLocaleDateString("ar-DZ", { weekday: "long", day: "numeric", month: "long" })}
           </Badge>
-          <Select value={filterGroup} onValueChange={setFilterGroup}>
+          <Select
+            value={filterGroup}
+            onValueChange={(v) => {
+              setFilterGroup(v);
+              // ★ مزامنة: تغيير فلتر الفوج يحدّث أيضاً الفوج المختار للتسجيل الجماعي
+              setBulkSlot(v === "all" ? "" : v);
+            }}
+          >
             <SelectTrigger className="h-10 w-44">
               <Filter className="h-3.5 w-3.5 ml-1" />
               <SelectValue placeholder="كل الأفواج" />
@@ -353,10 +360,17 @@ export function AttendancePanel({ subscribers, onRefresh }: AttendancePanelProps
 
         {/* ★ التسجيل الجماعي + العشوائي + الوقت المخصص */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-          {/* التسجيل الجماعي لفوج */}
+          {/* ★ التسجيل الجماعي لفوج — يفلتر القائمة اليدوية أيضاً */}
           <div className="rounded-xl border border-primary/30 bg-primary/5 p-2.5 flex items-center gap-2">
             <Zap className="h-4 w-4 text-primary shrink-0" />
-            <Select value={bulkSlot} onValueChange={setBulkSlot}>
+            <Select
+              value={bulkSlot}
+              onValueChange={(v) => {
+                setBulkSlot(v);
+                // ★ مزامنة: تحديد فوج هنا يفلتر القائمة اليدوية حسبه أيضاً
+                setFilterGroup(v);
+              }}
+            >
               <SelectTrigger className="h-8 flex-1 border-primary/30">
                 <SelectValue placeholder="تسجيل جماعي لفوج..." />
               </SelectTrigger>
@@ -398,6 +412,26 @@ export function AttendancePanel({ subscribers, onRefresh }: AttendancePanelProps
             )}
           </div>
         </div>
+
+        {/* ★ مؤشر الفلترة + إعادة تعيين */}
+        {filterGroup !== "all" && (
+          <div className="flex items-center gap-2 text-xs">
+            <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/30">
+              <Filter className="h-3 w-3 ml-1" /> فلترة حسب الفوج: {filterGroup}
+            </Badge>
+            <span className="text-muted-foreground">
+              ({filtered.length} منخرط في هذا الفوج — {filtered.filter((s) => !presentIds.has(s.id)).length} غير حاضر)
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => { setFilterGroup("all"); setBulkSlot(""); }}
+              className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3 w-3 ml-1" /> إلغاء الفلترة
+            </Button>
+          </div>
+        )}
 
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
