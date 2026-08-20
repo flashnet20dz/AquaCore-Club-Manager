@@ -87,8 +87,16 @@ export async function POST(req: NextRequest) {
       }
       // مستخدم على نادٍ آخر → رفض
       return NextResponse.json({
-        error: `هذا الكود مستخدم بالفعل على نادٍ آخر (${existingCode.club?.name || "غير معروف"}).`,
+        error: `هذا الكود مستخدم بالفعل على نادٍ آخر (${existingCode.club?.name || "غير معروف"}). لا يمكن تفعيله على نادٍ ثانٍ.`,
+        hint: "كل كود مخصص لنادٍ واحد فقط. اطلب كوداً جديداً من الإدارة.",
       }, { status: 409 });
+    }
+
+    // ★ حالة غير متوقعة (status ليس unused/used/revoked)
+    if (existingCode.status !== "unused") {
+      return NextResponse.json({
+        error: `حالة الكود غير معروفة: "${existingCode.status}". تواصل مع الدعم.`,
+      }, { status: 400 });
     }
 
     // ════ الخطوة 3: بصمة الجهاز ════

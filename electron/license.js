@@ -77,7 +77,7 @@ function generateHardwareFingerprint() {
 }
 
 const TRIAL_DAYS = 7;
-const GRACE_DAYS = 7;
+const GRACE_DAYS = 1; // ★ 24 ساعة (نفس قيمة الويب)
 
 /** نفس computeSubscriptionStatus() لكن من بيانات محلية (desktop-settings). */
 function computeLocalSubscriptionStatus(local) {

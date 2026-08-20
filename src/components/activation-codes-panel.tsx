@@ -4,14 +4,14 @@ import { useEffect, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   KeyRound, Plus, Download, Search, Loader2, X, Sparkles, Copy,
-  CheckCircle2, Ban, Eye, Trash2, FileText, Filter, RefreshCw,
+  CheckCircle2, Ban, Eye, Trash2, FileText, Filter, RefreshCw, ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -80,6 +80,12 @@ export function ActivationCodesPanel({ open, onClose }: { open: boolean; onClose
   const [generating, setGenerating] = useState(false);
   const [generatedResult, setGeneratedResult] = useState<{ codes: string[]; batchNo: number } | null>(null);
 
+  // ★ نموذج التحقق من كود
+  const [verifyOpen, setVerifyOpen] = useState(false);
+  const [verifyCode, setVerifyCode] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<any>(null);
+
   const fetchBatches = useCallback(async () => {
     setLoading(true);
     try {
@@ -139,6 +145,36 @@ export function ActivationCodesPanel({ open, onClose }: { open: boolean; onClose
       toast.error("فشل التوليد");
     } finally {
       setGenerating(false);
+    }
+  };
+
+  // ★ التحقق من كود تفعيل — يعرض حالته الكاملة
+  const handleVerify = async () => {
+    if (!verifyCode.trim()) {
+      toast.error("أدخل كوداً للتحقق");
+      return;
+    }
+    setVerifying(true);
+    setVerifyResult(null);
+    try {
+      const res = await fetch("/api/activation-codes/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: verifyCode.trim() }),
+      });
+      const data = await res.json();
+      setVerifyResult(data);
+      if (data.valid && data.canBeActivated) {
+        toast.success("✓ الكود صالح ومتاح للتفعيل");
+      } else if (data.valid && !data.canBeActivated) {
+        toast.warning(data.message || "الكود صالح لكنه غير متاح للتفعيل");
+      } else {
+        toast.error(data.error || "كود غير صالح");
+      }
+    } catch {
+      toast.error("تعذر التحقق — تحقق من الاتصال");
+    } finally {
+      setVerifying(false);
     }
   };
 
@@ -226,6 +262,10 @@ export function ActivationCodesPanel({ open, onClose }: { open: boolean; onClose
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                {/* ★ زر التحقق من كود */}
+                <Button size="sm" variant="outline" onClick={() => { setVerifyOpen(true); setVerifyResult(null); setVerifyCode(""); }} className="h-9 border-primary/30 bg-primary/5 text-primary hover:bg-primary/10">
+                  <ShieldCheck className="h-4 w-4 ml-1" /> تحقق من كود
+                </Button>
                 <Button size="sm" onClick={() => setGenOpen(true)} className="h-9 bg-gradient-to-l from-teal-500 to-sky-500 hover:from-teal-400 hover:to-sky-400 border-0">
                   <Plus className="h-4 w-4 ml-1" /> توليد دفعة جديدة
                 </Button>
@@ -524,6 +564,124 @@ export function ActivationCodesPanel({ open, onClose }: { open: boolean; onClose
                   </Button>
                 </DialogFooter>
               )}
+            </DialogContent>
+          </Dialog>
+
+          {/* ★ Modal التحقق من كود */}
+          <Dialog open={verifyOpen} onOpenChange={setVerifyOpen}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <ShieldCheck className="h-5 w-5 text-primary" /> التحقق من كود تفعيل
+                </DialogTitle>
+                <DialogDescription>
+                  تحقق من صحة كود تفعيل ومعرفة حالته قبل إعطائه لنادٍ
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-semibold">كود التفعيل</Label>
+                  <Input
+                    type="text"
+                    value={verifyCode}
+                    onChange={(e) => setVerifyCode(e.target.value.toUpperCase())}
+                    placeholder="AQCR-M1-XXXXXXXX-XXXX"
+                    className="h-11 font-mono text-center text-sm tracking-wider"
+                    dir="ltr"
+                    onKeyDown={(e) => { if (e.key === "Enter" && !verifying) handleVerify(); }}
+                  />
+                </div>
+                <Button onClick={handleVerify} disabled={verifying || !verifyCode.trim()} className="w-full h-10">
+                  {verifying ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" /> جاري التحقق...</>
+                  ) : (
+                    <><ShieldCheck className="h-4 w-4 ml-1" /> تحقق الآن</>
+                  )}
+                </Button>
+
+                {/* ★ نتائج التحقق */}
+                {verifyResult && (
+                  <div className={cn(
+                    "rounded-lg border p-3 space-y-2",
+                    verifyResult.valid
+                      ? (verifyResult.canBeActivated ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300" : "bg-amber-50 dark:bg-amber-950/30 border-amber-300")
+                      : "bg-rose-50 dark:bg-rose-950/30 border-rose-300"
+                  )}>
+                    <div className="flex items-center gap-2">
+                      {verifyResult.valid ? (
+                        verifyResult.canBeActivated ? (
+                          <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                        ) : (
+          <Ban className="h-5 w-5 text-amber-600" />
+                        )
+                      ) : (
+                        <X className="h-5 w-5 text-rose-600" />
+                      )}
+                      <span className="font-bold text-sm">
+                        {verifyResult.valid
+                          ? (verifyResult.canBeActivated ? "كود صالح ومتاح للتفعيل" : "كود صالح لكنه غير متاح")
+                          : "كود غير صالح"}
+                      </span>
+                    </div>
+                    {verifyResult.error && !verifyResult.valid && (
+                      <p className="text-xs text-rose-700 dark:text-rose-300">{verifyResult.error}</p>
+                    )}
+                    {verifyResult.valid && (
+                      <div className="space-y-1 text-xs">
+                        {verifyResult.planLabel && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">الخطة:</span>
+                            <span className="font-semibold">{verifyResult.planLabel} ({verifyResult.durationDays} يوم)</span>
+                          </div>
+                        )}
+                        {verifyResult.inDatabase && (
+                          <>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">الحالة في DB:</span>
+                              <span className="font-semibold">{verifyResult.statusLabel}</span>
+                            </div>
+                            {verifyResult.club && (
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">النادي المستخدم:</span>
+                                <span className="font-semibold">{verifyResult.club.name}</span>
+                              </div>
+                            )}
+                            {verifyResult.activatedAt && (
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">تاريخ التفعيل:</span>
+                                <span className="font-semibold">{new Date(verifyResult.activatedAt).toLocaleDateString("ar-DZ")}</span>
+                              </div>
+                            )}
+                            {verifyResult.expiresAt && (
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">ينتهي في:</span>
+                                <span className="font-semibold">{new Date(verifyResult.expiresAt).toLocaleDateString("ar-DZ")}</span>
+                              </div>
+                            )}
+                          </>
+                        )}
+                        {!verifyResult.inDatabase && (
+                          <p className="text-amber-700 dark:text-amber-300">
+                            ⚠ الكود صالح رياضياً لكنه غير مسجّل في قاعدة البيانات.
+                          </p>
+                        )}
+                        {verifyResult.message && (
+                          <p className="text-muted-foreground pt-1 border-t">{verifyResult.message}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-300 p-2.5">
+                  <p className="text-[11px] text-blue-700 dark:text-blue-300">
+                    💡 استخدم هذه الأداة للتحقق من أي كود قبل إعطائه لنادٍ. الكود الوحيد الاستخدام لا يمكن تفعيله على نادٍ آخر.
+                  </p>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setVerifyOpen(false)}>إغلاق</Button>
+              </DialogFooter>
             </DialogContent>
           </Dialog>
         </motion.div>
