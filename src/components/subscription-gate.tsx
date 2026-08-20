@@ -42,13 +42,18 @@ export function ActivationModal({ open, onClose, onActivated }: ActivationModalP
   const [result, setResult] = useState<any>(null);
 
   // تنسيق الكود أثناء الكتابة (تلقائي بأقسام)
+  // ★ الصيغة الصحيحة: AQCR-XX-XXXXXXXX-XXXX (PREFIX-PLAN-PAYLOAD-SIG)
+  // الأقسام: 4 + 2 + 8 + 4 = 18 حرفاً + 3 شرطات = 21 حرفاً
   const formatCode = (raw: string) => {
     const clean = raw.toUpperCase().replace(/[^A-Z0-9]/g, "");
-    const parts = [];
-    for (let i = 0; i < clean.length; i += 4) {
-      parts.push(clean.substring(i, i + 4));
-    }
-    return parts.join("-").substring(0, 19); // AQCR-M1-XXXXXXXX-XXXX = 19
+    if (clean.length === 0) return "";
+    // أقسام: 4 (prefix) + 2 (plan) + 8 (payload) + 4 (sig)
+    const parts: string[] = [];
+    if (clean.length > 0) parts.push(clean.substring(0, 4));
+    if (clean.length > 4) parts.push(clean.substring(4, 6));
+    if (clean.length > 6) parts.push(clean.substring(6, 14));
+    if (clean.length > 14) parts.push(clean.substring(14, 18));
+    return parts.join("-"); // AQCR-M1-XXXXXXXX-XXXX
   };
 
   const handleActivate = async () => {
@@ -171,7 +176,7 @@ export function ActivationModal({ open, onClose, onActivated }: ActivationModalP
                     <div className="flex gap-2">
                       <Button
                         onClick={handleActivate}
-                        disabled={code.length < 19 || loading}
+                        disabled={code.length < 21 || loading}
                         className="flex-1 h-11 sm:h-12 text-sm sm:text-base font-bold rounded-xl bg-gradient-to-l from-teal-500 to-sky-500 hover:from-teal-400 hover:to-sky-400 border-0 text-white shadow-lg shadow-teal-500/20 disabled:opacity-50"
                       >
                         {loading ? (
