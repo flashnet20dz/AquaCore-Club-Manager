@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Sparkles, Lock, Clock, AlertTriangle, CheckCircle2, KeyRound,
-  Loader2, ShieldCheck, X,
+  Loader2, ShieldCheck, X, Clipboard,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -151,18 +151,58 @@ export function ActivationModal({ open, onClose, onActivated }: ActivationModalP
 
                   <div className="space-y-3 sm:space-y-4">
                     <div className="space-y-1.5">
-                      <Label className="text-[10px] sm:text-xs font-semibold text-white/60 uppercase tracking-wider">
-                        كود التفعيل
-                      </Label>
-                      <Input
-                        type="text"
-                        value={code}
-                        onChange={(e) => setCode(formatCode(e.target.value))}
-                        placeholder="AQCR-M1-XXXXXXXX-XXXX"
-                        className="h-12 sm:h-14 text-center text-base sm:text-lg font-mono font-bold tracking-wider bg-white/[0.06] border-white/[0.12] text-white placeholder:text-white/20 rounded-xl focus:bg-white/[0.1] focus:border-teal-400/40"
-                        dir="ltr"
-                        autoFocus
-                      />
+                      <div className="flex items-center justify-between">
+                        <Label className="text-[10px] sm:text-xs font-semibold text-white/60 uppercase tracking-wider">
+                          كود التفعيل
+                        </Label>
+                        {/* ★ عدّاد الأحرف + مؤشر اكتمال الكود */}
+                        <span className={`text-[10px] font-mono ${code.replace(/[^A-Z0-9]/g, "").length === 18 ? "text-emerald-400" : "text-white/40"}`}>
+                          {code.replace(/[^A-Z0-9]/g, "").length}/18
+                        </span>
+                      </div>
+                      <div className="relative">
+                        <Input
+                          type="text"
+                          value={code}
+                          onChange={(e) => setCode(formatCode(e.target.value))}
+                          placeholder="AQCR-M1-XXXXXXXX-XXXX"
+                          // ★ خانة أكبر + حدّ أخضر عند اكتمال الكود
+                          className={`h-14 sm:h-16 text-center text-base sm:text-lg font-mono font-bold tracking-wider bg-white/[0.06] border-2 text-white placeholder:text-white/20 rounded-xl focus:bg-white/[0.1] transition-colors ${
+                            code.replace(/[^A-Z0-9]/g, "").length === 18
+                              ? "border-emerald-400/60 focus:border-emerald-400 shadow-lg shadow-emerald-500/10"
+                              : "border-white/[0.12] focus:border-teal-400/40"
+                          }`}
+                          dir="ltr"
+                          autoFocus
+                          maxLength={21}
+                          autoComplete="off"
+                          spellCheck={false}
+                        />
+                        {/* ★ زر لصق من الحافظة */}
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const text = await navigator.clipboard.readText();
+                              if (text) {
+                                setCode(formatCode(text));
+                                toast.success("تم لصق الكود من الحافظة");
+                              }
+                            } catch {
+                              toast.error("تعذر الوصول للحافظة — الصق يدوياً (Ctrl+V)");
+                            }
+                          }}
+                          className="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-lg text-white/40 hover:text-white/80 hover:bg-white/5 transition"
+                          title="لصق من الحافظة"
+                          aria-label="لصق من الحافظة"
+                        >
+                          <Clipboard className="h-4 w-4" />
+                        </button>
+                      </div>
+                      {/* ★ تلميح بنية الكود */}
+                      <p className="text-[10px] text-white/30 font-mono text-center" dir="ltr">
+                        بنية الكود: PREFIX-PLAN-PAYLOAD-SIGNATURE
+                      </p>
                     </div>
 
                     <div className="bg-white/[0.03] rounded-xl p-2.5 flex items-start gap-2 text-[11px] sm:text-xs text-white/50">
