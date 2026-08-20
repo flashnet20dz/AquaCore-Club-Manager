@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { subscriberId, method, date, note } = body;
+    const { subscriberId, method, date, note, checkInTime } = body;
 
     if (!subscriberId) {
       return NextResponse.json({ error: "subscriberId required" }, { status: 400 });
@@ -80,7 +80,8 @@ export async function POST(req: NextRequest) {
       }, { status: 409 });
     }
 
-    const checkIn = new Date();
+    // ★ وقت تسجيل الحضور: استخدم checkInTime المخصص إن قُدم، وإلا الآن
+    const checkIn = checkInTime ? new Date(checkInTime) : new Date();
     const attendance = await db.attendance.create({
       data: {
         clubId: sub.clubId,

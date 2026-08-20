@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Calendar, CheckCircle2, Clock, QrCode, Search, Trash2, Users, Loader2,
-  TrendingUp, X, Flame, Filter, Activity, AlertCircle,
+  TrendingUp, X, Flame, Filter, Activity, AlertCircle, Shuffle, Zap, Timer,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -66,11 +66,22 @@ export function AttendancePanel({ subscribers, onRefresh }: AttendancePanelProps
   const [loading, setLoading] = useState(true);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
   const [manualSubId, setManualSubId] = useState("");
   const [filterGroup, setFilterGroup] = useState("all");
   const [showHeatmap, setShowHeatmap] = useState(false);
+  const [showByTime, setShowByTime] = useState(false); // ★ عرض الحضور حسب الوقت
+  const [bulkSlot, setBulkSlot] = useState(""); // ★ فوج للتسجيل الجماعي
+  const [bulkLoading, setBulkLoading] = useState(false); // ★ loading للتسجيل الجماعي
+  const [customTime, setCustomTime] = useState(""); // ★ وقت مخصص للتسجيل
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // ★ debounce للبحث — يقلل إعادة العرض
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 200);
+    return () => clearTimeout(t);
+  }, [search]);
 
   const fetchAttendance = useCallback(async () => {
     setLoading(true);
@@ -104,7 +115,7 @@ export function AttendancePanel({ subscribers, onRefresh }: AttendancePanelProps
   useEffect(() => { fetchAttendance(); }, [fetchAttendance]);
   useEffect(() => {
     fetchLive();
-    const t = setInterval(fetchLive, 30000); // refresh every 30s
+    const t = setInterval(fetchLive, 60000); // ★ زيادة الفاصل إلى 60s (كان 30s) للأداء
     return () => clearInterval(t);
   }, [fetchLive]);
   useEffect(() => {
@@ -115,10 +126,13 @@ export function AttendancePanel({ subscribers, onRefresh }: AttendancePanelProps
     if (!subscriberId) return;
     try {
       const { offlineFetch } = await import("@/hooks/use-offline-mutation");
+      const body: Record<string, unknown> = { subscriberId, method: "manual" };
+      // ★ وقت مخصص إن قُدم
+      if (customTime) body.checkInTime = customTime;
       const res = await offlineFetch("/api/attendance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subscriberId, method: "manual" }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -166,24 +180,97 @@ export function AttendancePanel({ subscribers, onRefresh }: AttendancePanelProps
     }
   };
 
-  const filtered = subscribers.filter((s) => {
-    if (!search) return filterGroup === "all" ? true : (s.timeSlot === filterGroup);
-    const q = search.toLowerCase();
-    const matches = s.lastName.toLowerCase().includes(q) ||
-      s.firstName.toLowerCase().includes(q) ||
-      s.fileNumber.toLowerCase().includes(q) ||
-      (s.phone || "").includes(q);
-    return matches && (filterGroup === "all" || s.timeSlot === filterGroup);
-  });
+  // ★ التسجيل الجماعي لفوج محدد (time slot)
+  const handleBulkCheckIn = async () => {
+    if (!bulkSlot) {
+      toast.error("اختر فوجاً للتسجيل الجماعي");
+      return;
+    }
+    setBulkLoading(true);
+    try {
+      const res = await fetch("/api/attendance/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timeSlot: bulkSlot, date: selectedDate }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (data.checkedIn > 0) {
+          notifySuccess();
+          toast.success(`✓ تم تسجيل ${data.checkedIn} منخرط من فوج ${bulkSlot}`);
+        } else if (data.alreadyPresent > 0) {
+          notifyWarning();
+          toast.warning(`جميع منخري فوج ${bulkSlot} مسجّلون مسبقاً (${data.alreadyPresent})`);
+        } else {
+          toast.info("لا يوجد منخروطون في هذا الفوج");
+        }
+        fetchAttendance();
+        fetchLive();
+        onRefresh?.();
+      } else {
+        notifyError();
+        toast.error(data.error || "فشل التسجيل الجماعي");
+      }
+    } catch {
+      notifyError();
+      toast.error("خطأ في الاتصال");
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  // ★ تسجيل عشوائي — يختار منخرطاً عشوائياً من غير الحاضرين
+  const handleRandomCheckIn = async () => {
+    const absent = filtered.filter((s) => !presentIds.has(s.id));
+    if (absent.length === 0) {
+      toast.info("كل المنخرطين مسجّلون بالفعل");
+      return;
+    }
+    const random = absent[Math.floor(Math.random() * absent.length)];
+    toast.info(`🎲 اختيار عشوائي: ${random.lastName} ${random.firstName}`);
+    await handleManualCheckIn(random.id);
+  };
+
+  // ★ memoized filtered — يقلل إعادة الحساب عند كل render
+  const filtered = useMemo(() => {
+    if (!debouncedSearch) return filterGroup === "all" ? subscribers : subscribers.filter((s) => s.timeSlot === filterGroup);
+    const q = debouncedSearch.toLowerCase();
+    return subscribers.filter((s) => {
+      const matches = s.lastName.toLowerCase().includes(q) ||
+        s.firstName.toLowerCase().includes(q) ||
+        s.fileNumber.toLowerCase().includes(q) ||
+        (s.phone || "").includes(q);
+      return matches && (filterGroup === "all" || s.timeSlot === filterGroup);
+    });
+  }, [subscribers, debouncedSearch, filterGroup]);
+
+  // ★ memoized presentIds — يُعاد بناؤه فقط عند تغيّر attendances
+  const presentIds = useMemo(() => new Set(attendances.map((a) => a.subscriber.id)), [attendances]);
+
+  // ★ memoized attendance grouped by time — لعرض "حسب الوقت"
+  const attendanceByTime = useMemo(() => {
+    const groups: Record<string, Attendance[]> = {};
+    for (const a of attendances) {
+      // حدّد فوج المنخرط من timeSlot (إن وُجد)
+      const sub = subscribers.find((s) => s.id === a.subscriber.id);
+      const slot = sub?.timeSlot || "بدون فوج";
+      if (!groups[slot]) groups[slot] = [];
+      groups[slot].push(a);
+    }
+    // رتّب الفواني ترتيباً زمنياً
+    return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [attendances, subscribers]);
 
   // Stats for today
   const todayCount = attendances.length;
-  const qrCount = attendances.filter((a) => a.method === "qr").length;
-  const manualCount = attendances.filter((a) => a.method === "manual").length;
-  const presentIds = new Set(attendances.map((a) => a.subscriber.id));
+  const qrCount = useMemo(() => attendances.filter((a) => a.method === "qr").length, [attendances]);
+  const manualCount = useMemo(() => attendances.filter((a) => a.method === "manual").length, [attendances]);
   const absentCount = subscribers.length - todayCount;
 
-  const groups = Array.from(new Set(subscribers.map((s) => s.timeSlot).filter(Boolean))) as string[];
+  const groups = useMemo(
+    () => Array.from(new Set(subscribers.map((s) => s.timeSlot).filter(Boolean))) as string[],
+    [subscribers]
+  );
 
   return (
     <div className="space-y-4">
@@ -224,11 +311,16 @@ export function AttendancePanel({ subscribers, onRefresh }: AttendancePanelProps
             <Calendar className="h-5 w-5 text-primary" />
             <h2 className="font-bold text-base">سجل الحضور اليومي</h2>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Button variant="outline" onClick={() => setShowHeatmap(!showHeatmap)} size="sm">
               <TrendingUp className="h-4 w-4 ml-1" /> {showHeatmap ? "إخفاء الخريطة" : "خريطة الازدحام"}
             </Button>
-            <Button onClick={() => setScannerOpen(true)} className="h-10">
+            {/* ★ زر عرض الحضور حسب الوقت */}
+            <Button variant="outline" onClick={() => setShowByTime(!showByTime)} size="sm"
+              className={showByTime ? "bg-primary/10 border-primary/40 text-primary" : ""}>
+              <Clock className="h-4 w-4 ml-1" /> {showByTime ? "إخفاء الترتيب" : "حسب الوقت"}
+            </Button>
+            <Button onClick={() => setScannerOpen(true)} className="h-9">
               <QrCode className="h-4 w-4 ml-1" /> مسح QR
             </Button>
           </div>
@@ -259,6 +351,54 @@ export function AttendancePanel({ subscribers, onRefresh }: AttendancePanelProps
           </Select>
         </div>
 
+        {/* ★ التسجيل الجماعي + العشوائي + الوقت المخصص */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+          {/* التسجيل الجماعي لفوج */}
+          <div className="rounded-xl border border-primary/30 bg-primary/5 p-2.5 flex items-center gap-2">
+            <Zap className="h-4 w-4 text-primary shrink-0" />
+            <Select value={bulkSlot} onValueChange={setBulkSlot}>
+              <SelectTrigger className="h-8 flex-1 border-primary/30">
+                <SelectValue placeholder="تسجيل جماعي لفوج..." />
+              </SelectTrigger>
+              <SelectContent>
+                {groups.map((g) => (
+                  <SelectItem key={g} value={g}>{g}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button size="sm" onClick={handleBulkCheckIn} disabled={!bulkSlot || bulkLoading} className="h-8 px-3">
+              {bulkLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "تسجيل الكل"}
+            </Button>
+          </div>
+
+          {/* تسجيل عشوائي */}
+          <Button
+            variant="outline"
+            onClick={handleRandomCheckIn}
+            disabled={loading || filtered.filter((s) => !presentIds.has(s.id)).length === 0}
+            className="h-10 border-amber-500/40 bg-amber-500/5 text-amber-700 hover:bg-amber-500/10"
+          >
+            <Shuffle className="h-4 w-4 ml-1" /> تسجيل عشوائي
+          </Button>
+
+          {/* وقت مخصص للتسجيل */}
+          <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-2.5 flex items-center gap-2">
+            <Timer className="h-4 w-4 text-violet-600 shrink-0" />
+            <Input
+              type="time"
+              value={customTime}
+              onChange={(e) => setCustomTime(e.target.value)}
+              className="h-8 flex-1 border-violet-500/30"
+              dir="ltr"
+            />
+            {customTime && (
+              <Button size="sm" variant="ghost" onClick={() => setCustomTime("")} className="h-8 px-2 text-violet-600">
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
+        </div>
+
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <StatPill icon={Users} label="حاضرون" value={todayCount} color="emerald" />
@@ -271,6 +411,15 @@ export function AttendancePanel({ subscribers, onRefresh }: AttendancePanelProps
       {/* Heatmap */}
       {showHeatmap && heatmap && (
         <HeatmapView data={heatmap} />
+      )}
+
+      {/* ★ عرض الحضور حسب الوقت — قائمة مجمّعة حسب الفوج */}
+      {showByTime && (
+        <AttendanceByTimeView
+          groups={attendanceByTime}
+          loading={loading}
+          onDelete={handleDelete}
+        />
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -517,6 +666,103 @@ function HeatmapView({ data }: { data: HeatmapData }) {
             </Badge>
           ))}
         </div>
+      </div>
+    </motion.div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════
+// ★ AttendanceByTimeView — عرض الحضور مجمّعاً حسب الفوج (time slot)
+// يعرض كل فوج + عدد الحاضرين فيه + قائمتهم بترتيب زمني
+// ═════════════════════════════════════════════════════════════
+function AttendanceByTimeView({
+  groups,
+  loading,
+  onDelete,
+}: {
+  groups: [string, Attendance[]][];
+  loading: boolean;
+  onDelete: (id: string) => void;
+}) {
+  if (loading) {
+    return (
+      <div className="rounded-2xl border border-border/60 bg-card p-4">
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      </div>
+    );
+  }
+
+  if (groups.length === 0) {
+    return (
+      <div className="rounded-2xl border border-border/60 bg-card p-4 text-center">
+        <Clock className="h-10 w-10 mx-auto mb-2 text-muted-foreground/30" />
+        <p className="text-sm text-muted-foreground">لا يوجد حضور لهذا اليوم</p>
+      </div>
+    );
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: "auto" }}
+      className="rounded-2xl border border-border/60 bg-card p-4 space-y-3"
+    >
+      <div className="flex items-center justify-between">
+        <h3 className="font-bold text-sm flex items-center gap-2">
+          <Clock className="h-4 w-4 text-primary" /> الحضور حسب الفوج ({groups.length} أفواج)
+        </h3>
+        <Badge variant="outline" className="text-[10px]">
+          {groups.reduce((s, [_, list]) => s + list.length, 0)} حضور
+        </Badge>
+      </div>
+
+      <div className="space-y-2">
+        {groups.map(([slot, list]) => (
+          <div key={slot} className="rounded-xl border border-border/40 overflow-hidden">
+            {/* رأس الفوج */}
+            <div className="flex items-center justify-between bg-primary/5 px-3 py-2 border-b border-primary/20">
+              <div className="flex items-center gap-2">
+                <Timer className="h-4 w-4 text-primary" />
+                <span className="font-bold text-sm font-mono" dir="ltr">{slot}</span>
+              </div>
+              <Badge variant="secondary" className="text-[10px]">{list.length} منخرط</Badge>
+            </div>
+            {/* قائمة الحاضرين في الفوج — مرتبة زمنياً */}
+            <div className="divide-y divide-border/30">
+              {list
+                .slice()
+                .sort((a, b) => new Date(a.checkInTime).getTime() - new Date(b.checkInTime).getTime())
+                .map((a) => (
+                  <div key={a.id} className="flex items-center gap-2 p-2 hover:bg-muted/40 transition group">
+                    <span className="text-xs font-mono text-muted-foreground tabular-nums w-12 shrink-0" dir="ltr">
+                      {new Date(a.checkInTime).toLocaleTimeString("ar-DZ", { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">
+                        {a.subscriber.lastName} {a.subscriber.firstName}
+                      </p>
+                    </div>
+                    <Badge variant="outline" className={cn(
+                      "h-4 text-[9px] px-1 shrink-0",
+                      a.method === "qr" ? "bg-violet-500/15 text-violet-700 border-violet-500/30"
+                      : "bg-amber-500/15 text-amber-700 border-amber-500/30"
+                    )}>
+                      {a.method === "qr" ? "QR" : "يدوي"}
+                    </Badge>
+                    {a.note && <span className="text-orange-600 text-[10px] shrink-0">{a.note}</span>}
+                    <button
+                      onClick={() => onDelete(a.id)}
+                      className="opacity-0 group-hover:opacity-100 transition p-1 hover:bg-rose-500/10 rounded text-rose-500 shrink-0"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+            </div>
+          </div>
+        ))}
       </div>
     </motion.div>
   );
