@@ -127,8 +127,30 @@ export function AttendancePanel({ subscribers, onRefresh }: AttendancePanelProps
     try {
       const { offlineFetch } = await import("@/hooks/use-offline-mutation");
       const body: Record<string, unknown> = { subscriberId, method: "manual" };
-      // ★ وقت مخصص إن قُدم
-      if (customTime) body.checkInTime = customTime;
+      // ★ وقت مخصص إن قُدم — يدعم صيغتين:
+      //   - "HH:MM" → يحوّل إلى اليوم HH:MM:00
+      //   - "HH:MM-HH:MM" (مثل 10:00-11:00) → يأخذ وقت البداية (HH:MM)
+      if (customTime) {
+        const clean = customTime.trim();
+        // صيغة نطاق زمني: 10:00-11:00 → خذ 10:00
+        const rangeMatch = clean.match(/^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/);
+        // صيغة وقت بسيط: 10:00
+        const simpleMatch = clean.match(/^(\d{1,2}):(\d{2})$/);
+        if (rangeMatch) {
+          const h = rangeMatch[1].padStart(2, "0");
+          const m = rangeMatch[2];
+          const today = new Date();
+          const iso = new Date(today.getFullYear(), today.getMonth(), today.getDate(), parseInt(h), parseInt(m), 0).toISOString();
+          body.checkInTime = iso;
+        } else if (simpleMatch) {
+          const h = simpleMatch[1].padStart(2, "0");
+          const m = simpleMatch[2];
+          const today = new Date();
+          const iso = new Date(today.getFullYear(), today.getMonth(), today.getDate(), parseInt(h), parseInt(m), 0).toISOString();
+          body.checkInTime = iso;
+        }
+        // إن لم تطابق أي صيغة، لا نرسل checkInTime (يُستخدم الآن)
+      }
       const res = await offlineFetch("/api/attendance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -188,10 +210,24 @@ export function AttendancePanel({ subscribers, onRefresh }: AttendancePanelProps
     }
     setBulkLoading(true);
     try {
+      const body: Record<string, unknown> = { timeSlot: bulkSlot, date: selectedDate };
+      // ★ وقت مخصص للتسجيل الجماعي (نفس منطق handleManualCheckIn)
+      if (customTime) {
+        const clean = customTime.trim();
+        const rangeMatch = clean.match(/^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/);
+        const simpleMatch = clean.match(/^(\d{1,2}):(\d{2})$/);
+        if (rangeMatch || simpleMatch) {
+          const h = (rangeMatch ? rangeMatch[1] : simpleMatch[1]).padStart(2, "0");
+          const m = rangeMatch ? rangeMatch[2] : simpleMatch[2];
+          const today = new Date();
+          const iso = new Date(today.getFullYear(), today.getMonth(), today.getDate(), parseInt(h), parseInt(m), 0).toISOString();
+          body.checkInTime = iso;
+        }
+      }
       const res = await fetch("/api/attendance/bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ timeSlot: bulkSlot, date: selectedDate }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (res.ok) {
@@ -385,15 +421,18 @@ export function AttendancePanel({ subscribers, onRefresh }: AttendancePanelProps
             </Button>
           </div>
 
-          {/* وقت مخصص للتسجيل */}
+          {/* وقت مخصص للتسجيل — من اليمين لليسار (مثال: 10:00-11:00) */}
           <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-2.5 flex items-center gap-2">
             <Timer className="h-4 w-4 text-violet-600 shrink-0" />
             <Input
-              type="time"
+              type="text"
+              inputMode="numeric"
               value={customTime}
               onChange={(e) => setCustomTime(e.target.value)}
-              className="h-8 flex-1 border-violet-500/30"
-              dir="ltr"
+              placeholder="10:00-11:00"
+              className="h-8 flex-1 border-violet-500/30 font-mono text-center"
+              dir="rtl"
+              maxLength={11}
             />
             {customTime && (
               <Button size="sm" variant="ghost" onClick={() => setCustomTime("")} className="h-8 px-2 text-violet-600">

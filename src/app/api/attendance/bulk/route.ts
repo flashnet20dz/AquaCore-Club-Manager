@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { timeSlot, subscriberIds, date, method } = body;
+    const { timeSlot, subscriberIds, date, method, checkInTime } = body;
 
     const clubFilter = currentUser.role === "superadmin" ? {} : { clubId: currentUser.clubId! };
     const clubId = currentUser.clubId || (currentUser.role === "superadmin" ? null : null);
@@ -79,7 +79,8 @@ export async function POST(req: NextRequest) {
     let checkedIn = 0;
     let skipped = 0;
     const errors: string[] = [];
-    const now = new Date();
+    // ★ وقت تسجيل الحضور: استخدم checkInTime المخصص إن قُدم، وإلا الآن
+    const now = checkInTime ? new Date(checkInTime) : new Date();
 
     // تسجيل جماعي — نستخدم createMany للأداء العالي
     const records = toCheckIn.map((s) => {
