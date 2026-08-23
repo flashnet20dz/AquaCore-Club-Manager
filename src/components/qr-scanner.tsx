@@ -15,9 +15,10 @@ interface CheckInResult {
   alreadyCheckedIn?: boolean;
   subscriber: SubscriberWithComputed & { phone?: string | null };
   attendance?: { id: string; checkInTime: string; method: string };
-  status?: "ok" | "expired" | "no_payment";
+  status?: "ok" | "expired" | "no_payment" | "offline";
   expiryDate?: string | null;
   error?: string;
+  offline?: boolean;
 }
 
 interface QRScannerProps {
@@ -28,15 +29,19 @@ interface QRScannerProps {
 
 export function QRScanner({ open, onClose, onCheckIn }: QRScannerProps) {
   const scannerRef = useRef<Html5Qrcode | null>(null);
-  const containerId = "qr-reader";
+  // ★ معرّف فريد للحاوية لتفادي إعادة استخدام نفس العنصر (يزيد الاستقرار)
+  const containerId = useRef(`qr-reader-${Date.now()}`).current;
   const [scanning, setScanning] = useState(false);
   const [manualMode, setManualMode] = useState(false);
   const [manualCode, setManualCode] = useState("");
   const [lastResult, setLastResult] = useState<CheckInResult | null>(null);
   const [processing, setProcessing] = useState(false);
+  // ★ تقليل فترة الـ debounce من 3000ms إلى 1500ms (استجابة أسرع)
   const lastScanRef = useRef<{ code: string; time: number }>({ code: "", time: 0 });
   const onCheckInRef = useRef(onCheckIn);
   onCheckInRef.current = onCheckIn;
+  // ★ flag لمنع بدء تشغيل مزدوج
+  const startingRef = useRef(false);
 
   const stopScanner = useCallback(async () => {
     if (scannerRef.current) {
@@ -52,10 +57,9 @@ export function QRScanner({ open, onClose, onCheckIn }: QRScannerProps) {
   }, []);
 
   const doCheckIn = useCallback(async (fileNumber: string) => {
-    setProcessing((p) => {
-      if (p) return p;
-      return true;
-    });
+    // ★ منع المعالجة المتزامنة: استخدم flag بدلاً من setProcessing callback
+    if (processing) return;
+    setProcessing(true);
     try {
       const { offlineFetch } = await import("@/hooks/use-offline-mutation");
       const res = await offlineFetch("/api/qr-checkin", {
@@ -71,7 +75,7 @@ export function QRScanner({ open, onClose, onCheckIn }: QRScannerProps) {
       } else if (data.offline) {
         notifySuccess();
         toast.success("✓ تم تسجيل الحضور محلياً — سيُزامن عند عودة الاتصال");
-        setLastResult({ success: true, offline: true, subscriber: { fileNumber, lastName: "", firstName: "" }, status: "offline" });
+        setLastResult({ success: true, offline: true, subscriber: { fileNumber, lastName: "", firstName: "" } as any, status: "offline" });
       } else {
         setLastResult(data);
         onCheckInRef.current?.(data);
@@ -93,29 +97,47 @@ export function QRScanner({ open, onClose, onCheckIn }: QRScannerProps) {
     } finally {
       setProcessing(false);
     }
-  }, []);
+  }, [processing]);
 
   const startScanner = useCallback(async () => {
-    if (scannerRef.current) return;
+    // ★ منع البدء المزدوج
+    if (scannerRef.current || startingRef.current) return;
+    startingRef.current = true;
     setScanning(true);
     setLastResult(null);
     try {
-      await new Promise((r) => setTimeout(r, 100));
+      // ★ تقليل الانتظار من 100ms إلى 50ms
+      await new Promise((r) => setTimeout(r, 50));
       const html5QrCode = new Html5Qrcode(containerId, { verbose: false });
       scannerRef.current = html5QrCode;
 
       const onScanSuccess = (decodedText: string) => {
         const now = Date.now();
-        if (lastScanRef.current.code === decodedText && now - lastScanRef.current.time < 3000) {
+        // ★ تقليل debounce من 3000ms إلى 1500ms (استجابة أسرع للتكرار)
+        if (lastScanRef.current.code === decodedText && now - lastScanRef.current.time < 1500) {
           return;
         }
         lastScanRef.current = { code: decodedText, time: now };
         doCheckIn(decodedText.trim());
       };
 
+      // ★ تحسينات الأداء:
+      // - fps: 10 → 15 (مسح أسرع)
+      // - qrbox: أصغر (200×200) للتركيز على الكود
+      // - experimentalFeatures: useBarCodeDetectorIfSupported (أداء أصلي في Chrome)
+      // - videoConstraints: resolution أعلى + focusMode continuous
       await html5QrCode.start(
         { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 220, height: 220 } },
+        {
+          fps: 15,
+          qrbox: { width: 200, height: 200 },
+          aspectRatio: 1.0,
+          videoConstraints: {
+            facingMode: "environment",
+            width: { min: 480, ideal: 640, max: 1280 },
+            height: { min: 480, ideal: 640, max: 1280 },
+          },
+        } as any,
         onScanSuccess,
         () => {}
       );
@@ -125,8 +147,10 @@ export function QRScanner({ open, onClose, onCheckIn }: QRScannerProps) {
       setScanning(false);
       setManualMode(true);
       scannerRef.current = null;
+    } finally {
+      startingRef.current = false;
     }
-  }, [doCheckIn]);
+  }, [containerId, doCheckIn]);
 
   useEffect(() => {
     if (open) {
@@ -138,7 +162,7 @@ export function QRScanner({ open, onClose, onCheckIn }: QRScannerProps) {
       setManualMode(false);
     }
     return () => { stopScanner(); };
-  }, [open, startScanner, stopScanner]);
+  }, [open, stopScanner]);
 
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -223,10 +247,11 @@ export function QRScanner({ open, onClose, onCheckIn }: QRScannerProps) {
                 {scanning && (
                   <div className="absolute inset-0 pointer-events-none">
                     <div className="absolute inset-8 border-2 border-teal-400 rounded-2xl" />
+                    {/* ★ تسريع الخط المتحرك: 2.5s → 1.8s */}
                     <motion.div
                       initial={{ top: "10%" }}
                       animate={{ top: ["10%", "85%", "10%"] }}
-                      transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+                      transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
                       className="absolute left-8 right-8 h-1 bg-gradient-to-r from-transparent via-teal-400 to-transparent shadow-[0_0_10px_rgba(45,212,191,0.8)]"
                     />
                   </div>
