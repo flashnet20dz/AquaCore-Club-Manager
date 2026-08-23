@@ -34,6 +34,7 @@ import {
   SendToBack, PanelRightClose, PanelLeftClose, PanelLeftOpen, PanelRightOpen,
   Moon, Sun, ZoomIn, ZoomOut, Maximize, Users,
   Droplets, Wand2, CalendarRange, Frame, RotateCcw,
+  ListChecks, Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,7 +53,7 @@ import {
   DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -324,6 +325,14 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
   const [viewMode, setViewMode] = useState<"front" | "back" | "both">("front");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedSubIds, setSelectedSubIds] = useState<string[]>([]);
+  // ★ قائمة انتظار الطباعة — بطاقات محفوظة للطباعة لاحقاً (localStorage)
+  const [printQueue, setPrintQueue] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem("aquacore-print-queue");
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+  const [showPrintQueue, setShowPrintQueue] = useState(false);
   const [previewSubId, setPreviewSubId] = useState<string | null>(null);
 
   // ── Members filter state ──
@@ -1033,6 +1042,54 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
     setPreviewSubId(id);
   };
 
+  // ═══════════════════════════════════════════════════════════════
+  // ★ قائمة انتظار الطباعة (Print Queue)
+  // ═══════════════════════════════════════════════════════════════
+  const saveQueue = useCallback((ids: string[]) => {
+    setPrintQueue(ids);
+    try { localStorage.setItem("aquacore-print-queue", JSON.stringify(ids)); } catch {}
+  }, []);
+
+  // إضافة المحددين الحاليين إلى قائمة الانتظار
+  const addToPrintQueue = () => {
+    if (selectedSubIds.length === 0) { toast.info("اختر منخرطاً أولاً"); return; }
+    const newIds = [...new Set([...printQueue, ...selectedSubIds])];
+    saveQueue(newIds);
+    toast.success(`تمت إضافة ${selectedSubIds.length} بطاقة لقائمة الانتظار (الإجمالي: ${newIds.length})`);
+  };
+
+  // إضافة بطاقة واحدة إلى قائمة الانتظار
+  const addOneToPrintQueue = (id: string) => {
+    if (printQueue.includes(id)) {
+      toast.info("البطاقة موجودة مسبقاً في قائمة الانتظار");
+      return;
+    }
+    const newIds = [...printQueue, id];
+    saveQueue(newIds);
+    toast.success("تمت إضافة البطاقة لقائمة الانتظار");
+  };
+
+  // حذف بطاقة من قائمة الانتظار
+  const removeFromPrintQueue = (id: string) => {
+    const newIds = printQueue.filter((x) => x !== id);
+    saveQueue(newIds);
+    toast.success("تم حذف البطاقة من قائمة الانتظار");
+  };
+
+  // مسح قائمة الانتظار بالكامل
+  const clearPrintQueue = () => {
+    saveQueue([]);
+    toast.success("تم مسح قائمة الانتظار");
+  };
+
+  // استخدام قائمة الانتظار كـ المحددين (للطباعة)
+  const usePrintQueue = () => {
+    if (printQueue.length === 0) { toast.info("قائمة الانتظار فارغة"); return; }
+    setSelectedSubIds([...printQueue]);
+    toast.success(`تم تحميل ${printQueue.length} بطاقة من قائمة الانتظار`);
+    setShowPrintQueue(false);
+  };
+
   // ── Rename handler ──
   const handleRenameSave = () => {
     if (renameTarget && renameValue.trim()) {
@@ -1354,6 +1411,46 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
 
             {/* ═══ 4 أزرار طباعة احترافية ═══ */}
             <div className="flex items-center gap-1">
+              {/* ★ زر قائمة انتظار الطباعة */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setShowPrintQueue(true)}
+                    className="h-8 gap-1 relative"
+                  >
+                    <ListChecks className="h-4 w-4 text-violet-600" />
+                    {printQueue.length > 0 && (
+                      <span className="absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-violet-600 text-white text-[9px] font-bold">
+                        {printQueue.length}
+                      </span>
+                    )}
+                    <span className="text-xs hidden lg:inline">قائمة الانتظار</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">قائمة انتظار الطباعة ({printQueue.length} بطاقة)</TooltipContent>
+              </Tooltip>
+
+              {/* ★ زر إضافة المحددين لقائمة الانتظار */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={addToPrintQueue}
+                    disabled={selectedSubIds.length === 0}
+                    className="h-8 gap-1"
+                  >
+                    <Plus className="h-4 w-4 text-violet-600" />
+                    <span className="text-xs hidden lg:inline">حفظ المحددين</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">إضافة المحددين ({selectedSubIds.length}) لقائمة الانتظار</TooltipContent>
+              </Tooltip>
+
+              <Separator orientation="vertical" className="h-6 mx-1" />
+
               {/* ★ زر إعدادات الطباعة */}
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1968,6 +2065,108 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
               <div>
                 <Badge variant="outline" className="mb-2 text-[10px]">الواجهة الخلفية</Badge>
                 {renderCanvas("back")}
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* ★ قائمة انتظار الطباعة — حفظ البطاقات للطباعة لاحقاً */}
+        <Dialog open={showPrintQueue} onOpenChange={setShowPrintQueue}>
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <ListChecks className="h-5 w-5 text-violet-600" />
+                قائمة انتظار الطباعة
+                <Badge variant="secondary">{printQueue.length} بطاقة</Badge>
+              </DialogTitle>
+              <DialogDescription>
+                البطاقات المحفوظة للطباعة لاحقاً. يمكنك الإضافة، الحذف، أو الطباعة المباشرة.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-3">
+              {/* أزرار الإجراءات */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  size="sm"
+                  onClick={usePrintQueue}
+                  disabled={printQueue.length === 0}
+                  className="bg-teal-700 hover:bg-teal-800 text-white"
+                >
+                  <Printer className="h-4 w-4 ml-1" /> تحميل وطباعة ({printQueue.length})
+                </Button>
+                {selectedSubIds.length > 0 && (
+                  <Button size="sm" variant="outline" onClick={addToPrintQueue}
+                    className="border-violet-400 text-violet-700 hover:bg-violet-50">
+                    <Plus className="h-4 w-4 ml-1" /> إضافة المحددين ({selectedSubIds.length})
+                  </Button>
+                )}
+                {printQueue.length > 0 && (
+                  <Button size="sm" variant="ghost" onClick={clearPrintQueue}
+                    className="text-rose-600 hover:bg-rose-50">
+                    <Trash2 className="h-4 w-4 ml-1" /> مسح القائمة
+                  </Button>
+                )}
+              </div>
+
+              {/* قائمة البطاقات المحفوظة */}
+              <div className="rounded-xl border max-h-[50vh] overflow-y-auto">
+                {printQueue.length === 0 ? (
+                  <div className="text-center py-12">
+                    <ListChecks className="h-12 w-12 mx-auto mb-2 text-muted-foreground/30" />
+                    <p className="text-sm text-muted-foreground">قائمة الانتظار فارغة</p>
+                    <p className="text-xs text-muted-foreground/70 mt-1">
+                      حدد منخرطين من القائمة ثم اضغط "حفظ المحددين" لإضافتهم هنا
+                    </p>
+                  </div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-muted/60 z-10">
+                      <tr className="text-right border-b">
+                        <th className="p-2 w-10">#</th>
+                        <th className="p-2">رقم الملف</th>
+                        <th className="p-2">اللقب</th>
+                        <th className="p-2">الاسم</th>
+                        <th className="p-2 text-center w-10">حذف</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {printQueue.map((id, i) => {
+                        const sub = subscribers.find((s) => s.id === id);
+                        if (!sub) return (
+                          <tr key={id} className="border-b hover:bg-muted/40">
+                            <td className="p-2 text-center text-muted-foreground">{i + 1}</td>
+                            <td colSpan={3} className="p-2 text-muted-foreground italic">منخرط محذوف</td>
+                            <td className="p-2 text-center">
+                              <button onClick={() => removeFromPrintQueue(id)} className="p-1 text-rose-500 hover:bg-rose-500/10 rounded">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                        return (
+                          <tr key={id} className="border-b hover:bg-muted/40">
+                            <td className="p-2 text-center text-xs text-muted-foreground">{i + 1}</td>
+                            <td className="p-2 text-center font-mono text-xs">{sub.fileNumber}</td>
+                            <td className="p-2 font-medium">{sub.lastName}</td>
+                            <td className="p-2 font-medium">{sub.firstName}</td>
+                            <td className="p-2 text-center">
+                              <button onClick={() => removeFromPrintQueue(id)} className="p-1 text-rose-500 hover:bg-rose-500/10 rounded" title="حذف من القائمة">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              <div className="rounded-lg bg-violet-50 dark:bg-violet-950/30 border border-violet-300/50 p-2.5">
+                <p className="text-[11px] text-violet-700 dark:text-violet-300">
+                  💡 قائمة الانتظار تُحفظ محلياً في المتصفح. يمكنك إغلاق الصفحة والعودة لاحقاً — البطاقات ستبقى محفوظة.
+                </p>
               </div>
             </div>
           </DialogContent>

@@ -68,12 +68,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 
 export interface PhotoUploaderProps {
   /** معرّف المنخرط (إذا undefined → temp mode: لا يرفع للـ API، فقط يُرجع البيانات) */
@@ -701,27 +695,29 @@ export function PhotoUploader({
             </>
           ) : (
             <>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button type="button" size="sm" disabled={busy}>
-                    <RefreshCw className="h-4 w-4" />
-                    تغيير
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="center">
-                  <DropdownMenuItem
-                    onSelect={() => fileInputRef.current?.click()}
-                  >
-                    <Upload className="h-4 w-4" />
-                    رفع صورة جديدة
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={openCamera}>
-                    <Camera className="h-4 w-4" />
-                    التقاط بالكاميرا
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
+              {/* ★ زر "رفع صورة جديدة" مباشر — أسهل من DropdownMenu */}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={busy}
+              >
+                <RefreshCw className="h-4 w-4" />
+                تغيير الصورة
+              </Button>
+              {/* ★ زر التقاط جديد بالكاميرا */}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={openCamera}
+                disabled={busy}
+              >
+                <Camera className="h-4 w-4" />
+                كاميرا
+              </Button>
+              {/* ★ زر حذف — مؤكد بـ AlertDialog */}
               <Button
                 type="button"
                 size="sm"
