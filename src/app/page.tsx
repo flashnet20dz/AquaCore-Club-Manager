@@ -84,6 +84,10 @@ import {
 } from "@/lib/rcs";
 import { SubscriptionGate } from "@/components/subscription-gate";
 import { SubscriptionBadge } from "@/components/subscription-badge";
+import { CommandPalette } from "@/components/command-palette";
+import { KioskMode } from "@/components/kiosk-mode";
+import { POSReceipt } from "@/components/pos-receipt";
+import { CashRegister } from "@/components/cash-register";
 
 interface Stats {
   total: number;
@@ -148,6 +152,11 @@ export default function Home() {
   const [sortBy, setSortBy] = useState("fileNumber");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [formOpen, setFormOpen] = useState(false);
+  // ★ الميزات الاحترافية الجديدة
+  const [cmdOpen, setCmdOpen] = useState(false); // Command Palette
+  const [kioskOpen, setKioskOpen] = useState(false); // Kiosk Mode
+  const [posOpen, setPosOpen] = useState(false); // POS Receipt
+  const [posSubscriber, setPosSubscriber] = useState<SubscriberWithComputed | null>(null);
   const [editInitial, setEditInitial] = useState<Partial<SubscriberFormValues> & { id?: string } | undefined>();
   const [deleteTarget, setDeleteTarget] = useState<SubscriberWithComputed | null>(null);
   const [qrTarget, setQrTarget] = useState<SubscriberWithComputed | null>(null);
@@ -228,6 +237,25 @@ export default function Home() {
         if (s.themeSecondary) setThemeSecondary(s.themeSecondary);
       })
       .catch(() => {});
+  }, []);
+
+  // ★ اختصار Ctrl+K لفتح Command Palette
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCmdOpen((o) => !o);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  // ★ الاستماع لحدث "navigate-to-renewals" من Kiosk Mode
+  useEffect(() => {
+    const handler = () => handleTabChange("renewals");
+    window.addEventListener("navigate-to-renewals", handler);
+    return () => window.removeEventListener("navigate-to-renewals", handler);
   }, []);
 
   const handleLogout = async () => {
@@ -439,6 +467,28 @@ export default function Home() {
             <Button variant="ghost" size="icon" onClick={fetchData} title="تحديث" aria-label="تحديث البيانات" className="h-9 w-9">
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             </Button>
+            {/* ★ زر البحث السريع (Ctrl+K) */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCmdOpen(true)}
+              className="h-9 gap-1.5 text-muted-foreground"
+              title="بحث سريع (Ctrl+K)"
+            >
+              <Search className="h-4 w-4" />
+              <kbd className="hidden sm:inline text-[10px] font-mono border rounded px-1">Ctrl+K</kbd>
+            </Button>
+            {/* ★ زر شاشة البوابة الذكية */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setKioskOpen(true)}
+              className="h-9 gap-1.5 border-teal-400/40 text-teal-700 hover:bg-teal-50"
+              title="شاشة البوابة الذكية"
+            >
+              <QrCode className="h-4 w-4" />
+              <span className="hidden lg:inline">البوابة</span>
+            </Button>
             <Button onClick={handleAdd} className="h-9 px-3 sm:px-5 shadow-md shadow-primary/20" style={{ display: hasPermission(sessionUser.role, "subscribers") ? "" : "none" }}>
               <Plus className="h-4 w-4 ml-1" />
               <span className="hidden sm:inline">منخرط جديد</span>
@@ -506,6 +556,7 @@ export default function Home() {
                  activeTab === "charges" ? "الأعباء" :
                  activeTab === "staff-compensations" ? "تعويضات العمال" :
                  activeTab === "financial-dashboard" ? "لوحة المالية والتقارير" :
+                 activeTab === "cash-register" ? "الصندوق وتقرير Z" :
                  activeTab === "financial-payments" ? "الدفعات" :
                  activeTab === "financial-reports" ? "التقارير المالية" :
                  activeTab === "members-directory" ? "سجل المنخرطين" :
@@ -614,6 +665,12 @@ export default function Home() {
               {hasPermission(sessionUser.role, "financialDashboard") && (
                 <TabsTrigger value="financial-dashboard" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
                   <Briefcase className="h-4 w-4" /> لوحة المالية والتقارير
+                </TabsTrigger>
+              )}
+              {/* ★ الصندوق وتقرير Z (Cash Register & Z-Report) */}
+              {hasPermission(sessionUser.role, "financialDashboard") && (
+                <TabsTrigger value="cash-register" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
+                  <Wallet className="h-4 w-4" /> الصندوق وتقرير Z
                 </TabsTrigger>
               )}
               {/* ★ تم دمج الدفعات ضمن تبويب الأعباء، والتقارير ضمن لوحة المالية */}
@@ -1023,6 +1080,7 @@ export default function Home() {
                       onDelete={setDeleteTarget}
                       onShowQR={setQrTarget}
                       onViewRecord={setRecordTarget}
+                      onPrintPOS={(s) => { setPosSubscriber(s); setPosOpen(true); }}
                       index={i}
                       selectionMode={selectionMode}
                       selected={selectedIds.includes(sub.id)}
@@ -1204,6 +1262,13 @@ export default function Home() {
                   <FinancialReports />
                 </div>
               )}
+            </TabsContent>
+          )}
+
+          {/* ★ الصندوق وتقرير Z (Cash Register & Z-Report) */}
+          {hasPermission(sessionUser.role, "financialDashboard") && (
+            <TabsContent value="cash-register" className="mt-0">
+              <CashRegister />
             </TabsContent>
           )}
 
@@ -1415,6 +1480,15 @@ export default function Home() {
                 onClick={() => { handleTabChange("financial-dashboard"); setMobileNavOpen(false); }}
               />
             )}
+            {/* ★ الصندوق وتقرير Z mobile nav */}
+            {hasPermission(sessionUser.role, "financialDashboard") && (
+              <MobileNavItem
+                icon={Wallet}
+                label="الصندوق وتقرير Z"
+                active={activeTab === "cash-register"}
+                onClick={() => { handleTabChange("cash-register"); setMobileNavOpen(false); }}
+              />
+            )}
             {/* ★ تم دمج الدفعات ضمن تبويب الأعباء، والتقارير ضمن لوحة المالية */}
             {isAdmin && (
               <MobileNavItem
@@ -1545,6 +1619,22 @@ export default function Home() {
       <SubscriberForm open={formOpen} onOpenChange={setFormOpen} initial={editInitial} onSaved={fetchData} />
       <QRBadgeModal open={!!qrTarget} onOpenChange={(o) => !o && setQrTarget(null)} subscriber={qrTarget} />
       <SubscriberRecordModal subscriber={recordTarget} open={!!recordTarget} onOpenChange={(o) => !o && setRecordTarget(null)} />
+
+      {/* ★ الميزات الاحترافية الجديدة */}
+      <CommandPalette
+        open={cmdOpen}
+        onOpenChange={setCmdOpen}
+        subscribers={subscribers}
+        onNavigate={handleTabChange}
+        onAddSubscriber={handleAdd}
+        onOpenKiosk={() => setKioskOpen(true)}
+      />
+      <KioskMode open={kioskOpen} onClose={() => setKioskOpen(false)} />
+      <POSReceipt
+        open={posOpen}
+        onClose={() => { setPosOpen(false); setPosSubscriber(null); }}
+        subscriber={posSubscriber}
+      />
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

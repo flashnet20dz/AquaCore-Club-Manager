@@ -25,6 +25,7 @@ import {
   Check,
   MessageCircle,
   FileText,
+  Receipt,
 } from "lucide-react";
 import {
   PAYMENT_STATUS_COLORS,
@@ -42,6 +43,7 @@ interface SubscriberCardProps {
   onDelete?: (sub: SubscriberWithComputed) => void;
   onShowQR?: (sub: SubscriberWithComputed) => void;
   onViewRecord?: (sub: SubscriberWithComputed) => void;
+  onPrintPOS?: (sub: SubscriberWithComputed) => void;
   index?: number;
   selectionMode?: boolean;
   selected?: boolean;
@@ -49,7 +51,7 @@ interface SubscriberCardProps {
 }
 
 export const SubscriberCard = memo(function SubscriberCard({
-  subscriber, onEdit, onDelete, onShowQR, onViewRecord, index = 0,
+  subscriber, onEdit, onDelete, onShowQR, onViewRecord, onPrintPOS, index = 0,
   selectionMode = false, selected = false, onToggleSelect,
 }: SubscriberCardProps) {
   const initials = (subscriber.lastName[0] || "") + (subscriber.firstName[0] || "");
@@ -155,6 +157,10 @@ export const SubscriberCard = memo(function SubscriberCard({
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onViewRecord?.(subscriber)}>
                   <FileText className="h-4 w-4 ml-2" /> السجل الكامل
+                </DropdownMenuItem>
+                {/* ★ طباعة وصل حراري (POS) */}
+                <DropdownMenuItem onClick={() => onPrintPOS?.(subscriber)}>
+                  <Receipt className="h-4 w-4 ml-2 text-teal-600" /> طباعة وصل حراري (POS)
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onEdit?.(subscriber)}>
                   <Pencil className="h-4 w-4 ml-2" /> تعديل
