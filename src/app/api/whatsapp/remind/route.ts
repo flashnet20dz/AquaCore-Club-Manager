@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { calculateExpiryDate } from "@/lib/rcs";
+import { calculateExpiryDate, getTypeConfig } from "@/lib/rcs";
 import { getCurrentUser } from "@/lib/session";
 
 /**
@@ -53,7 +53,8 @@ export async function GET() {
     };
     const reminders: Reminder[] = [];
     for (const sub of subscribers) {
-      const expiry = calculateExpiryDate(sub.lastPaymentDate);
+      // 🔧 المدة من نوع الاشتراك الفعلي بدل الافتراضية 30
+      const expiry = calculateExpiryDate(sub.lastPaymentDate, getTypeConfig(sub.subscriptionType).durationDays);
       if (!expiry) continue;
       const diffDays = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
       if (diffDays < 0 || diffDays > 7) continue;
@@ -111,7 +112,7 @@ export async function POST(req: NextRequest) {
     if (phone.startsWith("0")) phone = "213" + phone.slice(1);
     else if (!phone.startsWith("213")) phone = "213" + phone;
 
-    const expiry = calculateExpiryDate(sub.lastPaymentDate);
+    const expiry = calculateExpiryDate(sub.lastPaymentDate, getTypeConfig(sub.subscriptionType).durationDays);
     const templateSetting = await db.setting.findFirst({ where: { clubId, key: "whatsappTemplate" } });
     const template = templateSetting?.value || "مرحباً {name}، اشتراكك ينتهي في {date}.";
 

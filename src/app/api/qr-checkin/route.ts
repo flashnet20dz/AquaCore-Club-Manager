@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { getTypeConfig } from "@/lib/rcs";
 
 // POST /api/qr-checkin  body: { fileNumber }
 // ★ محسّن للأداء العالي:
@@ -34,6 +35,7 @@ export async function POST(req: NextRequest) {
         gender: true,
         paymentStatus: true,
         lastPaymentDate: true,
+        subscriptionType: true,
         phone: true,
       },
     });
@@ -47,8 +49,10 @@ export async function POST(req: NextRequest) {
 
     let expiryDate: Date | null = null;
     if (sub.lastPaymentDate) {
+      // 🔧 المدة من نوع الاشتراك الفعلي (كانت 30 يوماً ثابتة)
+      const durationDays = getTypeConfig(sub.subscriptionType).durationDays;
       expiryDate = new Date(sub.lastPaymentDate);
-      expiryDate.setDate(expiryDate.getDate() + 30);
+      expiryDate.setDate(expiryDate.getDate() + durationDays);
     }
 
     let status: "ok" | "expired" | "no_payment" = "ok";

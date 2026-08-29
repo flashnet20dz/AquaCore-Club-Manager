@@ -65,6 +65,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true });
     }
 
+    if (action === "clearRead") {
+      // 🆕 حذف جماعي للإشعارات المقروءة
+      const result = await db.notification.deleteMany({
+        where: { ...clubFilter, OR: [{ userId: user.id }, { userId: null }], read: true },
+      });
+      return NextResponse.json({ success: true, deleted: result.count });
+    }
+
     if (action === "delete" && id) {
       const existing = await db.notification.findFirst({ where: { id, ...clubFilter } });
       if (!existing) return NextResponse.json({ error: "غير موجود" }, { status: 404 });

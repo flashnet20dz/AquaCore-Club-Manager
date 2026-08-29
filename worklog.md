@@ -143,3 +143,86 @@ Stage Summary:
 - ملف الرقعة الجاهز لمستودع GitHub: /home/z/AquaCore-Club-Manager/security-fixes.patch (5 ملفات، +157/-25)
 - متطلبات ما بعد التطبيق: ضبط CRON_SECRET في البيئة وترويسة x-cron-secret بجدولة Vercel، تدوير مفتاح Cloudinary المسرب، تغيير كلمات سر admin123 في أي نشر قائم
 - المتبقي من القائمة (غير مُصلح): 6 سر HMAC في عميل التفعيل، 7 POS في localStorage، 8 انحراف مخطط SQLite، 9-10 كود ميت/تقسيم، 11 ربط durationDays بـ QR، 12 اختبارات
+
+---
+Task ID: 2
+Agent: member-portal-builder
+Task: بوابة المنخرط /member/[token]
+
+Work Log:
+- قرأ العمل السابق في worklog.md + المخطط (Subscriber/Attendance/Club/Setting/SubscriptionType) + lib/db,lib/session,lib/rcs,lib/rate-limit + عيّنة API conventions (api/subscribers) + layout.tsx (html dir=rtl مؤكد — الصفحة تصر داخل الجذر بلا افتراضات sidebar)
+- ثبّت حزمة `qrcode` + `@types/qrcode` (كانت مفقودة — qrcode.react الموجودة تصلح للعميل فقط لا لتوليد DataURL على الخادم)
+- أنشأ src/lib/portal-token.ts — توكن HMAC-SHA256 محدَّد (deterministic، الحمولة = subscriberId فقط دون timestamp، بناءً على طلب GET idempotent): token = base64url(subscriberId) + "." + base64url(أول 32 hex من HMAC)؛ التحقق بمقارنة زمنية ثابتة crypto.timingSafeEqual؛ بلا انتهاء صلاحية (موثّق في التعليق: الرابط يدوّر فقط عند تغيير MEMBER_PORTAL_SECRET، والأثر محدود لأن الصفحة قراءة-فقط بلا بيانات حساسة)
+- أنشأ src/app/api/member-portal/route.ts — POST (body {subscriberId}) وGET (?subscriberId=) بنفس العقد: 401 بلا جلسة getCurrentUser، rate limit 30 طلب/دقيقة/IP (نفس نمط login: rateLimit+incrementRateLimit+getClientIp)، عزل clubId (superadmin يرى كل النوادي)، findFirst مع deletedAt: null → 404 "المنخرط غير موجود"؛ يُعيد { url: "/member/<token>", token, subscriber: { id, name (lastName firstName), fileNumber } }
+- أنشأ src/app/member/[token]/page.tsx — Server Component (params Promise وفق Next 16: `const { token } = await params`)، عمومية بلا auth: توكن غير صالح → صفحة "رابط غير صالح أو منتهي" أنيقة بأسلوب النادي؛ منخرط محذوف/غير موجود → "هذا الرابط لم يعد صالحاً". جلب متوازٍ: إعدادات النادي (clubName/clubPhone مع fallback إلى Club.name/Club.phone) + آخر 12 حضوراً (date desc، checkInTime desc) + إعدادات نوع الاشتراك من قاعدة البيانات (لضبط durationDays) ثم حساب الحالة عبر computeSubscriberFieldsDynamic/computeSubscriberFields من @/lib/rcs (إعادة استخدام كاملة — لا تكرار منطق)
+- QR على الخادم: QRCode.toDataURL(verificationUrl) — العنوان المطلق يُبنى من headers() (host + x-forwarded-proto مع fallback http://localhost:3000) ويشفر عنوان الصفحة نفسها للتحقق عند المسح
+- تصميم بطاقة رقمية موبايل-أولاً (max-w-md، rounded-3xl): ترويسة متدرجة teal-600→emerald-500 باسم النادي، اسم المنخرط (اللقب الاسم)، شارة الحالة بألوان RENEWAL_STATUS_COLORS المستوردة من lib/rcs، رقم الملف، تاريخ الانتهاء + عدّاد "متبقي/انتهى منذ X يوماً"، رقاقات أيام/فترة السباحة، QR كبير، سجل آخر حضور بتنسيق ar-DZ (التاريخ + الوقت + طريقة: مسح QR/تسجيل يدوي) بحد ارتفاع مع تمرير، تذييل زر "تواصل للتجديد" برابط tel: لهاتف النادي. صفر بيانات حساسة (لا مبالغ، لا سجل دفعات، لا هاتف المنخرط)
+- تحقق: esbuild للملفات الثلاثة ✓، eslint للملفات الثلاثة = 0 أخطاء/0 تحذيرات ✓، tsc --noEmit: صفر أخطاء في الملفات الجديدة (المشروع يحمل 128 خطأ TS موروثاً في ملفات أخرى غير متصلة) ✓، اختبار roundtrip للتوكِن خارج المستودع (mkdir /home/z/tmp-portal-test ثم حذفه): deterministic/roundtrip/tampered/garbage/empty/wrong-sig-len/url-safe كلها PASS ✓، اختبار توليد QR فعلي ✓
+- ملاحظة بيئية: خادم dev كان متوقفاً أثناء الفحص (لا مستمع على 3000 وCaddy يُعيد 502) — لم يُشغَّل التزاماً بتعليمات المهمة؛ hot reload سيحمل الملفات عند إعادة التشغيل
+
+Stage Summary:
+- ملفات منشأة (لم يُعدَّل أي ملف موجود ولا page.tsx ولا مصمم البطاقات):
+  - src/lib/portal-token.ts — 88 سطراً
+  - src/app/api/member-portal/route.ts — 143 سطراً
+  - src/app/member/[token]/page.tsx — 425 سطراً
+- عقد API: POST /api/member-portal {subscriberId} → 200 {url, token, subscriber{id,name,fileNumber}} | 401 غير مصرح | 400 | 404 | 429؛ GET ?subscriberId= بنفس العقد (idempotent — الرابط نفسه دائماً لنفس المنخرط)
+- قرار التوكن: دائم ومحدَّد (الحمولة = subscriberId فقط) — يدوّر فقط عند تغيير MEMBER_PORTAL_SECRET؛ الإنتاج يجب أن يضبط المتغير (موثّق في الترويسة)
+- سلاسل حالات التجديد المكتشفة في lib/rcs.ts وتلوينها: "✅ ساري"=emerald، "⚠️ قريب الانتهاء"=amber، "⛔ منتهي - يتطلب تجديد"=rose، "🔒 مجمدة"=slate (كلها من RENEWAL_STATUS_COLORS)، والحالة الفارغة (لا تاريخ دفع) → fallback slate بنص "لا يوجد اشتراك مدفوع"
+- QR: حزمة qrcode على الخادم (تُثبَّت)، تشفّر عنوان الصفحة الحالي المبني من headers()
+
+---
+Task ID: 3
+Agent: gamification-builder
+Task: نظام الإنجازات Gamification
+
+Work Log:
+- قراءة worklog.md + schema.prisma (Subscriber/Attendance/Setting) + db.ts + session.ts + نموذج analytics/route.ts + نمط rate-limit من auth/login
+- أنشأ src/lib/achievements.ts — محرك حسابي نقي بلا أي استيراد DB: computeAchievements (يقبل Date[] أو {attendances}) يحسب total/currentStreak/longestStreak/monthlyTotal + المستوى + 8 أوسمة بـ progress وnext
+- منطق الأسبوع: الاثنين→الأحد عبر startOfWeek (setDate لتجنب DST)؛ السلسلة الحالية تعود أسبوعاً بأسبوع وتتخطى الأسبوع الحالي غير المكتمل (لا يكسرها)؛ أطول سلسلة بمسح تصاعدي للمفاتيح الفريدة
+- أنشأ src/app/api/achievements/route.ts — GET محمي بـ getCurrentUser (401) + rateLimit 60/دقيقة لكل IP (429 مع Retry-After) + عزل clubId بنمط analytics (superadmin={})
+- الوضع العام: subscribers (deletedAt:null) + attendances آخر 6 أشهر فقط (select date) → leaderboard أفضل 10 (ترتيب: total→streak→monthly→الاسم)، myTop أفضل 3، distribution للمستويات الأربعة، stats (totalSubscribers/activeThisWeek/avgAttendance)، badgeCatalog (عدد فاتحي كل وسام + النسبة)
+- وضع ?subscriberId=: تحقق ملكية المنخرط للنادي (findFirst بـ clubFilter + deletedAt:null) → إنجازاته الكاملة بكل الأوسمة مع progress (404 إن غير موجود)
+- أنشأ src/components/achievements-panel.tsx — لوحة RTL كاملة: ترويسة + 3 بطاقات إحصائيات، منصة تتويج بذهبي/فضي/برونزي gradients (Trophy header، Flame للسلسلة، أيقونات الأوسمة المفتوحة)، جدول ترتيب max-h-96 overflow-y-auto بـ scrollbar مخصص + صفوف قابلة للنقر (Enter/Space) لجلب إنجازات المنخرط عبر ?subscriberId=، توزيع المستويات بأشرطة Progress بألوان كل مستوى (قلب -scale-x-100 للـ RTL)، كتالوج 8 أوسمة (مفتوح ملون / مقفل grayscale + progress نحو العتبة)
+- Skeletons للتحميل، حالة خطأ بزر إعادة محاولة + sonner toast، حالة فارغة "لا توجد بيانات كافية بعد — سجل الحضور أولاً"، motion دخول متدرج خفيف، موبايل أولاً (grid-cols-1 → sm/lg)
+- تحقق: bunx esbuild للملفات الثلاثة → نجاح كامل (0 أخطاء) + tsc --noEmit: صفر أخطاء في الملفات الجديدة (128 خطأ pre-existing في ملفات أخرى غير متعلقة)
+- لم يُعدَّل أي ملف موجود — لا wiring في page.tsx (عمداً، حسب القيود: الربط يتولاها الوكيل الرئيسي عبر <AchievementsPanel />)
+
+Stage Summary:
+- Files created:
+  - src/lib/achievements.ts (محرك نقي: مستويات + أوسمة + أسابيع اثنين→أحد)
+  - src/app/api/achievements/route.ts (GET + rate limit + عزل نادي + وضع منخرط واحد)
+  - src/components/achievements-panel.tsx (لوحة RTL: تتويج + ترتيب + توزيع + كتالوج)
+- API contract:
+  - GET /api/achievements → { leaderboard: [{subscriberId, name, fileNumber, total, monthlyTotal, currentStreak, level:{label,color}, badges:[{id,label,icon}]}] (أفضل 10), distribution: [{level, count, color}] ×4, stats: {totalSubscribers, activeThisWeek, avgAttendance}, myTop: (أفضل 3 بنفس بنية leaderboard), badgeCatalog: [{id, label, icon, description, threshold, unlockedCount, unlockRate}] }
+  - GET /api/achievements?subscriberId=X → { subscriber: {id, name, fileNumber}, achievements: {total, currentStreak, longestStreak, monthlyTotal, level:{label,color}, badges:[{id,label,icon,description,unlocked,progress,next,value}]} }
+  - أخطاء: 401 غير مصرح، 404 منخرط غير موجود، 429 تجاوز 60 طلب/دقيقة (Retry-After)
+- Level thresholds: مبتدئ <10 (#64748b slate) • متوسط 10-24 (#0ea5e9 sky) • متقدم 25-49 (#8b5cf6 violet) • بطل 50+ (#f59e0b amber)
+- Badge thresholds: أول حضور 1 • منتظم 10 • مثابر 25 • أسطورة المسبح 50 • نجم النادي 100 • سلسلة 5/10 أسابيع (أطول سلسلة) • شهر كامل 12 حضوراً بالشهر الحالي
+- ملاحظة تكامل: أضف <AchievementsPanel /> إلى تبويب في page.tsx لعرض الميزة (لم يُنفذ التزاماً بقيود "لا تعديل ملفات موجودة")
+
+---
+Task ID: roadmap-wave-1
+Agent: Z.ai Code (main) + وكيلان (member-portal-builder, gamification-builder)
+Task: تنفيذ الموجة الأولى من خارطة الطريق الكاملة + مراجعة اقتراحات المستخدم الـ15
+
+Work Log:
+- جرد اقتراحات المستخدم الـ15: الموجود فعلاً (تحليلات أساسية، PWA، وضع ليلي، Ctrl+K، صور، مزامنة، Capacitor، rate-limit دخول، AuditLog سوبر-أدمن) مقابل الناقص
+- Task-2 (وكيل): بوابة المنخرط — portal-token.ts (HMAC ثابت) + /api/member-portal + /member/[token] (بطاقة رقمية QR بخادم qrcode) — 7/7 اختبارات توكن
+- Task-3 (وكيل): الإنجازات — achievements.ts (مستويات/شارات/سلاسل) + /api/achievements + achievements-panel.tsx (790 سطراً)
+- إصلاح C4: qr-checkin + whatsapp/remind يستخدمان durationDays من getTypeConfig بدل 30 ثابتة
+- لوحة 2.0: /api/dashboard-extras (تسرب 12 + حرارة 7×14 ذروة 51 + أفضل 5 + هدف 46,000 دج + جدول 7 أيام) + dashboard-extras.tsx
+- إصلاح Prisma: إزالة amount:{not:null} (مرفوض على حقل غير nullable) من dashboard-extras وai/insights
+- أتمتة WhatsApp: lib/whatsapp.ts (Meta Cloud API أو wa.me) + /api/whatsapp/send دفعات + رابط البوابة في الرسالة
+- معالج إعداد أولي بـ4 خطوات يفحص /api/stats + /api/settings + /api/users
+- إشعارات: action clearRead + تصفية بالأنواع في الجرس
+- المساعد الذكي (z-ai-web-dev-sdk خادمياً): تحليل عربي حي بتوصيات — يعمل في المعاينة فقط (غير منقول للمستودع عمداً)
+- إعادة تشغيل الخادم مرات عدة (يموت بين جلسات bash) — الاختبارات دمجت مع التشغيل في جلسة واحدة
+- ربط page.tsx (3 ودجات) + زر البوابة في سجل المنخرط — بدون لمس card-designer إطلاقاً
+- نقل 17 ملفاً لنسخة المستودع (استبعاد ai/insights) + package.json (qrcode) + .env.example — كلها esbuild ✓
+- دفع features-wave-1 إلى GitHub (فوق security-hotfixes)
+
+Stage Summary:
+- 8 ميزات جديدة تعمل حياً في المعاينة (بوابة، إنجازات، لوحة 2.0، واتساب، onboarding، إشعارات، ذكاء، إصلاح QR)
+- فرعا GitHub: security-hotfixes ثم features-wave-1 (شجرة: main → hotfixes → wave-1)
+- متغيرات بيئة جديدة: MEMBER_PORTAL_SECRET، WHATSAPP_TOKEN/PHONE_NUMBER_ID (اختياري)، NEXT_PUBLIC_APP_URL
+- من اقتراحات الـ15: بُني 1,2,3(قراءة),5,6,8,13 — موجود مسبقاً 11,12,14 — مؤجل 4(جزئي),7,9,10,15
