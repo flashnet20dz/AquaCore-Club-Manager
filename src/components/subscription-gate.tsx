@@ -199,10 +199,6 @@ export function ActivationModal({ open, onClose, onActivated }: ActivationModalP
                           <Clipboard className="h-4 w-4" />
                         </button>
                       </div>
-                      {/* ★ تلميح بنية الكود */}
-                      <p className="text-[10px] text-white/30 font-mono text-center" dir="ltr">
-                        بنية الكود: PREFIX-PLAN-PAYLOAD-SIGNATURE
-                      </p>
                     </div>
 
                     <div className="bg-white/[0.03] rounded-xl p-2.5 flex items-start gap-2 text-[11px] sm:text-xs text-white/50">
