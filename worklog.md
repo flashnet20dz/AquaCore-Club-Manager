@@ -123,3 +123,23 @@ Stage Summary:
 - الثغرات الحقيقية المؤكدة بأداة Read: POST /api/users يقبل role دون قائمة بيضاء (تصعيد صلاحيات)، مفاتيح Cloudinary في .env.example، بيانات أعضاء في download/
 - تعديلات على كود المشروع: schema.prisma (sqlite)، .env جديد، db.ts (log)، sync.ts (حماية Array.isArray)، scripts/seed-demo.ts (جديد)
 - الحسابات: admin@rcs.dz/admin123، coach@rcs.dz/coach123، guard@rcs.dz/coach123، PIN 1234
+
+---
+Task ID: sec-fixes-1
+Agent: Z.ai Code (main)
+Task: التحقق من قائمة 12 خطأ مُبلَّغة وكتابة الإصلاحات الأمنية الحرجة (1,2,3,4,5,13)
+
+Work Log:
+- تحقق من البنود الـ12 ضد المستودع: 10 مؤكدة، البندان 1 و13 (خطأا الصياغة المزعومان) خداع بصري — عارض مخرجات Bash يلتهم تسلسل ]h[ (ثُبت بـ awk length=59/37 + esbuild exit=0)
+- نسخ المستودع إلى /home/z/AquaCore-Club-Manager وكتابة 4 إصلاحات أمنية: قفل cron بـ CRON_SECRET (timing-safe)، إزالة باكدور admin123 (SEED_DEFAULT_ADMIN + كلمة سر عشوائية)، whitelist أدوار في POST /api/users، عزل sync/push (قائمة نماذج + فحص ملكية clubId + فرض clubId + حظر delete غير المدعوم)
+- تنظيف .env.example: إزالة مفاتيح Cloudinary الحقيقية + توثيق CRON_SECRET/SEED_DEFAULT_ADMIN/ACTIVATION_HMAC_SECRET
+- اكتشاف: تدفق activationCode في sync/push كان معطوباً أصلاً (payload ينقصه codeHash/batchId الإجباريان) — الرفض الصريح ليس تراجعاً
+- توليد security-fixes.patch وتطبيقه أيضاً على نسخة المعاينة /home/z/my-project (استُبعد .env.example ثم أُصلح يدوياً)
+- اختبارات حية ناجحة: cron مجهول=401، هجوم superadmin عبر POST users=400 "دور غير صالح"، إنشاء lifeguard سليم=201، كلمة سر ضعيفة=400، sync بلا مفتاح=401
+- تحقق متصفح: دخول admin@rcs.dz ✓ لوحة التحكم بـ42 منخرطاً ✓ صفر أخطاء كونسول ✓
+
+Stage Summary:
+- الإصلاحات الأربعة مطبقة في النسختين: /home/z/my-project (المعاينة الحية) و/home/z/AquaCore-Club-Manager
+- ملف الرقعة الجاهز لمستودع GitHub: /home/z/AquaCore-Club-Manager/security-fixes.patch (5 ملفات، +157/-25)
+- متطلبات ما بعد التطبيق: ضبط CRON_SECRET في البيئة وترويسة x-cron-secret بجدولة Vercel، تدوير مفتاح Cloudinary المسرب، تغيير كلمات سر admin123 في أي نشر قائم
+- المتبقي من القائمة (غير مُصلح): 6 سر HMAC في عميل التفعيل، 7 POS في localStorage، 8 انحراف مخطط SQLite، 9-10 كود ميت/تقسيم، 11 ربط durationDays بـ QR، 12 اختبارات
