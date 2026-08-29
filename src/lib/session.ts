@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { db } from "@/lib/db";
 import { cookies } from "next/headers";
 import type { Role, SessionUser } from "@/lib/roles";
@@ -25,7 +26,21 @@ export async function ensureDefaultAdmin(): Promise<void> {
   try {
     const count = await db.user.count();
     if (count > 0) return;
-    const passwordHash = await bcrypt.hash("admin123", 10);
+
+    // 🔒 الحساب الافتراضي لم يعد يُنشأ تلقائياً بكلمة سر معروفة — كانت "admin123"
+    // تتيح لأول زائر على قاعدة بيانات فارغة الاستيلاء على النظام كاملاً.
+    // الآن: يتطلب تفعيلاً صريحاً بمتغير البيئة SEED_DEFAULT_ADMIN=true،
+    // وتُولَّد كلمة سر عشوائية قوية تُطبع مرة واحدة في سجل الخادم.
+    if (process.env.SEED_DEFAULT_ADMIN !== "true") {
+      console.warn(
+        "⚠️ قاعدة البيانات فارغة ولا يوجد مستخدمون. " +
+          "لإنشاء حساب مدير أولي: اضبط SEED_DEFAULT_ADMIN=true ثم أعد المحاولة."
+      );
+      return;
+    }
+
+    const password = crypto.randomBytes(16).toString("base64url"); // ~22 محرفاً عشوائياً
+    const passwordHash = await bcrypt.hash(password, 10);
     await db.user.create({
       data: {
         email: "admin@rcs.dz",
@@ -37,7 +52,10 @@ export async function ensureDefaultAdmin(): Promise<void> {
         pending: false,
       },
     });
-    console.log("✓ Default admin created (admin@rcs.dz / admin123)");
+    console.log(
+      "✓ Default admin created: admin@rcs.dz / " + password +
+        " — غيّر كلمة السر فوراً بعد أول دخول!"
+    );
   } catch (e) {
     console.error("ensureDefaultAdmin error:", e);
   }

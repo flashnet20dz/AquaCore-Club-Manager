@@ -56,26 +56,52 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
     }
 
-    const { name, email, password, role, phone } = await req.json();
+    const { name, email, password, role, phone, clubId: requestedClubId } = await req.json();
+
+    // 🔒 قائمة أدوار مسموحة — مطابقة لـ users/[id]/route.ts.
+    // سابقاً كان الدور يُمرّر خاماً من الجسم، فاستطاع admin إنشاء superadmin.
+    const VALID_ROLES = ["admin", "accountant", "assistant", "lifeguard", "observer"];
+    if (!VALID_ROLES.includes(role)) {
+      return NextResponse.json({ error: "دور غير صالح" }, { status: 400 });
+    }
+
+    // 🔒 تحقق من صحة المدخلات
+    if (
+      !name || !email ||
+      typeof password !== "string" || password.length < 8 ||
+      typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+    ) {
+      return NextResponse.json(
+        { error: "الاسم والبريد صالحان مطلوبان، وكلمة السر 8 محارف على الأقل" },
+        { status: 400 }
+      );
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
 
     // Check if email already exists
-    const existing = await db.user.findUnique({ where: { email } });
+    const existing = await db.user.findUnique({ where: { email: normalizedEmail } });
     if (existing) {
       return NextResponse.json({ error: "البريد الإلكتروني مستخدم بالفعل" }, { status: 400 });
     }
+
+    // 🔒 النادي: admin مقيّد بناديه دائماً؛ superadmin فقط قد يحدد نادياً صراحةً
+    const targetClubId = currentUser.role === "superadmin"
+      ? (requestedClubId || currentUser.clubId)
+      : currentUser.clubId;
 
     const bcrypt = await import("bcryptjs");
     const passwordHash = await bcrypt.hash(password, 10);
 
     const user = await db.user.create({
       data: {
-        email,
+        email: normalizedEmail,
         name,
         passwordHash,
         role,
         phone: phone || null,
         pending: false,
-        clubId: currentUser.clubId,
+        clubId: targetClubId,
       },
       select: { id: true, email: true, name: true, role: true, phone: true, active: true, pending: true, createdAt: true },
     });
