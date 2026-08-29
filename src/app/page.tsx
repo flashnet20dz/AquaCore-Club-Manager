@@ -85,6 +85,9 @@ import {
 import { SubscriptionGate } from "@/components/subscription-gate";
 import { SubscriptionBadge } from "@/components/subscription-badge";
 import { CommandPalette } from "@/components/command-palette";
+import { DashboardExtras } from "@/components/dashboard-extras";
+import { OnboardingChecklist } from "@/components/onboarding-checklist";
+import { AchievementsPanel } from "@/components/achievements-panel";
 import { KioskMode } from "@/components/kiosk-mode";
 import { POSReceipt } from "@/components/pos-receipt";
 import { CashRegister } from "@/components/cash-register";
@@ -699,6 +702,7 @@ export default function Home() {
 
           {/* DASHBOARD TAB */}
           <TabsContent value="dashboard" className="space-y-6 mt-0">
+            <OnboardingChecklist onGoTab={handleTabChange} />
             {loading || !stats ? (
               <DashboardSkeleton />
             ) : (
@@ -920,6 +924,8 @@ export default function Home() {
                 </section>
               </>
             )}
+
+            <DashboardExtras />
           </TabsContent>
 
           {/* SUBSCRIBERS TAB */}
@@ -1282,6 +1288,7 @@ export default function Home() {
           {/* ANALYTICS TAB */}
           <TabsContent value="analytics" className="mt-0">
             <AnalyticsCharts />
+            <AchievementsPanel />
           </TabsContent>
 
           {/* WORK HOURS TAB */}

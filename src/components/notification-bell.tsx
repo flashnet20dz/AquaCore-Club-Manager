@@ -38,6 +38,7 @@ export function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [filter, setFilter] = useState<string>("all"); // all | unread | renewal | payment | system | info
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchNotifications = async () => {
@@ -93,6 +94,32 @@ export function NotificationBell() {
     } catch {}
   };
 
+  const handleClearRead = async () => {
+    try {
+      await fetch("/api/notifications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clearRead" }),
+      });
+      toast.success("تم مسح الإشعارات المقروءة");
+      fetchNotifications();
+    } catch {}
+  };
+
+  const filtered = notifications.filter((n) => {
+    if (filter === "all") return true;
+    if (filter === "unread") return !n.read;
+    return n.type === filter;
+  });
+
+  const FILTERS: { id: string; label: string }[] = [
+    { id: "all", label: "الكل" },
+    { id: "unread", label: `غير مقروء${unreadCount > 0 ? ` (${unreadCount})` : ""}` },
+    { id: "renewal", label: "تجديد" },
+    { id: "payment", label: "مالية" },
+    { id: "system", label: "نظام" },
+  ];
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -128,8 +155,34 @@ export function NotificationBell() {
           )}
         </div>
 
+        {/* 🆕 تصفية الإشعارات + مسح المقروء */}
+        <div className="flex items-center gap-1 px-2 py-1.5 border-b overflow-x-auto">
+          {FILTERS.map((f) => (
+            <button
+              key={f.id}
+              onClick={() => setFilter(f.id)}
+              className={cn(
+                "px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap transition",
+                filter === f.id
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted/60 text-muted-foreground hover:bg-muted"
+              )}
+            >
+              {f.label}
+            </button>
+          ))}
+          <span className="flex-1" />
+          <button
+            onClick={handleClearRead}
+            title="مسح الإشعارات المقروءة"
+            className="p-1 rounded-md text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 transition shrink-0"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </div>
+
         <ScrollArea className="h-[400px]">
-          {notifications.length === 0 ? (
+          {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
               <Bell className="h-8 w-8 mb-2 opacity-30" />
               <p className="text-sm">لا توجد إشعارات</p>
@@ -137,7 +190,7 @@ export function NotificationBell() {
           ) : (
             <div className="divide-y">
               <AnimatePresence initial={false}>
-                {notifications.map((n) => {
+                {filtered.map((n) => {
                   const { icon: Icon, color } = TYPE_ICONS[n.type] || TYPE_ICONS.info;
                   return (
                     <motion.div
