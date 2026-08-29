@@ -226,3 +226,28 @@ Stage Summary:
 - فرعا GitHub: security-hotfixes ثم features-wave-1 (شجرة: main → hotfixes → wave-1)
 - متغيرات بيئة جديدة: MEMBER_PORTAL_SECRET، WHATSAPP_TOKEN/PHONE_NUMBER_ID (اختياري)، NEXT_PUBLIC_APP_URL
 - من اقتراحات الـ15: بُني 1,2,3(قراءة),5,6,8,13 — موجود مسبقاً 11,12,14 — مؤجل 4(جزئي),7,9,10,15
+---
+Task ID: settings-sync-full
+Agent: Z.ai Code (main)
+Task: إصلاح «أيام السباحة فارغة في الإعدادات ← المنخرطون» + تحقيق «كل ميزة لها إعدادات متزامنة معها»
+
+Work Log:
+- التشخيص: أيام السباحة كانت تُبذر في seed-demo.ts فقط؛ تسجيل /api/clubs/register والبذر القياسي لا ينشئان شيئاً → جدول فارغ للنوادي الحقيقية
+- src/lib/feature-defaults.ts: DEFAULT_SWIM_DAYS (7 أيام، السبت مغلق) + DEFAULT_SWIM_SLOTS (5) + ensureSwimDefaults(clubId, force?) بعلم Setting «swimDefaultsSeeded» يمنع إحياء حذف المدير المتعمد
+- ربط البذر: GET /api/swimming-days + GET /api/swimming-slots (كسول) + POST /api/clubs/register (عند الإنشاء) + PUT /api/swimming-days (زر استعادة يدوي)
+- src/hooks/use-swim-config.ts: كاش وحدة 30ث + نمط اشتراك (invalidateSwimConfig تُبلّغ المكونات المثبتة → إعادة جلب فوري بلا reload) + fallback لقوائم rcs.ts
+- تحويل 3 مستهلكين من الثوابت إلى الديناميكي: subscriber-form (رقاقتا الأيام/التوقيت + الحقل المخصص)، waitlist-panel (Selectان + السعة)، compensations-panel (4 Selectات في 3 نوافذ: إغلاق/جدولة/جماعي) — بقيم مشتقة effectiveDays/effectiveSlot بدل useEffect+setState (توافق قواعد React)
+- src/lib/feature-settings.ts: سجل 6 مجموعات/9 مفاتيح (memberPortalEnabled, gamificationEnabled, reminderRepeatDays=1, attendanceAbsenceWindowDays=21, waitlistDefaultCapacity=30, monthlyRevenueTarget, whatsappEnabled, whatsappTemplate) + getFeatureSettings مدمجة الافتراضيات
+- /api/feature-settings GET/PUT: قبول مفاتيح السجل فقط (مفتاح دخيل = 400)، PUT للأمين فقط
+- src/components/feature-settings-hub.tsx + تبويب «🧩 الميزات» في settings-panel: بطاقات لكل ميزة مع مفتاح/حقل + قسم «أين تُستخدم هذه الإعدادات؟» + حفظ المتغير فقط + تراجع
+- ربط الاستهلاك الفعلي (لا إعدادات ميتة): member-portal 403 عند التعطيل، whatsapp/send 403 + يمنع رابط البوابة، achievements يرجع enabled:false (الفردي والعام) وachievements-panel بطاقة إيقاف أنيقة، waitlist يستخدم السعة من الإعداد، cron/notifications نافذة التذكير+الغياب لكل نادٍ (كاش featByClub)
+- إصلاحات إضافية: إصلاح خطأ كونسول sync «localSubs.map is not a function» (Array.isArray دفاعي)، إصلاح useEffect patterns في settings-panel (setState داخل callbacks)
+- اختبارات حية: مسح الجداول → GET يبذر 7+5، حذف متعمد لا يُعاد، PUT استعادة يعيد، تعطيل البوابة/واتساب/الإنجازات يُغيّر سلوك API فوراً (403/403/enabled:false)، تعديل اسم يوم من الإعدادات يظهر في نموذج المنخرط بلا reload، دورة إنجازات OFF→بطاقة إيقاف→ON→لوحة كاملة
+- قاعدة البيانات الحية: gamificationEnabled=true، memberPortalEnabled=true، whatsappEnabled=true، waitlistDefaultCapacity=25 (بقايا اختبار — مقصودة كقيمة صالحة)
+
+Stage Summary:
+- «أيام السباحة فارغة» محسومة جذرياً: بذر تلقائي + استعادة يدوية + حالة فارغة بإرشاد
+- «كل ميزة لها إعدادات متزامنة» = مركز الميزات الجديد: 6 بطاقات، كل مفتاح مستهلك فعلياً في كود الميزة وقت الطلب
+- مزامنة الأيام/التوقيتات: قاعدة البيانات مصدر وحيد لكل النماذج (منخرط/انتظار/تعويضات) بتحديث فوري
+- صفر أخطاء كونسول بعد إصلاح sync، lint نظيف على كل الملفات المعدلة (الأخطاء الباقية بالمستودع سابقة في ملفات لم تُمس: scripts, command-palette, contract-tab…)
+- لم يُلمس card-designer-pro.tsx إطلاقاً

@@ -25,6 +25,8 @@ import { toast } from "sonner";
 import { UnifiedHeaderSettings } from "@/components/unified-header-settings";
 import { DesktopSettings } from "@/components/desktop-settings";
 import { useSubscriptionTypes, invalidateSubscriptionTypesCache } from "@/hooks/use-subscription-types";
+import { invalidateSwimConfig } from "@/hooks/use-swim-config";
+import { FeatureSettingsHub } from "@/components/feature-settings-hub";
 
 export function SettingsPanel() {
   const [settings, setSettings] = useState<Record<string, string>>({});
@@ -97,6 +99,7 @@ export function SettingsPanel() {
             <TabsTrigger value="entete" className="text-xs flex-1">📄 الترويسة الموحدة</TabsTrigger>
             <TabsTrigger value="texts" className="text-xs flex-1">📝 النصوص</TabsTrigger>
             <TabsTrigger value="whatsapp" className="text-xs flex-1">💬 WhatsApp</TabsTrigger>
+            <TabsTrigger value="features" className="text-xs flex-1">🧩 الميزات</TabsTrigger>
             <TabsTrigger value="desktop" className="text-xs flex-1">💻 سطح المكتب</TabsTrigger>
           </TabsList>
 
@@ -242,6 +245,11 @@ export function SettingsPanel() {
               />
               <p className="text-xs text-muted-foreground">المتغيرات: {`{name}`} (الاسم)، {`{date}`} (تاريخ الانتهاء)</p>
             </div>
+          </TabsContent>
+
+          {/* ════════════ الميزات (كل ميزة بإعداداتها المتزامنة) ════════════ */}
+          <TabsContent value="features" className="mt-3">
+            <FeatureSettingsHub />
           </TabsContent>
 
           {/* ════════════ سطح المكتب (Desktop) ════════════ */}
@@ -477,7 +485,20 @@ function SwimmingDaysManager() {
     setLoading(true);
     globalThis.fetch("/api/swimming-days").then(r => r.json()).then(d => setDays(d.days || [])).finally(() => setLoading(false));
   }, []);
-  useEffect(() => { fetchDays(); }, [fetchDays]);
+
+  // الجلب الأولي — كل setState داخل callbacks (متوافق مع قواعد React hooks)
+  useEffect(() => {
+    let cancelled = false;
+    globalThis.fetch("/api/swimming-days")
+      .then(r => r.json())
+      .then(d => { if (!cancelled) setDays(d.days || []); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  // 🔗 إبطال كاش الميزات — النماذج (منخرط/انتظار/تعويضات) تلتقط التعديل فوراً
+  const syncMutate = async () => { invalidateSwimConfig(); };
 
   const handleSave = async () => {
     if (!form.name) { toast.error("الاسم مطلوب"); return; }
@@ -485,22 +506,40 @@ function SwimmingDaysManager() {
     const method = editing ? "PATCH" : "POST";
     await globalThis.fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
     toast.success(editing ? "تم التحديث" : "تمت الإضافة");
-    setDialogOpen(false); fetchDays();
+    setDialogOpen(false); syncMutate(); fetchDays();
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm("حذف؟")) return;
     await globalThis.fetch(`/api/swimming-days/${id}`, { method: "DELETE" });
-    toast.success("تم الحذف"); fetchDays();
+    toast.success("تم الحذف"); syncMutate(); fetchDays();
+  };
+
+  const restoreDefaults = async () => {
+    const res = await globalThis.fetch("/api/swimming-days", { method: "PUT" });
+    if (res.ok) { toast.success("تمت استعادة الأيام والتوقيتات الافتراضية"); syncMutate(); fetchDays(); }
+    else toast.error("تعذّرت الاستعادة");
   };
 
   return (
     <div className="rounded-xl border border-border/60 p-4 space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2"><Calendar className="h-4 w-4 text-primary" /><h4 className="font-bold text-sm">أيام السباحة</h4><Badge variant="secondary" className="text-[10px]">{days.length}</Badge></div>
-        <Button size="sm" onClick={() => { setEditing(null); setForm({ name: "", shortName: "", color: "#0d9488", active: true, sortOrder: days.length }); setDialogOpen(true); }}><Plus className="h-4 w-4 ml-1" /> إضافة</Button>
+        <div className="flex gap-1.5">
+          {!loading && days.length === 0 && (
+            <Button size="sm" variant="outline" onClick={restoreDefaults}><RefreshCw className="h-3.5 w-3.5 ml-1" /> استعادة الافتراضي</Button>
+          )}
+          <Button size="sm" onClick={() => { setEditing(null); setForm({ name: "", shortName: "", color: "#0d9488", active: true, sortOrder: days.length }); setDialogOpen(true); }}><Plus className="h-4 w-4 ml-1" /> إضافة</Button>
+        </div>
       </div>
-      {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : (
+      <p className="text-[11px] text-muted-foreground">
+        🔗 هذه الأيام تستخدمها تلقائياً: نموذج المنخرط، قائمة الانتظار، التعويضات، جدول الحضور والتحليلات — أي تعديل هنا ينعكس عليها فوراً.
+      </p>
+      {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : days.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
+          لا توجد أيام سباحة بعد — أضف يوماً أو اضغط «استعادة الافتراضي».
+        </div>
+      ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead><tr className="text-right border-b"><th className="p-1.5">الاسم</th><th className="p-1.5">الرمز</th><th className="p-1.5">اللون</th><th className="p-1.5">الترقيم</th><th className="p-1.5">فعال</th><th className="p-1.5">ترتيب</th><th className="p-1.5"></th></tr></thead>
@@ -548,7 +587,17 @@ function SwimmingTimeSlotsManager() {
     setLoading(true);
     globalThis.fetch("/api/swimming-slots").then(r => r.json()).then(d => setSlots(d.slots || [])).finally(() => setLoading(false));
   }, []);
-  useEffect(() => { fetchSlots(); }, [fetchSlots]);
+
+  // الجلب الأولي — كل setState داخل callbacks
+  useEffect(() => {
+    let cancelled = false;
+    globalThis.fetch("/api/swimming-slots")
+      .then(r => r.json())
+      .then(d => { if (!cancelled) setSlots(d.slots || []); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
 
   const handleSave = async () => {
     if (!form.name) { toast.error("الاسم مطلوب"); return; }
@@ -556,22 +605,37 @@ function SwimmingTimeSlotsManager() {
     const method = editing ? "PATCH" : "POST";
     await globalThis.fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
     toast.success(editing ? "تم التحديث" : "تمت الإضافة");
-    setDialogOpen(false); fetchSlots();
+    setDialogOpen(false); invalidateSwimConfig(); fetchSlots();
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm("حذف؟")) return;
     await globalThis.fetch(`/api/swimming-slots/${id}`, { method: "DELETE" });
-    toast.success("تم الحذف"); fetchSlots();
+    toast.success("تم الحذف"); invalidateSwimConfig(); fetchSlots();
   };
 
   return (
     <div className="rounded-xl border border-border/60 p-4 space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2"><Timer className="h-4 w-4 text-primary" /><h4 className="font-bold text-sm">توقيتات السباحة</h4><Badge variant="secondary" className="text-[10px]">{slots.length}</Badge></div>
-        <Button size="sm" onClick={() => { setEditing(null); setForm({ name: "", startTime: "09:00", endTime: "10:00", maxCapacity: 30, active: true, sortOrder: slots.length }); setDialogOpen(true); }}><Plus className="h-4 w-4 ml-1" /> إضافة</Button>
+        <div className="flex gap-1.5">
+          {!loading && slots.length === 0 && (
+            <Button size="sm" variant="outline" onClick={async () => {
+              const res = await globalThis.fetch("/api/swimming-days", { method: "PUT" });
+              if (res.ok) { toast.success("تمت الاستعادة"); invalidateSwimConfig(); fetchSlots(); }
+            }}><RefreshCw className="h-3.5 w-3.5 ml-1" /> استعادة الافتراضي</Button>
+          )}
+          <Button size="sm" onClick={() => { setEditing(null); setForm({ name: "", startTime: "09:00", endTime: "10:00", maxCapacity: 30, active: true, sortOrder: slots.length }); setDialogOpen(true); }}><Plus className="h-4 w-4 ml-1" /> إضافة</Button>
+        </div>
       </div>
-      {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : (
+      <p className="text-[11px] text-muted-foreground">
+        🔗 تُستخدم في نموذج المنخرط (حقل التوقيت)، قائمة الانتظار، وتحديد السعة القصوى للحصة.
+      </p>
+      {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : slots.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
+          لا توجد توقيتات بعد — أضف توقيتاً أو اضغط «استعادة الافتراضي».
+        </div>
+      ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead><tr className="text-right border-b"><th className="p-1.5">الاسم</th><th className="p-1.5">البداية</th><th className="p-1.5">النهاية</th><th className="p-1.5">السعة</th><th className="p-1.5">فعال</th><th className="p-1.5"></th></tr></thead>

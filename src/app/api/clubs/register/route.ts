@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import bcrypt from "bcryptjs";
 import { startTrial } from "@/lib/subscription-state";
+import { ensureSwimDefaults } from "@/lib/feature-defaults";
 
 /**
  * POST /api/clubs/register
@@ -75,6 +76,12 @@ export async function POST(req: NextRequest) {
         status: "pending",
       },
     });
+
+    // 🏊 بذر أيام السباحة والتوقيتات الافتراضية — حتى لا يجد النادي الجديد
+    // قسم "أيام السباحة" فارغاً في الإعدادات (كان سبب خلل «الإعدادات غير متزامنة»)
+    await ensureSwimDefaults(db, club.id).catch((err) =>
+      console.error("swim defaults seed (register):", err)
+    );
 
     return NextResponse.json({
       success: true,

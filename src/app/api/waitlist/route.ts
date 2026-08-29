@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { getFeatureSettings } from "@/lib/feature-settings";
 
 /**
  * GET /api/waitlist?status=waiting
@@ -57,7 +58,10 @@ export async function POST(req: NextRequest) {
       db.swimmingTimeSlot.findFirst({ where: { clubId: currentUser.clubId, name: desiredTimeSlot } }),
       db.subscriber.count({ where: { clubId: currentUser.clubId, swimmingDays: desiredSwimmingDays, timeSlot: desiredTimeSlot } }),
     ]);
-    const maxCapacity = slot?.maxCapacity ?? 30;
+    // 🧩 السعة الافتراضية متزامنة مع الإعدادات ← الميزات ← قائمة الانتظار
+    const feat = await getFeatureSettings(db, currentUser.clubId);
+    const defaultCapacity = Number(feat.waitlistDefaultCapacity) || 30;
+    const maxCapacity = slot?.maxCapacity ?? defaultCapacity;
 
     return NextResponse.json({ entry, currentOccupancy: regularCount, maxCapacity });
   } catch (e) {

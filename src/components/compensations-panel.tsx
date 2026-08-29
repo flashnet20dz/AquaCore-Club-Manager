@@ -53,9 +53,8 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { useSwimConfig } from "@/hooks/use-swim-config";
 import {
-  SWIMMING_DAYS,
-  TIME_SLOTS,
   SUBSCRIPTION_TYPES,
   PAYMENT_STATUSES,
   PAYMENT_STATUS_COLORS,
@@ -616,6 +615,8 @@ function NewClosureDialog({
   onCreated: () => void;
 }) {
   // ★ فترة الإغلاق: من تاريخ إلى تاريخ (لو endDate فارغ = إغلاق يوم واحد)
+  // 🔗 أيام/توقيتات متزامنة مع الإعدادات (تبويب المنخرطون)
+  const { dayNames, slotLabels } = useSwimConfig();
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [swimmingDays, setSwimmingDays] = useState<string>("__all__");
@@ -804,7 +805,7 @@ function NewClosureDialog({
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="__all__">كل المجموعات (إغلاق شامل لليوم)</SelectItem>
-                {SWIMMING_DAYS.map((d) => (
+                {dayNames.map((d) => (
                   <SelectItem key={d} value={d}>{d}</SelectItem>
                 ))}
               </SelectContent>
@@ -817,7 +818,7 @@ function NewClosureDialog({
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="__all__">كل التوقيتات</SelectItem>
-                {TIME_SLOTS.map((t) => (
+                {slotLabels.map((t) => (
                   <SelectItem key={t} value={t}>{t}</SelectItem>
                 ))}
               </SelectContent>
@@ -1040,15 +1041,20 @@ function ScheduleDialog({
   onClose: () => void;
   onScheduled: () => void;
 }) {
+  // 🔗 أيام/توقيتات متزامنة مع الإعدادات (تبويب المنخرطون)
+  const { dayNames, slotLabels } = useSwimConfig();
   const [date, setDate] = useState("");
   const [swimmingDays, setSwimmingDays] = useState<string>(
-    compensation.originalSwimmingDays || SWIMMING_DAYS[0]
+    compensation.originalSwimmingDays || ""
   );
-  const [timeSlot, setTimeSlot] = useState<string>(compensation.originalTimeSlot || TIME_SLOTS[0]);
+  const [timeSlot, setTimeSlot] = useState<string>(compensation.originalTimeSlot || "");
   const [submitting, setSubmitting] = useState(false);
+  // قيمة مشتقة: المحفوظة أولاً وإلا أول عنصر متزامن
+  const effectiveDays = swimmingDays || compensation.originalSwimmingDays || dayNames[0] || "";
+  const effectiveSlot = timeSlot || compensation.originalTimeSlot || slotLabels[0] || "";
 
   const submit = async () => {
-    if (!date || !timeSlot) {
+    if (!date || !effectiveSlot) {
       toast.error("التاريخ والتوقيت مطلوبان");
       return;
     }
@@ -1060,8 +1066,8 @@ function ScheduleDialog({
         body: JSON.stringify({
           action: "schedule",
           compensationDate: date,
-          compensationSwimmingDays: swimmingDays,
-          compensationTimeSlot: timeSlot,
+          compensationSwimmingDays: effectiveDays,
+          compensationTimeSlot: effectiveSlot,
         }),
       });
       const data = await res.json();
@@ -1095,10 +1101,10 @@ function ScheduleDialog({
           </div>
           <div className="space-y-1.5">
             <Label>مجموعة الأيام</Label>
-            <Select value={swimmingDays} onValueChange={setSwimmingDays}>
+            <Select value={effectiveDays} onValueChange={setSwimmingDays}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                {SWIMMING_DAYS.map((d) => (
+                {dayNames.map((d) => (
                   <SelectItem key={d} value={d}>{d}</SelectItem>
                 ))}
               </SelectContent>
@@ -1106,10 +1112,10 @@ function ScheduleDialog({
           </div>
           <div className="space-y-1.5">
             <Label>التوقيت *</Label>
-            <Select value={timeSlot} onValueChange={setTimeSlot}>
+            <Select value={effectiveSlot} onValueChange={setTimeSlot}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                {TIME_SLOTS.map((t) => (
+                {slotLabels.map((t) => (
                   <SelectItem key={t} value={t}>{t}</SelectItem>
                 ))}
               </SelectContent>
@@ -1146,16 +1152,20 @@ function BulkScheduleDialog({
   onSubmit: (payload: { compensationDate: string; compensationSwimmingDays: string; compensationTimeSlot: string }) => void;
   submitting: boolean;
 }) {
+  const { dayNames, slotLabels } = useSwimConfig();
   const [date, setDate] = useState("");
-  const [swimmingDays, setSwimmingDays] = useState<string>(SWIMMING_DAYS[0]);
-  const [timeSlot, setTimeSlot] = useState<string>(TIME_SLOTS[0]);
+  const [swimmingDays, setSwimmingDays] = useState<string>("");
+  const [timeSlot, setTimeSlot] = useState<string>("");
+  // قيمة مشتقة: الافتراضي أول عنصر متزامن حتى يختار المستخدم
+  const effectiveDays = swimmingDays || dayNames[0] || "";
+  const effectiveSlot = timeSlot || slotLabels[0] || "";
 
   const submit = () => {
-    if (!date || !timeSlot) {
+    if (!date || !effectiveSlot) {
       toast.error("التاريخ والتوقيت مطلوبان");
       return;
     }
-    onSubmit({ compensationDate: date, compensationSwimmingDays: swimmingDays, compensationTimeSlot: timeSlot });
+    onSubmit({ compensationDate: date, compensationSwimmingDays: effectiveDays, compensationTimeSlot: effectiveSlot });
   };
 
   return (
@@ -1179,10 +1189,10 @@ function BulkScheduleDialog({
           </div>
           <div className="space-y-1.5">
             <Label>مجموعة الأيام</Label>
-            <Select value={swimmingDays} onValueChange={setSwimmingDays}>
+            <Select value={effectiveDays} onValueChange={setSwimmingDays}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                {SWIMMING_DAYS.map((d) => (
+                {dayNames.map((d) => (
                   <SelectItem key={d} value={d}>{d}</SelectItem>
                 ))}
               </SelectContent>
@@ -1190,10 +1200,10 @@ function BulkScheduleDialog({
           </div>
           <div className="space-y-1.5">
             <Label>التوقيت *</Label>
-            <Select value={timeSlot} onValueChange={setTimeSlot}>
+            <Select value={effectiveSlot} onValueChange={setTimeSlot}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                {TIME_SLOTS.map((t) => (
+                {slotLabels.map((t) => (
                   <SelectItem key={t} value={t}>{t}</SelectItem>
                 ))}
               </SelectContent>

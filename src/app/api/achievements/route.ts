@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { rateLimit, incrementRateLimit, getClientIp } from "@/lib/rate-limit";
+import { getFeatureSettings, isSettingOn } from "@/lib/feature-settings";
 import {
   computeAchievements,
   getLevelForTotal,
@@ -55,13 +56,20 @@ export async function GET(req: NextRequest) {
         attendances: attendances.map((a) => a.date),
       });
 
+      // 🧩 الميزة متزامنة مع الإعدادات ← الميزات ← الإنجازات
+      const feat = currentUser.clubId
+        ? await getFeatureSettings(db, currentUser.clubId)
+        : null;
+      const enabled = !feat || isSettingOn(feat.gamificationEnabled);
+
       return NextResponse.json({
+        enabled,
         subscriber: {
           id: subscriber.id,
           name: `${subscriber.lastName} ${subscriber.firstName}`.trim(),
           fileNumber: subscriber.fileNumber,
         },
-        achievements,
+        achievements: enabled ? achievements : null,
       });
     }
 
@@ -162,12 +170,20 @@ export async function GET(req: NextRequest) {
         : 0,
     };
 
+    // 🧩 الميزة متزامنة مع الإعدادات ← الميزات ← الإنجازات
+    const feat = currentUser.clubId ? await getFeatureSettings(db, currentUser.clubId) : null;
+    const gamificationEnabled = !feat || isSettingOn(feat.gamificationEnabled);
+
     return NextResponse.json({
-      leaderboard,
-      distribution,
-      stats,
-      myTop,
-      badgeCatalog,
+      enabled: gamificationEnabled,
+      leaderboard: gamificationEnabled ? leaderboard : [],
+      distribution: gamificationEnabled ? distribution : ACHIEVEMENT_LEVELS.map((l) => ({ level: l.label, count: 0, color: l.color })),
+      stats: gamificationEnabled ? stats : { totalSubscribers, activeThisWeek: 0, avgAttendance: 0 },
+      myTop: gamificationEnabled ? myTop : [],
+      badgeCatalog: gamificationEnabled ? badgeCatalog : BADGE_CATALOG.map((def) => ({
+        id: def.id, label: def.label, icon: def.icon, description: def.description,
+        threshold: def.threshold, unlockedCount: 0, unlockRate: 0,
+      })),
     });
   } catch (e) {
     console.error("Achievements:", e);

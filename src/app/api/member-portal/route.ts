@@ -20,6 +20,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { rateLimit, incrementRateLimit, getClientIp } from "@/lib/rate-limit";
 import { createPortalToken } from "@/lib/portal-token";
+import { getFeatureSettings, isSettingOn } from "@/lib/feature-settings";
 
 /** Rate limit: 30 طلب/دقيقة لكل IP (توليد الروابط إجراء موظفين، لكن نحترس من الإساءة) */
 const RL_OPTIONS = { max: 30, windowMs: 60 * 1000 };
@@ -31,6 +32,14 @@ async function generatePortalLink(
 ): Promise<{ ok: true; data: { url: string; token: string; subscriber: { id: string; name: string; fileNumber: string } } } | { ok: false; status: number; error: string }> {
   if (!subscriberId || typeof subscriberId !== "string" || !subscriberId.trim()) {
     return { ok: false, status: 400, error: "معرّف المنخرط (subscriberId) مطلوب" };
+  }
+
+  // 🧩 إعداد الميزة: التزامن مع الإعدادات ← الميزات (memberPortalEnabled)
+  if (clubId) {
+    const feat = await getFeatureSettings(db, clubId);
+    if (!isSettingOn(feat.memberPortalEnabled)) {
+      return { ok: false, status: 403, error: "بوابة المنخرط معطّلة — فعلها من الإعدادات ← الميزات" };
+    }
   }
 
   // 🔒 عزل حسب النادي — superadmin فقط يرى كل النوادي

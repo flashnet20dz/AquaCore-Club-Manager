@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { calculateExpiryDate, getTypeConfig } from "@/lib/rcs";
 import { createPortalToken } from "@/lib/portal-token";
+import { getFeatureSettings, isSettingOn } from "@/lib/feature-settings";
 import {
   isCloudConfigured, normalizeDzPhone, renderTemplate, sendWhatsApp,
 } from "@/lib/whatsapp";
@@ -36,6 +37,16 @@ export async function POST(req: NextRequest) {
 
     const clubId = currentUser.clubId!;
     const clubFilter = currentUser.role === "superadmin" ? {} : { clubId };
+
+    // 🧩 إعدادات الميزة (تزامن مع الإعدادات ← الميزات):
+    //  - whatsappEnabled: مفتاح التبديل العام للإرسال
+    //  - memberPortalEnabled: يمنع تضمين رابط البوابة حين تكون البوابة معطلة
+    const feat = await getFeatureSettings(db, clubId);
+    if (!isSettingOn(feat.whatsappEnabled)) {
+      return NextResponse.json({ error: "إشعارات WhatsApp معطّلة — فعلها من الإعدادات ← الميزات ← WhatsApp" }, { status: 403 });
+    }
+    const portalAllowed = isSettingOn(feat.memberPortalEnabled);
+
     const clubNameSetting = await db.setting.findFirst({ where: { clubId, key: "clubName" } });
     const clubName = clubNameSetting?.value || "النادي";
     const templateSetting = await db.setting.findFirst({ where: { clubId, key: "whatsappTemplate" } });
@@ -62,7 +73,7 @@ export async function POST(req: NextRequest) {
 
       const expiry = calculateExpiryDate(sub.lastPaymentDate, getTypeConfig(sub.subscriptionType).durationDays);
       let portalUrl = "";
-      if (includePortal) {
+      if (includePortal && portalAllowed) {
         const token = createPortalToken(sub.id);
         portalUrl = `${origin}/member/${token}`;
       }
