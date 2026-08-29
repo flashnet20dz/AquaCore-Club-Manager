@@ -1,16 +1,44 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { db } from "@/lib/db";
 import { computeSubscriberFields } from "@/lib/rcs";
 import { getCurrentUser } from "@/lib/session";
 
+// 🔒 مقارنة آمنة زمنياً للأسرار (تمنع timing attacks)
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const ab = Buffer.from(a, "utf8");
+  const bb = Buffer.from(b, "utf8");
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
+}
+
 // This endpoint can be called by a cron job (e.g., Vercel Cron) to generate notifications
 // GET /api/cron/notifications — generates renewal + absence reminders
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const currentUser = await getCurrentUser();
 
-    // Determine club filter: cron calls (no user) and superadmin process all clubs;
-    // regular users only process their own club.
+    // 🔒 حماية Cron: الزائر المجهول مرفوض دائماً — إلا إذا أحضر سرّ CRON_SECRET
+    // صحيحاً في ترويسة x-cron-secret (تُضبط في إعدادات جدولة Vercel Cron).
+    // سابقاً: أي شخص على الإنترنت كان يستطيع استدعاء هذه النقطة مجاناً
+    // ليفرض فحص كل المشتركين في كل النوادي وإنشاء إشعارات جماعية (DoS/سبام).
+    const cronSecret = process.env.CRON_SECRET;
+    const providedSecret = req.headers.get("x-cron-secret") || "";
+    const isTrustedCron = Boolean(cronSecret) && timingSafeEqualStr(cronSecret, providedSecret);
+
+    if (!currentUser && !isTrustedCron) {
+      return NextResponse.json(
+        { error: "غير مصرح — هذه النقطة مخصصة لمهام مجدولة موثوقة فقط" },
+        { status: 401 }
+      );
+    }
+    // المستخدم المُسجّل (للتشغيل اليدوي) يجب أن يكون admin أو superadmin
+    if (currentUser && currentUser.role !== "admin" && currentUser.role !== "superadmin") {
+      return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
+    }
+
+    // Determine club filter: trusted cron calls (no user) and superadmin process all
+    // clubs; regular users only process their own club.
     const clubFilter = !currentUser || currentUser.role === "superadmin"
       ? {}
       : { clubId: currentUser.clubId! };
