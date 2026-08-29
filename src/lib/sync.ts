@@ -39,7 +39,8 @@ export async function syncNow(): Promise<SyncResult> {
   const deviceId = await getDeviceId();
 
   // ─── Step 1: Push outbox ───
-  const outbox = (await getOutbox()) || [];
+  const outboxRaw = await getOutbox();
+  const outbox = Array.isArray(outboxRaw) ? outboxRaw : [];
   for (const entry of outbox) {
     try {
       const res = await fetch(entry.url, {

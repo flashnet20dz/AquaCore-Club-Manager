@@ -101,3 +101,25 @@ Files created:
 Files modified:
 - src/app/page.tsx (import ContractsPanel + تبويب جديد + mobile nav + dynamic title)
 - .env (DIRECT_URL for prisma generate)
+
+---
+Task ID: 1
+Agent: Main Agent (Z.ai Code)
+Task: نقل مشروع AquaCore-Club-Manager كاملاً من GitHub إلى بيئة المعاينة (preview environment)
+
+Work Log:
+- استنساخ المستودع إلى /tmp وتحليل شامل (45 نموذج Prisma، 110 مسارات API، Next 16 + Electron + Capacitor)
+- نقل المستودع كاملاً (بما فيه سجل git البالغ 81MB) إلى /home/z/my-project مع الحفاظ على مجلد skills البيئي
+- توليد مخطط SQLite محدث عبر scripts/generate-sqlite-schema.js (كان قديماً: 30 نموذج من أصل 45) واستبدال schema.prisma به مع حفظ الأصل في schema.prisma.postgresql-original.bak
+- إنشاء .env: DATABASE_URL=file:../db/custom.db + NEXTAUTH_SECRET و ACTIVATION_HMAC_SECRET عشوائيين (بدل الـ fallback المكتوبة في الكود)
+- تثبيت 1168 حزمة عبر bun (مع ELECTRON_SKIP_BINARY_DOWNLOAD=1)
+- prisma db push + كتابة scripts/seed-demo.ts: نادٍ نشط + 3 مستخدمين + 4 أنواع اشتراك + أيام/4 فترات + 42 منخرطاً + 30 دفعة + 527 سجل حضور (21 يوماً) + 36 معاملة مالية (رصيد 35,500 دج) + 3 انتظار + PIN كاشير 1234
+- إصلاح خطأ تجميع رصيد في السكربت + تخفيف ضجيج prisma:query في db.ts (إزالة log query من وضع dev)
+- تشغيل الخادم والتحقق بالمتصفح: تسجيل دخول admin@rcs.dz ✓، كل التبويبات الـ23 ✓، تسجيل حضور تفاعلي (POST 201) ✓، لوحة مالية مطابقة للبيانات ✓، تنبيهات تجديد (6) ✓، تجاوب موبايل 390px ✓، كونسول نظيف ✓
+
+Stage Summary:
+- المشروع يعمل كاملاً في المعاينة على المنفذ 3000 بقاعدة SQLite محلية
+- تصحيح مهم لمراجعة سابقة: "خطأي الصياغة في export/route.ts و kiosk-mode.tsx" لم يكونا حقيقيين — أدات Bash تلتهم تسلسل [h] عند العرض (ثبت بفحص رموز الحروف). الأصل في git سليم
+- الثغرات الحقيقية المؤكدة بأداة Read: POST /api/users يقبل role دون قائمة بيضاء (تصعيد صلاحيات)، مفاتيح Cloudinary في .env.example، بيانات أعضاء في download/
+- تعديلات على كود المشروع: schema.prisma (sqlite)، .env جديد، db.ts (log)، sync.ts (حماية Array.isArray)، scripts/seed-demo.ts (جديد)
+- الحسابات: admin@rcs.dz/admin123، coach@rcs.dz/coach123، guard@rcs.dz/coach123، PIN 1234
