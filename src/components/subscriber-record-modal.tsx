@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { notifyClick } from "@/lib/sounds";
 import type { SubscriberWithComputed } from "@/lib/rcs";
 import { ContractTab } from "@/components/contract-tab";
+import { ExternalLink } from "lucide-react";
 
 interface RecordData {
   subscriber: {
@@ -101,6 +102,31 @@ export function SubscriberRecordModal({ subscriber, open, onOpenChange }: Subscr
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, "_blank");
   };
 
+  // 🆕 بوابة المنخرط — إنشاء ونسخ وفتح الرابط الموقّع (بطاقة رقمية)
+  const openPortal = async () => {
+    if (!subscriber) return;
+    notifyClick();
+    try {
+      const res = await fetch("/api/member-portal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscriberId: subscriber.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || "تعذر إنشاء الرابط"); return; }
+      const abs = `${window.location.origin}${data.url}`;
+      try {
+        await navigator.clipboard.writeText(abs);
+        toast.success("تم نسخ رابط البوابة — شاركه مع المنخرط عبر واتساب");
+      } catch {
+        toast.info(abs);
+      }
+      window.open(abs, "_blank");
+    } catch {
+      toast.error("خطأ في الاتصال");
+    }
+  };
+
   if (!subscriber) return null;
 
   return (
@@ -136,6 +162,13 @@ export function SubscriberRecordModal({ subscriber, open, onOpenChange }: Subscr
                 <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
               </button>
             )}
+            <button
+              onClick={openPortal}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-teal-500/15 text-teal-700 hover:bg-teal-500/25 transition text-xs font-semibold"
+              title="نسخ وفتح رابط بوابة المنخرط (بطاقة رقمية + سجل حضور)"
+            >
+              <ExternalLink className="h-3.5 w-3.5" /> البوابة
+            </button>
           </DialogTitle>
         </DialogHeader>
 
