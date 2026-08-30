@@ -24,8 +24,15 @@ export async function GET(req: NextRequest) {
     // سابقاً: أي شخص على الإنترنت كان يستطيع استدعاء هذه النقطة مجاناً
     // ليفرض فحص كل المشتركين في كل النوادي وإنشاء إشعارات جماعية (DoS/سبام).
     const cronSecret = process.env.CRON_SECRET;
-    const providedSecret = req.headers.get("x-cron-secret") || "";
-    const isTrustedCron = Boolean(cronSecret) && timingSafeEqualStr(cronSecret, providedSecret);
+    // دعم نمطين: ترويسة مخصصة x-cron-secret (جدولة خارجية)، وترويسة
+    // Authorization: Bearer <CRON_SECRET> التي يرسلها Vercel Cron المدمج تلقائياً.
+    const providedSecret =
+      req.headers.get("x-cron-secret") ||
+      (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+    const isTrustedCron =
+      Boolean(cronSecret) &&
+      providedSecret.length > 0 &&
+      timingSafeEqualStr(cronSecret, providedSecret);
 
     if (!currentUser && !isTrustedCron) {
       return NextResponse.json(
