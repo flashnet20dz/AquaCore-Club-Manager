@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { db } from "@/lib/db";
 import { computeSubscriberFields } from "@/lib/rcs";
 import { getCurrentUser } from "@/lib/session";
+import { getFeatureSettings } from "@/lib/feature-settings";
 
 // 🔒 مقارنة آمنة زمنياً للأسرار (تمنع timing attacks)
 function timingSafeEqualStr(a: string, b: string): boolean {
@@ -43,6 +44,17 @@ export async function GET(req: NextRequest) {
       ? {}
       : { clubId: currentUser.clubId! };
 
+    // 🧩 إعدادات الميزات لكل نادٍ (تزامن مع الإعدادات ← الميزات ← الإشعارات)
+    const featByClub = new Map<string, Record<string, string>>();
+    async function featsForClub(clubId: string) {
+      let f = featByClub.get(clubId);
+      if (!f) {
+        f = await getFeatureSettings(db, clubId);
+        featByClub.set(clubId, f);
+      }
+      return f;
+    }
+
     const subscribers = await db.subscriber.findMany({
       where: clubFilter,
       include: {
@@ -74,11 +86,14 @@ export async function GET(req: NextRequest) {
     }
 
     for (const sub of expiringSoon) {
+      // نافذة منع تكرار التذكير — من إعدادات الميزات (الافتراضي: 1 يوم)
+      const feat = await featsForClub(sub.clubId);
+      const repeatDays = Math.max(1, Number(feat.reminderRepeatDays) || 1);
       const existing = await db.notification.findFirst({
         where: {
           clubId: sub.clubId,
           type: "renewal",
-          createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+          createdAt: { gte: new Date(Date.now() - repeatDays * 24 * 60 * 60 * 1000) },
           message: { contains: sub.fileNumber },
         },
       });
@@ -101,11 +116,13 @@ export async function GET(req: NextRequest) {
     }
 
     for (const sub of expired) {
+      const feat = await featsForClub(sub.clubId);
+      const repeatDays = Math.max(1, Number(feat.reminderRepeatDays) || 1);
       const existing = await db.notification.findFirst({
         where: {
           clubId: sub.clubId,
           type: "renewal",
-          createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+          createdAt: { gte: new Date(Date.now() - repeatDays * 24 * 60 * 60 * 1000) },
           message: { contains: sub.fileNumber },
         },
       });
@@ -127,17 +144,20 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Absence alerts: subscribers who haven't attended in 3 weeks
+    // Absence alerts: subscribers who haven't attended in N days (ميزة متزامنة — افتراضي 21)
     const now = new Date();
     now.setHours(0, 0, 0, 0);
-    const threeWeeksAgo = new Date(now);
-    threeWeeksAgo.setDate(threeWeeksAgo.getDate() - 21);
 
     let absenceCreated = 0;
     for (const sub of subscribers) {
+      const feat = await featsForClub(sub.clubId);
+      const absenceWindowDays = Math.max(1, Number(feat.attendanceAbsenceWindowDays) || 21);
+      const absenceCutoff = new Date(now);
+      absenceCutoff.setDate(absenceCutoff.getDate() - absenceWindowDays);
+
       const lastAtt = sub.attendances[0]?.date;
       const lastDate = lastAtt ? new Date(lastAtt) : null;
-      if (lastDate && lastDate >= threeWeeksAgo) continue; // attended recently
+      if (lastDate && lastDate >= absenceCutoff) continue; // attended recently
       if (!sub.lastPaymentDate) continue; // never paid, skip
 
       const existing = await db.notification.findFirst({

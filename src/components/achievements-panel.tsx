@@ -94,6 +94,7 @@ interface CatalogBadge {
 }
 
 interface AchievementsData {
+  enabled?: boolean;
   leaderboard: LeaderEntry[];
   distribution: DistributionRow[];
   stats: ClubStats;
@@ -113,6 +114,7 @@ interface DetailBadge {
 }
 
 interface DetailData {
+  enabled?: boolean;
   subscriber: { id: string; name: string; fileNumber: string };
   achievements: {
     total: number;
@@ -121,7 +123,7 @@ interface DetailData {
     monthlyTotal: number;
     level: LevelInfo;
     badges: DetailBadge[];
-  };
+  } | null;
 }
 
 // ─── أيقونات الأوسمة (أسماء lucide من الـ API → مكونات) ────────
@@ -271,6 +273,22 @@ export function AchievementsPanel() {
   if (loading && !data) return <LoadingSkeleton />;
   if (error && !data) return <ErrorState message={error} onRetry={fetchData} />;
   if (!data) return null;
+
+  // 🧩 الميزة معطلة من الإعدادات ← الميزات — بطاقة إشعار بدل اللوحة
+  if (data.enabled === false) {
+    return (
+      <div className="flex flex-col gap-4" dir="rtl">
+        <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-6 text-center space-y-2">
+          <div className="text-4xl">🏆</div>
+          <h3 className="font-bold text-base text-amber-700 dark:text-amber-300">نظام الإنجازات معطّل حالياً</h3>
+          <p className="text-xs text-muted-foreground max-w-md mx-auto">
+            قام الإداري بإيقاف الميزة. يمكنك تفعيلها في أي وقت من:
+            الإعدادات ← تبويب «🧩 الميزات» ← «الإنجازات والتحفيز».
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const podium = data.myTop ?? [];
   const isEmpty = data.leaderboard.length === 0;
@@ -578,9 +596,9 @@ export function AchievementsPanel() {
             </div>
             {selected && (
               <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200/70 bg-amber-50/60 px-3 py-2 text-sm dark:border-amber-500/20 dark:bg-amber-500/5">
-                <BadgeIcon name={detail?.achievements.badges.find((b) => b.unlocked)?.icon ?? "Award"} className="h-4 w-4 text-amber-500" />
+                <BadgeIcon name={detail?.achievements?.badges.find((b) => b.unlocked)?.icon ?? "Award"} className="h-4 w-4 text-amber-500" />
                 <span className="font-bold">العرض الحالي: {selected.name}</span>
-                {detail && (
+                {detail?.achievements && (
                   <span className="text-xs text-muted-foreground">
                     — إجمالي الحضور {detail.achievements.total} حصة • أطول سلسلة {detail.achievements.longestStreak}{" "}
                     {detail.achievements.longestStreak === 1 ? "أسبوع" : "أسابيع"}
@@ -624,7 +642,7 @@ interface CatalogItem {
 
 function buildCatalogItems(data: AchievementsData, detail: DetailData | null): CatalogItem[] {
   if (detail) {
-    return detail.achievements.badges.map((b) => ({
+    return detail.achievements?.badges.map((b) => ({
       id: b.id,
       label: b.label,
       icon: b.icon,

@@ -32,13 +32,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useSubscriptionTypes } from "@/hooks/use-subscription-types";
+import { useSwimConfig } from "@/hooks/use-swim-config";
 import { PhotoUploader } from "@/components/photo-uploader";
 import {
   BLOOD_TYPES,
   SUBSCRIPTION_TYPES,
   PAYMENT_STATUSES,
-  SWIMMING_DAYS,
-  TIME_SLOTS,
   isExemptStatus,
   type BloodType,
   type SubscriptionType,
@@ -149,6 +148,8 @@ function ymdToIso(ymd: string): string | null {
 export function SubscriberForm({ open, onOpenChange, initial, onSaved }: SubscriberFormProps) {
   const [form, setForm] = useState<SubscriberFormValues>(emptyForm);
   const { activeTypes: subTypes } = useSubscriptionTypes();
+  // 🔗 الميزة متزامنة مع الإعدادات: الأيام والتوقيتات من قاعدة البيانات (تبويب الإعدادات ← المنخرطون)
+  const { dayNames: swimDayNames, slotLabels: swimSlotLabels } = useSwimConfig();
   const [saving, setSaving] = useState(false);
   const isEdit = !!initial?.id;
   // ★ معاينة رقم الملف التالي
@@ -691,7 +692,7 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
             <ChipSelector
               label="أيام السباحة"
               icon={<Waves className="h-4 w-4" />}
-              options={SWIMMING_DAYS.map((d) => ({ value: d, label: d }))}
+              options={swimDayNames.map((d) => ({ value: d, label: d }))}
               value={form.swimmingDays}
               onChange={(v) => setForm({ ...form, swimmingDays: v })}
               columns={2}
@@ -700,7 +701,7 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
             <ChipSelector
               label="التوقيت"
               icon={<Clock className="h-4 w-4" />}
-              options={TIME_SLOTS.map((t) => ({ value: t, label: t }))}
+              options={swimSlotLabels.map((t) => ({ value: t, label: t }))}
               value={form.timeSlot}
               onChange={(v) => setForm({ ...form, timeSlot: v })}
               columns={4}
@@ -710,7 +711,7 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
             <Input
               type="text"
               placeholder="أو اكتب توقيتاً مخصصاً (مثال: 14:00-15:00)"
-              value={form.timeSlot && !TIME_SLOTS.includes(form.timeSlot) ? form.timeSlot : ""}
+              value={form.timeSlot && !swimSlotLabels.includes(form.timeSlot) ? form.timeSlot : ""}
               onChange={(e) => setForm({ ...form, timeSlot: e.target.value || null })}
               className="h-9 text-sm"
             />

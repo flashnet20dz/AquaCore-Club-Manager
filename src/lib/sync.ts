@@ -39,7 +39,8 @@ export async function syncNow(): Promise<SyncResult> {
   const deviceId = await getDeviceId();
 
   // ─── Step 1: Push outbox ───
-  const outbox = (await getOutbox()) || [];
+  const outboxRaw = await getOutbox();
+  const outbox = Array.isArray(outboxRaw) ? outboxRaw : [];
   for (const entry of outbox) {
     try {
       const res = await fetch(entry.url, {
@@ -75,7 +76,9 @@ export async function syncNow(): Promise<SyncResult> {
 
       // Merge: cloud is authoritative for records updated after our last sync
       if (cloudSubs.length > 0) {
-        const localSubs = (await getCachedSubscribers()) || [];
+        // 🛡️ دفاع: الكاش قد يعيد شيئاً غير مصفوفة في بعض بيئات IndexedDB
+        const cachedRaw = await getCachedSubscribers();
+        const localSubs = Array.isArray(cachedRaw) ? cachedRaw : [];
         const localMap = new Map(localSubs.map((s) => [s.id, s]));
 
         for (const cloudSub of cloudSubs) {
