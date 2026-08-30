@@ -406,7 +406,7 @@ function SubscriptionTypesManager() {
         </div>
       )}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-2xl max-h-[90dvh] overflow-y-auto">
           <DialogHeader><DialogTitle>{editing ? "تعديل نوع اشتراك" : "إضافة نوع اشتراك جديد"}</DialogTitle></DialogHeader>
           <div className="space-y-3">
             {/* معلومات عامة */}

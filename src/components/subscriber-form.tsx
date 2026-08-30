@@ -468,7 +468,7 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto p-0 gap-0">
+      <DialogContent className="sm:max-w-3xl max-h-[92dvh] overflow-y-auto p-0 gap-0">
         <DialogHeader className="px-6 pt-6 pb-4 border-b bg-gradient-to-l from-primary/10 to-transparent">
           <DialogTitle className="flex items-center gap-2 text-xl">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground">

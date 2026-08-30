@@ -700,7 +700,7 @@ export function ImportPanel() {
                   </span>
                 </div>
                 {preview.renewalPreview.sample.length > 0 && (
-                  <div className="mt-2 rounded-lg border border-sky-500/20 overflow-hidden">
+                  <div className="mt-2 rounded-lg border border-sky-500/20 overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead className="bg-sky-500/10">
                         <tr>
