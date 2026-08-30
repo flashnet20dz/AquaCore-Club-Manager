@@ -281,7 +281,7 @@ function EmployeesTab() {
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-2xl max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editing ? "تعديل بيانات العامل" : "إضافة عامل جديد"}</DialogTitle>
           </DialogHeader>
@@ -510,7 +510,7 @@ ${contract.content}
 
       {/* Contract Viewer Dialog */}
       <Dialog open={!!viewContract} onOpenChange={(o) => !o && setViewContract(null)}>
-        <DialogContent className="max-w-4xl max-h-[95vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-4xl max-h-[95dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center justify-between">
               <span>عقد: {viewContract?.contractNumber}</span>
@@ -657,7 +657,7 @@ function TemplatesTab() {
 
       {/* Template Editor Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[95vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-4xl max-h-[95dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editing ? "تعديل القالب" : "إضافة قالب جديد"}</DialogTitle>
           </DialogHeader>

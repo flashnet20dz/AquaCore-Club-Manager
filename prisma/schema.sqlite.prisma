@@ -37,6 +37,16 @@ model Club {
   graceEndDate    DateTime?                         // نهاية فترة السماح (أسبوع بعد انتهاء الاشتراك)
   hardwareFingerprint String?                       // بصمة الجهاز (لمنع النسخ لجهاز آخر)
 
+  // ★ ─── Theme & Branding (Multi-Tenant visual identity) ─── ★
+  themePreset     String?  // اسم القالب: ocean|royal|emerald|azure|midnight|coral|amber|forest
+  primaryColor    String?  // لون أساسي مخصص (HSL string "H S% L%" أو hex)
+  secondaryColor  String?  // لون ثانوي مخصص
+  accentColor     String?  // لون التمييز
+  logoUrl         String?  // رابط شعار النادي (Cloudinary)
+  borderRadius    String?  // sharp|medium|full → يتحكم بـ --radius
+  density         String?  // comfortable|normal|compact → يتحكم بالـ spacing
+  fontFamily      String?  // cairo|tajawal|system
+
   // Relations
   users           User[]
   subscribers     Subscriber[]
@@ -62,6 +72,17 @@ model Club {
   contracts       EmploymentContract[]
   contractTemplates ContractTemplate[]
   activationCodes ActivationCode[]                  // الأكواد المُفعَّلة لهذا النادي
+  guardAssignments GuardAssignment[]                // تعيينات الحراس
+  staffCompensations StaffCompensation[]          // التعويضات المالية للعمال
+  clubSettings    ClubSettings?                      // إعدادات النادي (سوبر أدمن)
+  uiConfigurations UIConfiguration[]                 // إعدادات الواجهات المخصصة
+  groupMemberships ClubGroupMember[]                 // عضوية في مجموعات النوادي
+  featureAccess   FeatureAccess[]                    // وصول مخصص للميزات
+  cardTemplates   CardTemplate[]                     // قوالب بطاقات الانخراط
+  compensationHistory CompensationHistory[]           // سجل تدقيق التعويضات
+  // ★ Financial system (المحاسب المالي)
+  financialTransactions FinancialTransaction[]        // العمليات المالية (مداخيل + مصاريف)
+  financialBalance      FinancialBalance?              // الرصيد المالي للحظي
 }
 
 // Club subscription (اشتراك النادي)
@@ -186,6 +207,8 @@ model Subscriber {
   swimmingDays    String?
   timeSlot        String?
   phone           String?
+  photoPath       String?                             // مسار الصورة الشخصية (uploads/subscribers/uuid.jpg)
+  photoThumb      String?                             // مسار النسخة المصغّرة (300x300)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   deletedAt       DateTime?                             // حذف ناعم — يبقى محفوظاً للمزامنة
@@ -196,6 +219,7 @@ model Subscriber {
   payments        Payment[]
   compensations   Compensation[]
   contracts       SubscriberContract[]
+  photo           SubscriberPhoto?
 
   @@unique([clubId, fileNumber])
   @@index([clubId])
@@ -262,7 +286,12 @@ model User {
   payments        Payment[]
   sessions        Session[]
   employees       Employee[]
+  guardAssignments GuardAssignment[]
   codeBatches     CodeBatch[]                       // الدفعات التي ولّدها هذا المستخدم
+  compensationHistory CompensationHistory[]           // سجل تدقيق التعويضات
+  staffCompensations StaffCompensation[]
+  // ★ Financial system
+  financialTransactions FinancialTransaction[]        // العمليات المالية التي سجّلها هذا المستخدم
 }
 
 model WorkHours {
@@ -373,6 +402,8 @@ model CashierPin {
   updatedAt       DateTime @updatedAt
 
   @@index([clubId])
+  @@index([clubId, active])
+  @@index([active])
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -485,9 +516,45 @@ model Employee {
 
   contracts       EmploymentContract[]
 
+  staffCompensations StaffCompensation[]
   @@unique([clubId, nationalId])
   @@index([clubId])
   @@index([clubId, position])
+}
+
+// ═══════════════════════════════════════════════════════════
+// GUARD ASSIGNMENTS (تعيين الحراس على الحصص) — Pointage System
+// ═══════════════════════════════════════════════════════════
+model GuardAssignment {
+  id              String   @id @default(cuid())
+  clubId          String
+  club            Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  userId          String   // الحارس (User with role=lifeguard)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // الحصة المعيَّن عليها
+  dayOfWeek       String   // "الأحد والأربعاء" | "الاثنين والخميس" | "الثلاثاء والجمعة" | "كل الأيام"
+  timeSlot        String   // "09:00-10:00" | etc.
+  groupName       String?  // اسم الفوج (اختياري)
+
+  // نوع التعيين
+  assignmentType  String   @default("primary") // primary | assistant | substitute
+  isActive        Boolean  @default(true)
+  startDate       DateTime @default(now())
+  endDate         DateTime?
+
+  // توقيت حضور الحارس الفعلي (يُملأ عند بدء/إنهاء الحصة)
+  actualStartTime DateTime?
+  actualEndTime   DateTime?
+  attendanceStatus String  @default("scheduled") // scheduled|started|completed|absent|late
+  note            String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([clubId, userId])
+  @@index([clubId, dayOfWeek, timeSlot])
+  @@index([clubId, attendanceStatus])
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -558,18 +625,30 @@ model PoolClosure {
   clubId          String
   club            Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
-  date            DateTime                        // تاريخ الإغلاق
+  date            DateTime                        // تاريخ الإغلاق (للتوافق — يُساوي startDate في الإغلاقات الجديدة)
+  // ★ فترة الإغلاق: من تاريخ إلى تاريخ (multi-day closure)
+  startDate       DateTime?
+  endDate         DateTime?
+
   swimmingDays    String?                          // مجموعة الأيام المتأثرة (مثال: "الأحد والأربعاء") — null = كل المجموعات
   timeSlot        String?                          // التوقيت المتأثر (مثال: "09:00-10:00") — null = كل التوقيتات
   reason          String                           // سبب الإغلاق (صيانة، تنظيف عميق، عطل تقني...)
   note            String?
 
+  // ★ نطاق الاستهداف (filters) — محفوظة للسجل
+  subscriptionTypesFilter  String?                 // JSON array of types
+  paymentStatusesFilter    String?                 // JSON array of statuses
+  registeredOnOrAfter      DateTime?
+  registeredOnOrBefore     DateTime?
+
   createdById     String?
   createdAt       DateTime @default(now())
 
   compensations   Compensation[]
+  history         CompensationHistory[]
 
   @@index([clubId, date])
+  @@index([clubId, startDate, endDate])
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -589,7 +668,16 @@ model Compensation {
   originalSwimmingDays  String?
   originalTimeSlot      String?
 
-  status                String   @default("pending")  // pending / scheduled / used / expired / cancelled
+  status                String   @default("pending")  // pending / scheduled / used / expired / cancelled / partial
+
+  // ★ عدد الحصص الملغاة الفعلية لهذا المنخرط خلال فترة الإغلاق
+  // (محسوب من جدول فوجه، ليس من عدد أيام الغلق)
+  cancelledSessionsCount Int     @default(1)
+  // ★ عدد الحصص التي تم تعويضها فعلياً (0 = pending, < cancelled = partial, = cancelled = complete)
+  compensatedCount       Int     @default(0)
+
+  // ★ مهلة الاستخدام (تاريخ انتهاء صلاحية الحصة التعويضية)
+  expiryDate             DateTime?
 
   compensationDate      DateTime?                  // تاريخ الحصة التعويضية (بعد تحديدها)
   compensationSwimmingDays String?
@@ -604,8 +692,41 @@ model Compensation {
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
+  history                CompensationHistory[]
+
   @@index([clubId, status])
   @@index([clubId, subscriberId])
+  @@index([closureId])
+  @@index([expiryDate])
+}
+
+// ═══════════════════════════════════════════════════════════
+// COMPENSATION HISTORY (سجل تدقيق التعويضات) — per club
+// ═══════════════════════════════════════════════════════════
+// Audit trail: every change to a compensation or closure is logged here
+// (who did what, when, old value → new value)
+model CompensationHistory {
+  id              String   @id @default(cuid())
+  clubId          String
+  club            Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  compensationId  String?
+  compensation    Compensation? @relation(fields: [compensationId], references: [id], onDelete: SetNull)
+  closureId       String?
+  closure         PoolClosure? @relation(fields: [closureId], references: [id], onDelete: SetNull)
+
+  action          String   // created / scheduled / used / cancelled / expired / rescheduled / deleted
+  description     String
+  oldValue        String?  // JSON snapshot of relevant fields before change
+  newValue        String?  // JSON snapshot after change
+
+  userId          String?
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  createdAt       DateTime @default(now())
+
+  @@index([clubId, createdAt])
+  @@index([compensationId])
   @@index([closureId])
 }
 
@@ -684,4 +805,416 @@ model SubscriberContract {
   createdAt       DateTime @default(now())
 
   @@index([clubId, subscriberId])
+}
+
+// ═══════════════════════════════════════════════════════════
+// AUDIT LOG (سجل التدقيق — لتتبع الأفعال الحساسة)
+// ═══════════════════════════════════════════════════════════
+model AuditLog {
+  id              String   @id @default(cuid())
+  clubId          String?
+  userId          String?                           // المستخدم الذي قام بالفعل
+  action          String                            // login|logout|create|update|delete|activate|revoke
+  entityType      String                            // subscriber|user|club|code|payment|...
+  entityId        String?                           // معرّف الكيان المتأثر
+  description     String                            // وصف بالعربية
+  ipAddress       String?
+  userAgent       String?
+  metadata        String?                           // JSON string لتفاصيل إضافية
+  createdAt       DateTime @default(now())
+
+  @@index([clubId, createdAt])
+  @@index([userId, createdAt])
+  @@index([action])
+}
+
+// ═══════════════════════════════════════════════════════════
+// SUPER ADMIN SYSTEM — تحكم شامل في الواجهات والإعدادات
+// ═══════════════════════════════════════════════════════════
+
+// إعدادات كل نادي (يتحكم بها السوبر أدمن)
+model ClubSettings {
+  id              String   @id @default(cuid())
+  clubId          String   @unique
+  club            Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  // إعدادات عامة
+  defaultLanguage String   @default("ar")
+  defaultCurrency String   @default("DZD")
+  subscriptionModel String @default("monthly")
+  emailNotifications Boolean @default(true)
+  // ألوان الواجهة (Theme Manager)
+  primaryColor    String   @default("#0F4C81")
+  secondaryColor  String   @default("#00B4D8")
+  accentColor     String   @default("#10B981")
+  backgroundColor String?  // null = use default
+  cardColor       String?
+  sidebarColor    String?
+  textColor       String?
+  borderColor     String?
+  successColor    String   @default("#22C55E")
+  warningColor    String   @default("#F59E0B")
+  dangerColor     String   @default("#EF4444")
+  infoColor       String   @default("#3B82F6")
+  borderRadius    String   @default("0.625rem")
+  fontFamily      String   @default("Cairo")
+  themeMode       String   @default("light") // light | dark | auto
+  themeName       String   @default("Ocean Blue")
+  // ميزات
+  features        String?  // JSON: { whatsapp: true, qr: true, ... }
+  appliedTemplate String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([clubId])
+}
+
+// إعدادات الواجهات (عامة لكل النوادي أو محددة لنادي)
+model UIConfiguration {
+  id              String   @id @default(cuid())
+  interfaceKey    String                            // مثال: "dashboard", "subscribers", "attendance"
+  interfaceName   String                            // الاسم المعروض بالعربية
+  scope           String   @default("ALL_CLUBS")    // ALL_CLUBS | CLUB_SPECIFIC
+  clubId          String?                           // null للنطاق العام
+  club            Club?     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  isVisible       Boolean  @default(true)
+  settings        String?  // JSON للإعدادات المخصصة
+  updatedById     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([interfaceKey, clubId])
+  @@index([scope])
+  @@index([clubId])
+  @@index([isVisible])
+}
+
+// قوالب الواجهات المعرفة مسبقاً
+model UITemplate {
+  id              String   @id @default(cuid())
+  name            String   @unique                  // starter | professional | basic
+  displayName     String                            // الاسم المعروض
+  description     String?
+  config          String   // JSON: { interfaces: [...], settings: {...} }
+  isDefault       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// ═══════════════════════════════════════════════════════════
+// SUPER ADMIN CONTROL CENTER — مركز تحكم المنصة الكامل
+// ═══════════════════════════════════════════════════════════
+
+// Feature Flag — ميزة قابلة للتفعيل/التعطيل
+model FeatureFlag {
+  id              String   @id @default(cuid())
+  key             String   @unique                    // subscribers, reports, whatsapp, ...
+  name            String                              // الاسم بالعربية
+  description     String?
+  category        String   @default("module")        // module | feature | integration | permission
+  enabled         Boolean  @default(true)            // مفعّلة افتراضياً؟
+  visible         Boolean  @default(true)            // مرئية؟
+  readOnly        Boolean  @default(false)           // قراءة فقط؟
+  allowEdit       Boolean  @default(true)            // السماح بالتعديل؟
+  allowDelete     Boolean  @default(true)            // السماح بالحذف؟
+  allowPrint      Boolean  @default(true)            // السماح بالطباعة؟
+  allowExport     Boolean  @default(true)            // السماح بالتصدير؟
+  isBeta          Boolean  @default(false)           // ميزة تجريبية؟
+  isPremium       Boolean  @default(false)           // ميزة مدفوعة؟
+  minVersion      String   @default("1.0.0")         // أقل إصدار يدعمها
+  platforms       String   @default("all")           // all|desktop|web|mobile (CSV)
+  countries       String?                             // all|DZ|MA|TN|... (CSV, null=all)
+  plans           String?                             // free|starter|professional|enterprise (CSV, null=all)
+  icon            String?                             // lucide icon name
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  access          FeatureAccess[]
+
+  @@index([category])
+  @@index([enabled])
+  @@index([isPremium])
+}
+
+// Feature Access — وصول مخصص لميزة (عامة/نادٍ/مجموعة)
+model FeatureAccess {
+  id              String   @id @default(cuid())
+  featureId       String
+  feature         FeatureFlag @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  scope           String   @default("ALL_CLUBS")     // ALL_CLUBS | CLUB_SPECIFIC | CLUB_GROUP
+  clubId          String?                             // للنادي المحدد
+  club            Club?    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  clubGroupId     String?                             // لمجموعة النوادي
+  clubGroup       ClubGroup? @relation(fields: [clubGroupId], references: [id], onDelete: Cascade)
+  // overrides على إعدادات الميزة
+  enabled         Boolean?
+  visible         Boolean?
+  readOnly        Boolean?
+  allowEdit       Boolean?
+  allowDelete     Boolean?
+  allowPrint      Boolean?
+  allowExport     Boolean?
+  updatedById     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([featureId, scope, clubId, clubGroupId])
+  @@index([featureId])
+  @@index([clubId])
+  @@index([clubGroupId])
+}
+
+// Club Group — مجموعة نوادي للتطبيق الجماعي
+model ClubGroup {
+  id              String   @id @default(cuid())
+  name            String   @unique                    // "نوادي الجزائر", "النوادي الخليجية"
+  description     String?
+  color           String   @default("#0f766e")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  members         ClubGroupMember[]
+  featureAccess   FeatureAccess[]
+
+  @@index([name])
+}
+
+model ClubGroupMember {
+  id              String   @id @default(cuid())
+  groupId         String
+  group           ClubGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  clubId          String
+  club            Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  addedAt         DateTime @default(now())
+
+  @@unique([groupId, clubId])
+  @@index([groupId])
+  @@index([clubId])
+}
+
+// Default Club Configuration — إعدادات النادي الجديد الافتراضية
+model DefaultClubConfig {
+  id              String   @id @default(cuid())
+  // ─── Branding ───
+  clubName        String   @default("نادي السباحة")
+  primaryColor    String   @default("#0f766e")
+  secondaryColor  String   @default("#0369a1")
+  logoUrl         String?
+  // ─── Localization ───
+  language        String   @default("ar")
+  currency        String   @default("DZD")
+  currencySymbol  String   @default("دج")
+  timezone        String   @default("Africa/Algiers")
+  calendar        String   @default("gregorian")     // gregorian | hijri
+  // ─── Subscription defaults ───
+  defaultPlan     String   @default("monthly")
+  trialDays       Int      @default(7)
+  // ─── Features ───
+  enabledFeatures String   @default("[]")            // JSON: ["subscribers","attendance",...]
+  // ─── Settings JSON ───
+  settings        String   @default("{}")            // JSON: { printConfig, cardConfig, receiptConfig, ... }
+  updatedAt       DateTime @updatedAt
+  updatedById     String?
+
+  @@index([id])
+}
+
+// ═══════════════════════════════════════════════════════════
+// SUBSCRIBER PHOTOS — صور المنخرطين (base64 in DB, works everywhere)
+// ═══════════════════════════════════════════════════════════
+model SubscriberPhoto {
+  id              String   @id @default(cuid())
+  subscriberId    String   @unique
+  subscriber      Subscriber @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
+  // الصور كـ base64 (data URL) — يعمل على Vercel + Electron + Offline
+  original        String   // الصورة الأصلية (data:image/jpeg;base64,...)
+  cropped         String   // 300×300 مقصوصة
+  thumbnail       String   // 100×100 مصغّرة
+  faceDetected    Boolean  @default(false)
+  // 🔑 Cloudinary integration
+  cloudinaryPublicId  String?  // معرّف Cloudinary (للحذف/الاستبدال)
+  cloudinaryUrl       String?  // رابط Cloudinary الآمن
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([subscriberId])
+}
+
+// ═══════════════════════════════════════════════════════════
+// PVC CARD TEMPLATES — قوالب بطاقات الانخراط
+// ═══════════════════════════════════════════════════════════
+model CardTemplate {
+  id              String   @id @default(cuid())
+  clubId          String?
+  club            Club?    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  name            String   @unique
+  description     String?
+  cardSize        String   @default("CR80")    // CR80 | A7 | A6 | custom
+  orientation     String   @default("landscape") // landscape | portrait
+  width           Float    @default(10)        // cm
+  height          Float    @default(6.5)       // cm
+  // التخطيط الكامل كـ JSON (عناصر + خلفية + إعدادات)
+  layout          String   @default("{}")      // JSON: { front: [...], back: [...], config: {...} }
+  thumbnail       String?                       // data URL للمعاينة المصغّرة
+  isDefault       Boolean  @default(false)
+  isShared        Boolean  @default(false)      // مشترك بين كل النوادي
+  version         Int      @default(1)
+  createdById     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([clubId])
+  @@index([isShared])
+  @@index([isDefault])
+}
+
+// ═══════════════════════════════════════════════════════════
+// STAFF COMPENSATIONS (التعويضات المالية للعمال والحراس)
+// ═══════════════════════════════════════════════════════════
+// Financial compensation records for workers, guards, and employees.
+// Separate from the session `Compensation` model (which tracks makeup
+// swimming sessions for subscribers who missed classes).
+//
+// Supports:
+//   - Manual entry with auto-calculated total
+//   - Auto-calculation from WorkHours/Pointage for guards
+//   - Payment status tracking (paid / unpaid / processing)
+//   - Period filtering (month/year)
+//   - Bulk actions + export (Word/PDF/Excel/CSV)
+model StaffCompensation {
+  id              String   @id @default(cuid())
+  clubId          String
+  club            Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  // Employee link (the worker/guard/employee receiving compensation)
+  employeeId      String?
+  employee        Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+
+  // User link (fallback if no Employee record — direct user compensation)
+  userId          String?
+  user            User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  // Person snapshot (for display even if employee/user deleted)
+  personName      String
+  personPosition  String   @default("guard")  // guard/coach/admin/maintenance/cleaner/seasonal/other
+
+  // Period
+  month           Int      // 1-12
+  year            Int      // e.g. 2026
+  periodLabel     String?  // "أوت 2026" (cached for display)
+
+  // Work data
+  workHours       Int      @default(0)    // عدد ساعات العمل
+  hourRate        Int      @default(200)  // سعر الساعة (دج)
+  baseAmount      Int      @default(0)    // التعويض الأساسي = workHours * hourRate
+
+  // Adjustments
+  overtimeHours   Int      @default(0)    // الساعات الإضافية
+  overtimeAmount  Int      @default(0)    // تعويض الساعات الإضافية
+  bonusAmount     Int      @default(0)    // تعويض إضافي (منح)
+  deductions      Int      @default(0)    // الخصومات
+
+  // Total = baseAmount + overtimeAmount + bonusAmount - deductions
+  totalAmount     Int      @default(0)
+
+  // Payment status
+  paymentStatus   String   @default("unpaid")  // paid / unpaid / processing
+  paymentDate     DateTime?
+  paymentMethod   String?  // cash / bank / cheque
+
+  // Compensation type
+  compensationType String  @default("monthly")  // monthly / bonus / overtime / penalty / other
+
+  note            String?
+
+  // Audit
+  createdById     String?
+  approvedById    String?
+  approvedAt      DateTime?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([clubId, year, month])
+  @@index([clubId, paymentStatus])
+  @@index([clubId, employeeId])
+  @@index([clubId, userId])
+}
+
+// ═══════════════════════════════════════════════════════════
+// FINANCIAL SYSTEM (المحاسب المالي) — per club
+// ═══════════════════════════════════════════════════════════
+// Track all income (مداخيل) and expenses (مصاريف) for each club.
+// Balance = totalIncome - totalExpense, updated atomically per transaction.
+
+model FinancialTransaction {
+  id              String   @id @default(cuid())
+  clubId          String
+  club            Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  // نوع العملية: income (مدخول) أو expense (مصروف)
+  type            String   // "income" | "expense"
+
+  // فئة العملية
+  // income: "subscription" | "renewal" | "insurance" | "other_income"
+  // expense: "wages" | "insurance" | "compound_rights" | "office_supplies" | "other_expense"
+  category        String
+
+  // تصنيف فرعي اختياري (مثلاً: اسم المورد، نوع اللوازم)
+  subCategory     String?
+
+  // المبلغ (بالدينار الجزائري)
+  amount          Int
+
+  // التاريخ الفعلي للعملية
+  date            DateTime @default(now())
+
+  // طريقة الدفع
+  paymentMethod   String   @default("cash") // "cash" | "bank" | "cheque"
+
+  // جهة الدفع/الاستلام
+  payeeName       String?  // اسم من استلم/دفع المال
+  payeeId         String?  // معرّف الموظف/المنخرط (اختياري)
+
+  // ربط اختياري بسجلات أخرى
+  subscriberId    String?  // للمداخيل: منخرط مرتبط
+  employeeId      String?  // للمصاريف: أجر عامل مرتبط
+  staffCompensationId String? // ربط بتعويض عامل موجود
+  closureId       String?  // ربط بإغلاق (لحقوق المركب)
+
+  // مرجع مالي (رقم الإيصال، رقم الشيك، رقم التحويل)
+  reference       String?
+
+  // ملاحظات
+  note            String?
+
+  // ربط بالمستخدم الذي سجّل العملية (audit)
+  createdById     String?
+  user            User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([clubId, type, category])
+  @@index([clubId, date])
+  @@index([clubId, payeeName])
+}
+
+// سجل لحظي للرصيد المالي للنادي (singleton لكل نادي)
+model FinancialBalance {
+  id              String   @id @default(cuid())
+  clubId          String   @unique
+  club            Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  totalIncome     Int      @default(0)   // مجموع كل المداخيل
+  totalExpense    Int      @default(0)   // مجموع كل المصاريف
+  balance         Int      @default(0)   // totalIncome - totalExpense (الباقي)
+
+  // تفصيل حسب الفئة (JSON للإحصائيات السريعة)
+  incomeByCategory   String  @default("{}")  // { subscription: N, renewal: N, ... }
+  expenseByCategory  String  @default("{}")  // { wages: N, insurance: N, ... }
+
+  lastTransactionId   String?
+  lastTransactionDate DateTime?
+  updatedAt       DateTime @updatedAt
 }

@@ -106,7 +106,7 @@ export function SyncIndicator() {
         )}
 
         {/* Status text — hidden on very small screens */}
-        <span className="hidden sm:inline text-xs font-medium">
+        <span className="hidden lg:inline text-xs font-medium">
           {isSyncing ? "مزامنة..." :
            !isOnline ? "أوفلاين" :
            syncState === "success" ? "متزامن" :

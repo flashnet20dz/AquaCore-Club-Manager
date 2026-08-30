@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { SWIMMING_DAYS, TIME_SLOTS } from "@/lib/rcs";
+import { useSwimConfig } from "@/hooks/use-swim-config";
 
 interface WaitlistEntry {
   id: string;
@@ -198,10 +198,16 @@ function AddWaitlistDialog({
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
-  const [swimmingDays, setSwimmingDays] = useState(SWIMMING_DAYS[0]);
-  const [timeSlot, setTimeSlot] = useState(TIME_SLOTS[0]);
+  // 🔗 أيام/توقيتات متزامنة مع الإعدادات (تبويب المنخرطون)
+  const { dayNames, slotLabels } = useSwimConfig();
+  const [swimmingDays, setSwimmingDays] = useState("");
+  const [timeSlot, setTimeSlot] = useState("");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  // قيمة مشتقة (بدل effect): الافتراضي أول عنصر متزامن
+  const effectiveDays = swimmingDays || dayNames[0] || "";
+  const effectiveSlot = timeSlot || slotLabels[0] || "";
 
   const submit = async () => {
     if (!firstName || !lastName) { toast.error("الاسم مطلوب"); return; }
@@ -212,7 +218,7 @@ function AddWaitlistDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           firstName, lastName, phone: phone || undefined,
-          desiredSwimmingDays: swimmingDays, desiredTimeSlot: timeSlot, note: note || undefined,
+          desiredSwimmingDays: effectiveDays, desiredTimeSlot: effectiveSlot, note: note || undefined,
         }),
       });
       const data = await res.json();
@@ -246,16 +252,16 @@ function AddWaitlistDialog({
           <div className="space-y-1.5"><Label>الهاتف</Label><Input value={phone} onChange={(e) => setPhone(e.target.value)} dir="ltr" /></div>
           <div className="space-y-1.5">
             <Label>مجموعة الأيام المطلوبة</Label>
-            <Select value={swimmingDays} onValueChange={setSwimmingDays}>
+            <Select value={effectiveDays} onValueChange={setSwimmingDays}>
               <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{SWIMMING_DAYS.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
+              <SelectContent>{dayNames.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div className="space-y-1.5">
             <Label>التوقيت المطلوب</Label>
-            <Select value={timeSlot} onValueChange={setTimeSlot}>
+            <Select value={effectiveSlot} onValueChange={setTimeSlot}>
               <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{TIME_SLOTS.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+              <SelectContent>{slotLabels.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div className="space-y-1.5"><Label>ملاحظة</Label><Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} /></div>

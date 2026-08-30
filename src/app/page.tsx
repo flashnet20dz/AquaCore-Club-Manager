@@ -452,18 +452,18 @@ export default function Home() {
                 <span className="relative inline-flex h-3 w-3 rounded-full bg-amber-500" />
               </span>
             </div>
-            <div className="min-w-0">
-              <h1 className="text-base sm:text-lg font-extrabold leading-tight">
+            <div className="min-w-0 hidden sm:block max-w-[190px] lg:max-w-none">
+              <h1 className="text-base sm:text-lg font-extrabold leading-tight truncate whitespace-nowrap">
                 {headerTitle}
               </h1>
-              <p className="text-[10px] sm:text-xs text-muted-foreground -mt-0.5">
+              <p className="text-[10px] sm:text-xs text-muted-foreground -mt-0.5 truncate whitespace-nowrap">
                 {headerSubtitle}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2">
-            {sessionUser.role !== "superadmin" && <SubscriptionBadge />}
+            {sessionUser.role !== "superadmin" && <div className="hidden sm:block"><SubscriptionBadge /></div>}
             <ThemeToggle />
             <SyncIndicator />
             <NotificationBell />
@@ -479,14 +479,14 @@ export default function Home() {
               title="بحث سريع (Ctrl+K)"
             >
               <Search className="h-4 w-4" />
-              <kbd className="hidden sm:inline text-[10px] font-mono border rounded px-1">Ctrl+K</kbd>
+              <kbd className="hidden lg:inline text-[10px] font-mono border rounded px-1">Ctrl+K</kbd>
             </Button>
-            {/* ★ زر شاشة البوابة الذكية */}
+            {/* ★ زر شاشة البوابة الذكية (كشك مخصص للأجهزة اللوحية/المكتب) */}
             <Button
               variant="outline"
               size="sm"
               onClick={() => setKioskOpen(true)}
-              className="h-9 gap-1.5 border-teal-400/40 text-teal-700 hover:bg-teal-50"
+              className="hidden sm:inline-flex h-9 gap-1.5 border-teal-400/40 text-teal-700 hover:bg-teal-50"
               title="شاشة البوابة الذكية"
             >
               <QrCode className="h-4 w-4" />
@@ -1191,7 +1191,7 @@ export default function Home() {
           {/* ★ Modal: قائمة المنخرطين في فئة محددة */}
           {selectedCat && (
             <Dialog open={!!selectedCat} onOpenChange={(o) => !o && setSelectedCat(null)}>
-              <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+              <DialogContent className="sm:max-w-3xl max-h-[85dvh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle className="flex items-center gap-2">
                     <Crown className="h-5 w-5 text-primary" /> {selectedCat.title}
