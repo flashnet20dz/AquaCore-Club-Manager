@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Users, Download, Loader2, Calendar, ChevronRight, ChevronLeft,
-  CheckSquare, Square, RefreshCw, Search,
+  CheckSquare, Square, RefreshCw, Search, ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -72,6 +72,33 @@ export function MembersDirectoryPanel() {
   const [sigModal, setSigModal] = useState(false);
   const [selectedSigs, setSelectedSigs] = useState<string[]>(["president", "compound"]);
   const [search, setSearch] = useState("");
+  const [portalBusy, setPortalBusy] = useState<string | null>(null);
+
+  // 🆕 بوابة المنخرط — توليد رابط البطاقة الرقمية ونسخه من جدول السجل مباشرة
+  const openPortalLink = async (m: MemberEntry) => {
+    if (portalBusy) return;
+    setPortalBusy(m.id);
+    try {
+      const res = await fetch("/api/member-portal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscriberId: m.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || "تعذر إنشاء الرابط"); return; }
+      const abs = `${window.location.origin}${data.url}`;
+      try {
+        await navigator.clipboard.writeText(abs);
+        toast.success(`رابط بوابة ${m.firstName} ${m.lastName} منسوخ — شاركه معه عبر واتساب`);
+      } catch {
+        toast.info(abs, { duration: 15000 });
+      }
+    } catch {
+      toast.error("خطأ في الاتصال");
+    } finally {
+      setPortalBusy(null);
+    }
+  };
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -194,14 +221,15 @@ export function MembersDirectoryPanel() {
                 <th className="p-3 text-center w-32">آخر دفعة</th>
                 <th className="p-3 text-center w-24">حالة الدفع</th>
                 <th className="p-3 text-center w-24">حالة التجديد</th>
+                <th className="p-3 text-center w-20">البوابة</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={12} className="text-center py-12"><Loader2 className="h-6 w-6 animate-spin text-teal-600 mx-auto" /></td></tr>
+                <tr><td colSpan={13} className="text-center py-12"><Loader2 className="h-6 w-6 animate-spin text-teal-600 mx-auto" /></td></tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="text-center py-16">
+                  <td colSpan={13} className="text-center py-16">
                     <Calendar className="h-10 w-10 text-muted-foreground/40 mx-auto mb-2" />
                     <p className="text-sm text-muted-foreground">لا يوجد منخروطون</p>
                   </td>
@@ -242,6 +270,18 @@ export function MembersDirectoryPanel() {
                         m.renewalStatus?.includes("منتهي") ? "bg-rose-100 text-rose-700 border-rose-300" :
                         "bg-slate-100 text-slate-500 border-slate-300"
                       )}>{m.renewalStatus || "—"}</Badge>
+                    </td>
+                    <td className="p-3 text-center">
+                      <button
+                        onClick={() => openPortalLink(m)}
+                        disabled={portalBusy === m.id}
+                        className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-teal-500/15 text-teal-700 hover:bg-teal-500/25 transition disabled:opacity-50"
+                        title={`نسخ رابط بوابة ${m.firstName} ${m.lastName} (بطاقة رقمية يفتحها المنخرط على هاتفه)`}
+                      >
+                        {portalBusy === m.id
+                          ? <Loader2 className="h-4 w-4 animate-spin" />
+                          : <ExternalLink className="h-4 w-4" />}
+                      </button>
                     </td>
                   </motion.tr>
                 ))
