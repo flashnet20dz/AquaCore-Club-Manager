@@ -39,6 +39,7 @@ import {
   SUBSCRIPTION_TYPES,
   PAYMENT_STATUSES,
   isExemptStatus,
+  SWIMMING_DAYS,
   type BloodType,
   type SubscriptionType,
   type PaymentStatus,
@@ -150,6 +151,21 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
   const { activeTypes: subTypes } = useSubscriptionTypes();
   // 🔗 الميزة متزامنة مع الإعدادات: الأيام والتوقيتات من قاعدة البيانات (تبويب الإعدادات ← المنخرطون)
   const { dayNames: swimDayNames, slotLabels: swimSlotLabels } = useSwimConfig();
+
+  // 🏊 خيارات أيام السباحة: أزواج مجموعات النادي المشتقة من الأيام المفتوحة في الإعدادات
+  // مثال: الأحد والأربعاء / الإثنين والخميس / الثلاثاء والسبت
+  // الزوج يختفي تلقائياً إن أُغلق أحد يوميه (مثل الجمعة يوم الصيانة والراحة)
+  const dayOptions = useMemo(() => {
+    // تطبيع الهمزات: القاعدة قد تحفظ «الاثنين» والثوابت «الإثنين» — نفس اليوم
+    const norm = (s: string) => s.replace(/[أإآ]/g, "ا").trim();
+    const open = swimDayNames.map(norm);
+    const pairs = SWIMMING_DAYS.filter((p) => {
+      if (p === "كل الأيام") return true;
+      return p.split(" و").every((d) => open.includes(norm(d)));
+    }).map((p) => ({ value: p, label: p }));
+    // أمان: إن لم يطابق أي زوج الأيام المفتوحة (أسماء مخصصة)، اعرض الأيام مفردة
+    return pairs.length > 1 ? pairs : swimDayNames.map((d) => ({ value: d, label: d }));
+  }, [swimDayNames]);
   const [saving, setSaving] = useState(false);
   const isEdit = !!initial?.id;
   // ★ معاينة رقم الملف التالي
@@ -690,12 +706,13 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
             )}
 
             <ChipSelector
-              label="أيام السباحة"
+              label="أيام السباحة (مجموعات)"
               icon={<Waves className="h-4 w-4" />}
-              options={swimDayNames.map((d) => ({ value: d, label: d }))}
+              options={dayOptions}
               value={form.swimmingDays}
               onChange={(v) => setForm({ ...form, swimmingDays: v })}
               columns={2}
+              hint="الزوج يُخفى إذا أُغلق أحد يوميه من الإعدادات"
             />
 
             <ChipSelector

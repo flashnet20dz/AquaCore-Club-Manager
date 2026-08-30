@@ -30,6 +30,7 @@ import {
   QrCode,
   History,
   CalendarClock,
+  CalendarDays,
   Hash,
   Phone,
   ShieldAlert,
@@ -155,7 +156,7 @@ export default async function MemberPortalPage({
   // 2) جلب المنخرط (غير المحذوف) مع اسم النادي
   const subscriber = await db.subscriber.findFirst({
     where: { id: verified.subscriberId, deletedAt: null },
-    include: { club: { select: { name: true, phone: true } } },
+    include: { club: { select: { name: true, phone: true, logoUrl: true, primaryColor: true, secondaryColor: true, accentColor: true, borderRadius: true } } },
   });
   if (!subscriber) return <InvalidLinkPage deleted />;
 
@@ -192,6 +193,29 @@ export default async function MemberPortalPage({
   const clubName = settingMap.clubName || subscriber.club?.name || "النادي";
   const clubPhone = settingMap.clubPhone || subscriber.club?.phone || "";
 
+  // 🎨 هوية النادي من إعدادات المظهر (الإعدادات ← المظهر والشعار) — تنعكس تلقائياً على البطاقة
+  const clubLogo = subscriber.club?.logoUrl || null;
+  const rawPrimary = subscriber.club?.primaryColor || null;
+  const rawAccent = subscriber.club?.accentColor || null;
+  const isCssColor = (c: string | null | undefined) =>
+    Boolean(c && (c.startsWith("#") || c.startsWith("oklch") || c.startsWith("rgb") || c.startsWith("hsl")));
+  const primary = isCssColor(rawPrimary) ? rawPrimary! : "#0d9488";
+  const accent = isCssColor(rawAccent) ? rawAccent! : "#10b981";
+  const headerStyle = { backgroundImage: `linear-gradient(to left, ${primary}, ${accent})` };
+  const radiusMap: Record<string, string> = {
+    none: "rounded-none",
+    small: "rounded-xl",
+    medium: "rounded-3xl",
+    large: "rounded-[2rem]",
+  };
+  const cardRadius = radiusMap[subscriber.club?.borderRadius || "medium"] || "rounded-3xl";
+  const innerRadius =
+    cardRadius === "rounded-none" ? "rounded-none"
+    : cardRadius === "rounded-xl" ? "rounded-lg"
+    : cardRadius === "rounded-[2rem]" ? "rounded-3xl"
+    : "rounded-2xl";
+  const qrColor = rawPrimary && rawPrimary.startsWith("#") ? rawPrimary : "#0f766e";
+
   // 4) حساب حالة الاشتراك — إعادة استخدام منطق lib/rcs (لا تكرار)
   const typeConfig: SubscriptionTypeConfig | undefined = dbType ? { ...dbType } : undefined;
   const subForCompute = {
@@ -224,7 +248,7 @@ export default async function MemberPortalPage({
       width: 360,
       margin: 1,
       errorCorrectionLevel: "M",
-      color: { dark: "#0f766e", light: "#ffffff" },
+      color: { dark: qrColor, light: "#ffffff" },
     });
   } catch (e) {
     console.error("QR generation failed:", e);
@@ -234,47 +258,65 @@ export default async function MemberPortalPage({
     <div className="min-h-screen bg-gradient-to-b from-teal-50 via-background to-background dark:from-teal-950/30 dark:via-background dark:to-background">
       <main className="mx-auto w-full max-w-md px-3 py-6 sm:py-10">
         {/* البطاقة الرقمية */}
-        <article className="rounded-3xl border border-border bg-card shadow-xl overflow-hidden">
-          {/* الترويسة المتدرجة */}
-          <header className="relative bg-gradient-to-l from-teal-600 via-teal-500 to-emerald-500 px-5 pt-6 pb-14 text-white">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-[11px] sm:text-xs font-medium text-white/75 tracking-wide">
+        <article className={`${cardRadius} border border-border bg-card shadow-xl overflow-hidden`}>
+          {/* الترويسة المتدرجة — بألوان النادي من إعدادات المظهر */}
+          <header style={headerStyle} className="relative px-5 pt-6 pb-12 text-white">
+            <div className="flex items-center gap-3">
+              <div className="shrink-0 w-12 h-12 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center border border-white/25 overflow-hidden">
+                {clubLogo ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={clubLogo} alt={`شعار ${clubName}`} className="w-full h-full object-contain p-1" />
+                ) : (
+                  <Waves className="w-6 h-6" aria-hidden="true" />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] sm:text-xs font-medium text-white/80 tracking-wide">
                   البطاقة الرقمية للمنخرط
                 </p>
-                <h1 className="mt-1 text-base sm:text-lg font-bold leading-6 truncate" title={clubName}>
+                <h1 className="mt-0.5 text-[15px] sm:text-lg font-bold leading-6 break-words">
                   {clubName}
                 </h1>
               </div>
-              <div className="shrink-0 w-11 h-11 rounded-2xl bg-white/15 backdrop-blur flex items-center justify-center border border-white/20">
-                <Waves className="w-6 h-6" aria-hidden="true" />
-              </div>
             </div>
             <span
-              className="pointer-events-none absolute -bottom-1 left-4 opacity-15 select-none"
+              className="pointer-events-none absolute -bottom-2 left-3 opacity-10 select-none"
               aria-hidden="true"
             >
-              <Waves className="w-24 h-24" />
+              <Waves className="w-28 h-28" />
             </span>
           </header>
 
-          {/* جسم البطاقة */}
-          <div className="px-5 pb-6 -mt-9">
-            <div className="rounded-3xl border border-border bg-background/95 dark:bg-card shadow-lg p-5">
-              {/* الاسم + الحالة */}
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h2 className="text-lg sm:text-xl font-extrabold text-foreground leading-7 break-words">
-                    {subscriber.lastName} {subscriber.firstName}
-                  </h2>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {subscriber.gender} · نوع الاشتراك:{" "}
-                    <span className="font-semibold text-teal-700 dark:text-teal-300">
-                      {subscriber.subscriptionType}
+          {/* جسم البطاقة — relative ليرسم فوق الترويسة الممتدة خلفه (لا قصّ للسطر الأول) */}
+          <div className="relative px-5 pb-6 -mt-8">
+            <div className={`${innerRadius} border border-border bg-background dark:bg-card shadow-lg p-5`}>
+              {/* الاسم ثم الحالة — صفوف مستقلة بلا تداخل حتى مع الأسماء والشارات الطويلة */}
+              <div>
+                <h2 className="text-lg sm:text-xl font-extrabold text-foreground leading-7 break-words">
+                  {subscriber.lastName} {subscriber.firstName}
+                </h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {subscriber.gender} · نوع الاشتراك:{" "}
+                  <span className="font-semibold text-teal-700 dark:text-teal-300">
+                    {subscriber.subscriptionType}
+                  </span>
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <StatusBadge status={computed.renewalStatus} />
+                  {daysRemaining !== null && (
+                    <span
+                      className={`text-xs font-semibold rounded-full px-3 py-1.5 border ${
+                        daysRemaining >= 0
+                          ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20"
+                          : "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20"
+                      }`}
+                    >
+                      {daysRemaining >= 0
+                        ? `متبقي ${daysRemaining} يوماً`
+                        : `انتهى منذ ${Math.abs(daysRemaining)} يوماً`}
                     </span>
-                  </p>
+                  )}
                 </div>
-                <StatusBadge status={computed.renewalStatus} className="shrink-0" />
               </div>
 
               {/* رقم الملف + الانتهاء */}
@@ -293,33 +335,28 @@ export default async function MemberPortalPage({
                     {formatArDate(expiryDate)}
                   </span>
                 </div>
-                {daysRemaining !== null && (
-                  <div
-                    className={`text-center text-xs font-semibold rounded-full px-3 py-1.5 border ${
-                      daysRemaining >= 0
-                        ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20"
-                        : "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20"
-                    }`}
-                  >
-                    {daysRemaining >= 0
-                      ? `متبقي ${daysRemaining} يوماً على انتهاء الاشتراك`
-                      : `انتهى الاشتراك منذ ${Math.abs(daysRemaining)} يوماً`}
-                  </div>
-                )}
               </div>
 
-              {/* رقاقة أيام/فترة السباحة (غير حساسة) */}
+              {/* أيام وتوقيت السباحة — من قاعدة البيانات مباشرة */}
               {(subscriber.swimmingDays || subscriber.timeSlot) && (
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-3 grid gap-2">
                   {subscriber.swimmingDays && (
-                    <Badge variant="outline" className="rounded-full bg-teal-500/10 text-teal-700 dark:text-teal-300 border-teal-500/25 text-[11px]">
-                      {subscriber.swimmingDays}
-                    </Badge>
+                    <div className="flex items-center gap-2.5 rounded-2xl bg-teal-500/10 border border-teal-500/20 px-3.5 py-2.5">
+                      <CalendarDays className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" aria-hidden="true" />
+                      <span className="text-xs text-muted-foreground">أيام السباحة</span>
+                      <span className="ms-auto text-sm font-bold text-teal-800 dark:text-teal-200">
+                        {subscriber.swimmingDays}
+                      </span>
+                    </div>
                   )}
                   {subscriber.timeSlot && (
-                    <Badge variant="outline" className="rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/25 text-[11px] font-mono" dir="ltr">
-                      {subscriber.timeSlot}
-                    </Badge>
+                    <div className="flex items-center gap-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 px-3.5 py-2.5">
+                      <Clock className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" aria-hidden="true" />
+                      <span className="text-xs text-muted-foreground">التوقيت</span>
+                      <span className="ms-auto text-sm font-bold font-mono text-emerald-800 dark:text-emerald-200" dir="ltr">
+                        {subscriber.timeSlot}
+                      </span>
+                    </div>
                   )}
                 </div>
               )}
@@ -397,7 +434,8 @@ export default async function MemberPortalPage({
             {clubPhone ? (
               <a
                 href={`tel:${clubPhone}`}
-                className="flex items-center justify-center gap-2.5 w-full rounded-2xl bg-gradient-to-l from-teal-600 to-emerald-500 px-4 py-3 text-white text-sm font-bold shadow-md hover:opacity-90 active:scale-[0.99] transition min-h-[44px]"
+                style={headerStyle}
+                className="flex items-center justify-center gap-2.5 w-full px-4 py-3 text-white text-sm font-bold shadow-md hover:opacity-90 active:scale-[0.99] transition min-h-[44px] rounded-2xl"
               >
                 <Phone className="w-4 h-4" aria-hidden="true" />
                 تواصل للتجديد

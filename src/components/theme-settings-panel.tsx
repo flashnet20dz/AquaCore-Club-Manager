@@ -122,6 +122,11 @@ export function ThemeSettingsPanel() {
           <p className="text-sm text-muted-foreground mt-1">
             خصّص هوية ناديك البصرية — ألوان، شعار، خط، حواف، وكثافة الواجهة.
           </p>
+          <p className="mt-2 text-xs leading-6 rounded-xl border border-teal-500/25 bg-teal-500/10 text-teal-800 dark:text-teal-200 px-3 py-2">
+            🌊 <strong>بطاقة المنخرط (البوابة):</strong> الشعار هنا + الألوان الأساسية والاستدارة
+            تُطبَّق تلقائياً على البطاقة الرقمية التي يفتحها المنخرط من رابط بوابته — عدّلها مرة واحدة
+            وستجد انعكاسها في كل الروابط.
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => setResetOpen(true)} disabled={saving}>

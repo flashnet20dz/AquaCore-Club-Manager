@@ -51,6 +51,7 @@ import { FinancialPayments } from "@/components/financial-payments";
 import { FinancialReports } from "@/components/financial-reports";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SyncIndicator } from "@/components/sync-indicator";
+import { SetupChecklist } from "@/components/setup-checklist";
 import { UserManagement } from "@/components/user-management";
 import { WorkHoursPanel } from "@/components/work-hours-panel";
 import { WorkHoursManagement } from "@/components/work-hours-management";
@@ -570,6 +571,9 @@ export default function Home() {
               </span>
             </Button>
           </div>
+
+          {/* 🏁 قائمة إعداد النادي — تظهر فقط للنوادي غير المكتملة (تُخفى يدوياً) */}
+          <SetupChecklist />
 
           {/* Desktop: horizontal scrollable tab bar (hidden on mobile) */}
           <div className="hidden sm:block overflow-x-auto pb-2 -mx-2 px-2">
