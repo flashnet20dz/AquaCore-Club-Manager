@@ -129,23 +129,65 @@ export async function GET() {
       _sum: { amount: true },
     });
 
-    // ─── 5) الجدول الأسبوعي: توزيع المنخرطين (يوم × فترة) ───
+    // ─── 5) الجدول الأسبوعي: يوم × فترة × المنخرطون (مرتّب بالتوقيت، مع سعة كل حصة) ───
     const DAYS = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
-    const schedule: { day: string; slots: { slot: string; count: number }[]; total: number }[] = DAYS.map((day) => ({
-      day, slots: [], total: 0,
+
+    // سعات الفترات من قاعدة البيانات (لكل نادٍ)
+    const slotRows = await db.swimmingTimeSlot.findMany({
+      where: { ...(clubId ? { clubId } : {}), active: true },
+      select: { name: true, startTime: true, maxCapacity: true, sortOrder: true },
+      orderBy: { sortOrder: "asc" },
+    });
+    const capByName = new Map(slotRows.map((r) => [r.name, r.maxCapacity]));
+    const orderByName = new Map(slotRows.map((r) => [r.name, r.sortOrder]));
+
+    interface SlotCell {
+      slot: string;
+      count: number;
+      capacity: number;
+      subscribers: { id: string; name: string; fileNumber: string }[];
+    }
+    const schedule: { day: string; total: number; capacity: number; slots: SlotCell[] }[] = DAYS.map((day) => ({
+      day, slots: [], total: 0, capacity: 0,
     }));
+
+    const roster: { id: string; name: string; days: number[]; slot: string }[] = [];
+
     for (const s of subscribers) {
       const days = parseSwimmingDays(s.swimmingDays);
       const slot = s.timeSlot || "غير محدد";
+      const fullName = `${s.lastName} ${s.firstName}`;
+      roster.push({ id: s.id, name: fullName, days, slot });
       for (const d of days) {
         if (d < 0 || d > 6) continue;
-        const found = schedule[d].slots.find((x) => x.slot === slot);
-        if (found) found.count++;
-        else schedule[d].slots.push({ slot, count: 1 });
+        let cell = schedule[d].slots.find((x) => x.slot === slot);
+        if (!cell) {
+          cell = {
+            slot,
+            count: 0,
+            capacity: slot === "غير محدد" ? 0 : (capByName.get(slot) ?? 30),
+            subscribers: [],
+          };
+          schedule[d].slots.push(cell);
+        }
+        cell.count++;
+        cell.subscribers.push({ id: s.id, name: fullName, fileNumber: s.fileNumber });
         schedule[d].total++;
       }
     }
-    for (const day of schedule) day.slots.sort((a, b) => b.count - a.count);
+
+    for (const day of schedule) {
+      // ترتيب الفترات زمنياً (بالتوقيت) — الفترات غير المعرفة و«غير محدد» في الأخير
+      day.slots.sort((a, b) => {
+        const oa = orderByName.has(a.slot) ? (orderByName.get(a.slot) as number) : 9999;
+        const ob = orderByName.has(b.slot) ? (orderByName.get(b.slot) as number) : 9999;
+        if (oa !== ob) return oa - ob;
+        return a.slot.localeCompare(b.slot);
+      });
+      // سعة اليوم = مجموع سعات فتراته المعرفة
+      day.capacity = day.slots.reduce((sum, c) => sum + (capByName.has(c.slot) ? c.capacity : 0), 0);
+    }
+    roster.sort((a, b) => a.name.localeCompare(b.name, "ar"));
 
     return NextResponse.json({
       churn,
@@ -159,6 +201,7 @@ export async function GET() {
         monthName: monthStart.toLocaleDateString("ar-DZ", { month: "long", year: "numeric" }),
       },
       schedule,
+      roster,
     });
   } catch (e) {
     console.error("GET dashboard-extras:", e);
