@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import {
   LifeBuoy, Flame, Trophy, Target, CalendarDays, Sparkles, Loader2,
   MessageCircle, RefreshCw, TrendingUp, TrendingDown, Users, Printer,
-  ChevronDown, UserSearch, X,
+  ChevronDown, UserSearch, X, SendHorizontal, RotateCcw,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -67,6 +67,14 @@ const dayBadgeClass = (d: { total: number; capacity: number }) => {
   return "bg-teal-500/15 text-teal-700 dark:text-teal-400";
 };
 
+const CHAT_SUGGESTIONS = [
+  "حلّل أداء النادي وقدّم توصيات",
+  "كم منخرطاً لم يدفع بعد؟",
+  "ما إيرادات هذا الشهر مقارنة بالشهر الماضي؟",
+  "ما أكثر الفترات ازدحاماً في الأسبوع؟",
+  "كم منخرطاً غائب لأكثر من 3 أسابيع؟",
+];
+
 export function DashboardExtras() {
   const [data, setData] = useState<Extras | null>(null);
   const [loading, setLoading] = useState(true);
@@ -74,11 +82,18 @@ export function DashboardExtras() {
   const [bulkSending, setBulkSending] = useState(false);
   const [target, setTarget] = useState("");
   const [savingTarget, setSavingTarget] = useState(false);
-  const [insights, setInsights] = useState<string>("");
-  const [aiLoading, setAiLoading] = useState(false);
   const [expandedSlot, setExpandedSlot] = useState<string | null>(null);
   const [pickQuery, setPickQuery] = useState("");
   const [pickedId, setPickedId] = useState<string | null>(null);
+  const [chat, setChat] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatBoxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = chatBoxRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, [chat, chatLoading]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -137,15 +152,32 @@ export function DashboardExtras() {
     finally { setSavingTarget(false); }
   };
 
-  const askAI = async () => {
-    setAiLoading(true); setInsights("");
+  const sendChat = async (preset?: string) => {
+    const q = (preset ?? chatInput).trim();
+    if (!q || chatLoading) return;
+    const next = [...chat, { role: "user" as const, content: q }];
+    setChat(next);
+    setChatInput("");
+    setChatLoading(true);
     try {
-      const res = await fetch("/api/ai/insights", { method: "POST" });
+      const res = await fetch("/api/ai/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: next.slice(-12) }),
+      });
       const d = await res.json();
-      if (res.ok) setInsights(d.insights);
-      else toast.error(d.error || "تعذر التحليل");
-    } catch { toast.error("خطأ في الاتصال"); }
-    finally { setAiLoading(false); }
+      if (res.ok && d.answer) {
+        setChat([...next, { role: "assistant", content: d.answer }]);
+      } else {
+        toast.error(d.error || "تعذر الإجابة");
+        setChat(next);
+      }
+    } catch {
+      toast.error("خطأ في الاتصال");
+      setChat(next);
+    } finally {
+      setChatLoading(false);
+    }
   };
 
   if (loading) {
@@ -531,26 +563,98 @@ export function DashboardExtras() {
         </CardContent>
       </Card>
 
-      {/* ═══ 6) المساعد الذكي ═══ */}
+      {/* ═══ 6) المساعد الذكي — محادثة أسئلة وأجوبة حسب إحصائيات النادي ═══ */}
       <Card className="border-teal-200/60 dark:border-teal-900/40">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <CardTitle className="flex items-center gap-2 text-base">
               <Sparkles className="h-5 w-5 text-teal-600" /> المساعد الذكي
+              <span className="text-xs font-normal text-muted-foreground">(اسأله عن أي شيء في ناديك — يجيب حسب إحصائياته)</span>
             </CardTitle>
-            <Button size="sm" className="h-8 bg-teal-600 hover:bg-teal-700 text-white" disabled={aiLoading} onClick={askAI}>
-              {aiLoading ? <Loader2 className="h-3.5 w-3.5 ml-1 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 ml-1" />}
-              حلّل أداء النادي
-            </Button>
+            {chat.length > 0 && (
+              <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setChat([])}>
+                <RotateCcw className="h-3.5 w-3.5 ml-1" /> محادثة جديدة
+              </Button>
+            )}
           </div>
         </CardHeader>
-        {insights && (
-          <CardContent>
-            <div className="rounded-xl bg-teal-500/5 border border-teal-500/20 p-4 text-sm leading-7 whitespace-pre-wrap">
-              {insights}
-            </div>
-          </CardContent>
-        )}
+        <CardContent className="space-y-3">
+          <div
+            ref={chatBoxRef}
+            className="rounded-xl border bg-muted/20 p-3 space-y-2.5 max-h-96 overflow-y-auto min-h-[140px]"
+            aria-live="polite"
+            aria-label="محادثة المساعد الذكي"
+          >
+            {chat.length === 0 && (
+              <div className="text-center py-4 space-y-3">
+                <p className="text-xs text-muted-foreground">جرّب أحد هذه الأسئلة أو اكتب سؤالك أدناه:</p>
+                <div className="flex flex-wrap justify-center gap-1.5">
+                  {CHAT_SUGGESTIONS.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => sendChat(s)}
+                      className="text-[11px] rounded-full border border-teal-500/40 bg-teal-500/10 text-teal-700 dark:text-teal-300 px-3 py-1.5 hover:bg-teal-500/20 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {chat.map((m, i) => (
+              <div key={i} className={cn("flex", m.role === "user" ? "justify-start" : "justify-end")}>
+                <div
+                  className={cn(
+                    "px-3 py-2 text-sm whitespace-pre-wrap leading-7",
+                    m.role === "user"
+                      ? "bg-teal-600 text-white rounded-2xl rounded-tl-md max-w-[85%]"
+                      : "bg-background border rounded-2xl rounded-tr-md max-w-[92%]"
+                  )}
+                >
+                  {m.content}
+                </div>
+              </div>
+            ))}
+            {chatLoading && (
+              <div className="flex justify-end">
+                <div className="bg-background border rounded-2xl rounded-tr-md px-4 py-3 flex items-center gap-1" aria-label="المساعد يكتب…">
+                  {[0, 150, 300].map((delay) => (
+                    <span
+                      key={delay}
+                      className="h-1.5 w-1.5 rounded-full bg-teal-500 animate-bounce"
+                      style={{ animationDelay: `${delay}ms` }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Input
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  sendChat();
+                }
+              }}
+              placeholder="اكتب سؤالك… مثال: كم منخرطاً لم يدفع هذا الشهر؟"
+              disabled={chatLoading}
+              aria-label="سؤالك للمساعد الذكي"
+            />
+            <Button
+              size="icon"
+              className="h-9 w-9 shrink-0 bg-teal-600 hover:bg-teal-700 text-white"
+              disabled={chatLoading || !chatInput.trim()}
+              onClick={() => sendChat()}
+              aria-label="إرسال السؤال"
+            >
+              {chatLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendHorizontal className="h-4 w-4" />}
+            </Button>
+          </div>
+        </CardContent>
       </Card>
     </div>
   );
