@@ -24,12 +24,14 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { UnifiedHeaderSettings } from "@/components/unified-header-settings";
 import { DesktopSettings } from "@/components/desktop-settings";
+import { ThemeSettingsPanel } from "@/components/theme-settings-panel";
 import { useSubscriptionTypes, invalidateSubscriptionTypesCache } from "@/hooks/use-subscription-types";
 import { invalidateSwimConfig } from "@/hooks/use-swim-config";
 import { FeatureSettingsHub } from "@/components/feature-settings-hub";
 
-export function SettingsPanel() {
+export function SettingsPanel({ initialTab }: { initialTab?: string | null }) {
   const [settings, setSettings] = useState<Record<string, string>>({});
+  const [activeSubTab, setActiveSubTab] = useState(initialTab || "appearance");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [newSubType, setNewSubType] = useState("");
@@ -43,6 +45,11 @@ export function SettingsPanel() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  // ★ القفز العميق: قائمة إعداد النادي تنقر بنداً → يُفتح التبويب المطلوب مباشرة
+  useEffect(() => {
+    if (initialTab) setActiveSubTab(initialTab);
+  }, [initialTab]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -91,8 +98,9 @@ export function SettingsPanel() {
         </h3>
         <p className="text-xs text-muted-foreground mb-4">عدّل كل إعدادات النادي — الإعدادات العامة، المنخرطين، ساعات العمل، النصوص</p>
 
-        <Tabs defaultValue="general" className="w-full">
+        <Tabs value={activeSubTab} onValueChange={setActiveSubTab} className="w-full">
           <TabsList className="w-full flex-wrap h-auto">
+            <TabsTrigger value="appearance" className="text-xs flex-1">🎨 المظهر والشعار</TabsTrigger>
             <TabsTrigger value="general" className="text-xs flex-1">🏢 عامة</TabsTrigger>
             <TabsTrigger value="subscribers" className="text-xs flex-1">👥 المنخرطون</TabsTrigger>
             <TabsTrigger value="workhours" className="text-xs flex-1">⏰ ساعات العمل</TabsTrigger>
@@ -102,6 +110,11 @@ export function SettingsPanel() {
             <TabsTrigger value="features" className="text-xs flex-1">🧩 الميزات</TabsTrigger>
             <TabsTrigger value="desktop" className="text-xs flex-1">💻 سطح المكتب</TabsTrigger>
           </TabsList>
+
+          {/* ════════════ المظهر والشعار (ThemeSettingsPanel) ════════════ */}
+          <TabsContent value="appearance" className="mt-3">
+            <ThemeSettingsPanel />
+          </TabsContent>
 
           {/* ════════════ العامة ════════════ */}
           <TabsContent value="general" className="space-y-3 mt-3">
@@ -190,7 +203,7 @@ export function SettingsPanel() {
               <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                 <LayoutTemplate className="h-3 w-3" /> نص أعلى الموقع (الترويسة)
               </h4>
-              <p className="text-xs text-muted-foreground">الشعار والإعدادات البصرية تُدار من قسم «المظهر والألوان» أعلى الصفحة.</p>
+              <p className="text-xs text-muted-foreground">الشعار والألوان تُدار من تبويب «🎨 المظهر والشعار» أول تبويبات هذه الصفحة.</p>
               <Input
                 value={settings.headerTitle || ""}
                 onChange={(e) => setSettings({ ...settings, headerTitle: e.target.value })}

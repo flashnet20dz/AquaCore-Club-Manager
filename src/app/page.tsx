@@ -45,7 +45,6 @@ import { RenewalPanel } from "@/components/renewal-panel";
 import { ExportPanel } from "@/components/export-panel";
 import { ReportViewer } from "@/components/reports";
 import { SettingsPanel } from "@/components/settings-panel";
-import { ThemeSettingsPanel } from "@/components/theme-settings-panel";
 import { FinancialDashboard } from "@/components/financial-dashboard";
 import { FinancialPayments } from "@/components/financial-payments";
 import { FinancialReports } from "@/components/financial-reports";
@@ -172,6 +171,8 @@ export default function Home() {
   const defaultTab = sessionUser?.role === "accountant" ? "financial-dashboard"
     : (sessionUser?.role === "admin" || sessionUser?.role === "superadmin" ? "dashboard" : "attendance");
   const [activeTab, setActiveTab] = useState<string>(defaultTab);
+  // ★ التبويب الفرعي داخل الإعدادات — تضبطه قائمة إعداد النادي عند نقر بند (القفز العميق)
+  const [settingsSubTab, setSettingsSubTab] = useState<string | null>(null);
   // Hook موحد لجلب أنواع الاشتراك — Single Source of Truth
   // يجب استدعاؤه قبل أي early return (قواعد الـ Hooks)
   const { types: subscriptionTypes, refresh: refreshSubTypes } = useSubscriptionTypes();
@@ -185,6 +186,20 @@ export default function Home() {
       const savedTab = localStorage.getItem("rcs-active-tab");
       if (savedTab) setActiveTab(savedTab);
     } catch {}
+  }, []);
+
+  // ★ قائمة إعداد النادي: نقر بند → افتح الإعدادات على التبويب الفرعي المطلوب مباشرة
+  useEffect(() => {
+    const gotoSettings = (e: Event) => {
+      const tab = (e as CustomEvent<{ tab?: string }>).detail?.tab;
+      if (tab) setSettingsSubTab(tab);
+      setActiveTab("settings");
+      try { localStorage.setItem("rcs-active-tab", "settings"); } catch {}
+      setMobileNavOpen(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+    window.addEventListener("aquacore-goto-settings", gotoSettings);
+    return () => window.removeEventListener("aquacore-goto-settings", gotoSettings);
   }, []);
 
   // مسح التقرير المفتوح عند تغيير التبويب + حفظ التبويب
@@ -1331,11 +1346,10 @@ export default function Home() {
             </TabsContent>
           )}
 
-          {/* SETTINGS TAB (admin only) */}
+          {/* SETTINGS TAB (admin only) — المظهر والشعار أصبح أول تبويب داخل SettingsPanel نفسها */}
           {isAdmin && (
             <TabsContent value="settings" className="space-y-4 mt-0">
-              <ThemeSettingsPanel />
-              <SettingsPanel />
+              <SettingsPanel initialTab={settingsSubTab} />
             </TabsContent>
           )}
         </Tabs>

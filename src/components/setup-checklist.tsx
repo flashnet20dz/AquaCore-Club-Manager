@@ -16,7 +16,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Flag, CheckCircle2, Circle, X, Loader2 } from "lucide-react";
+import { Flag, CheckCircle2, Circle, X, Loader2, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const DISMISS_KEY = "aquacore_setup_checklist_dismissed";
@@ -25,8 +25,15 @@ interface Item {
   id: string;
   label: string;
   where: string;
+  /** التبويب الفرعي داخل الإعدادات — النقر على البند يفتحه مباشرة */
+  tab: string;
   done: boolean;
 }
+
+/** إرسال أمر «افتح الإعدادات على هذا التبويب» — يلتقطه page.tsx */
+const gotoSettingsTab = (tab: string) => {
+  window.dispatchEvent(new CustomEvent("aquacore-goto-settings", { detail: { tab } }));
+};
 
 export function SetupChecklist() {
   const [items, setItems] = useState<Item[] | null>(null);
@@ -58,11 +65,11 @@ export function SetupChecklist() {
 
       const s: Record<string, string> = settings?.settings || {};
       setItems([
-        { id: "name",   label: "اسم النادي والهاتف",        where: "الإعدادات ← عام",                 done: Boolean(s.clubName && s.clubPhone) },
-        { id: "logo",   label: "شعار النادي",               where: "الإعدادات ← المظهر والشعار",       done: Boolean(theme?.config?.logoUrl) },
-        { id: "days",   label: "أيام السباحة (المجموعات)",  where: "الإعدادات ← المنخرطون",            done: days.filter((d: { active: boolean }) => d.active).length > 0 },
-        { id: "slots",  label: "توقيتات السباحة",            where: "الإعدادات ← المنخرطون",            done: slots.filter((x: { active: boolean }) => x.active).length > 0 },
-        { id: "types",  label: "أنواع الاشتراك",             where: "الإعدادات ← الاشتراكات",           done: types.filter((t: { active?: boolean }) => t.active !== false).length > 0 },
+        { id: "name",   label: "اسم النادي والهاتف",        where: "الإعدادات ← عامة",               tab: "general",     done: Boolean(s.clubName && s.clubPhone) },
+        { id: "logo",   label: "شعار النادي ومظهره",        where: "الإعدادات ← المظهر والشعار",      tab: "appearance",  done: Boolean(theme?.config?.logoUrl) },
+        { id: "days",   label: "أيام السباحة (المجموعات)",  where: "الإعدادات ← المنخرطون",            tab: "subscribers", done: days.filter((d: { active: boolean }) => d.active).length > 0 },
+        { id: "slots",  label: "توقيتات السباحة",            where: "الإعدادات ← المنخرطون",            tab: "subscribers", done: slots.filter((x: { active: boolean }) => x.active).length > 0 },
+        { id: "types",  label: "أنواع الاشتراك",             where: "الإعدادات ← المنخرطون",            tab: "subscribers", done: types.filter((t: { active?: boolean }) => t.active !== false).length > 0 },
       ]);
     } catch {
       setItems([]);
@@ -99,22 +106,31 @@ export function SetupChecklist() {
               أكمل إعداد ناديك — بقي {remaining.length} من {items.length}
             </p>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              كل شيء يبدأ بقوائم جاهزة من المنظومة — عدّلها من الإعدادات لتناسب ناديك.
+              كل شيء يبدأ بقوائم جاهزة من المنظومة — انقر أي بند لينقلك إلى مكان تعديله مباشرة.
             </p>
             <ul className="mt-2.5 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
-              {items.map((i) => (
-                <li key={i.id} className="flex items-center gap-2 text-xs">
-                  {i.done ? (
+              {items.map((i) =>
+                i.done ? (
+                  <li key={i.id} className="flex items-center gap-2 text-xs">
                     <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                  ) : (
-                    <Circle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                  )}
-                  <span className={i.done ? "text-muted-foreground line-through" : "font-semibold text-foreground"}>
-                    {i.label}
-                  </span>
-                  {!i.done && <span className="text-[10px] text-muted-foreground">({i.where})</span>}
-                </li>
-              ))}
+                    <span className="text-muted-foreground line-through">{i.label}</span>
+                  </li>
+                ) : (
+                  <li key={i.id}>
+                    <button
+                      type="button"
+                      onClick={() => gotoSettingsTab(i.tab)}
+                      title={`فتح ${i.where}`}
+                      className="w-full flex items-center gap-2 text-xs rounded-lg px-1.5 py-1 -mx-1.5 text-right transition-colors hover:bg-teal-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/50"
+                    >
+                      <Circle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                      <span className="font-semibold text-foreground">{i.label}</span>
+                      <span className="text-[10px] text-muted-foreground truncate">({i.where})</span>
+                      <ArrowLeft className="h-3 w-3 text-teal-600 dark:text-teal-300 shrink-0 mr-auto" aria-hidden />
+                    </button>
+                  </li>
+                )
+              )}
             </ul>
           </div>
           <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={hide} aria-label="إخفاء قائمة الإعداد">
