@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import {
   Palette, Sun, Moon, Monitor, Save, RotateCcw, Upload, Check,
   Loader2, Type, Square, Sparkles, ImageIcon, Contrast, AlertTriangle,
-  Smartphone, Tablet, Layout,
+  Smartphone, Tablet, Layout, Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -102,13 +102,16 @@ export function ThemeSettingsPanel() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "فشل رفع الشعار");
       applyDraftLive({ ...draft, logoUrl: data.secureUrl });
-      toast.success("تم رفع الشعار");
+      toast.success("تم رفع الشعار — احفظ التغييرات لتطبيقه على كل الحسابات والبطاقات");
     } catch (e: any) {
       toast.error(e?.message || "تعذّر رفع الشعار");
     } finally {
       setLogoUploading(false);
     }
   };
+
+  // سحب وإفلات الشعار
+  const [logoDrag, setLogoDrag] = useState(false);
 
   return (
     <div className="space-y-6" dir="rtl">
@@ -146,6 +149,97 @@ export function ThemeSettingsPanel() {
           لديك تغييرات غير محفوظة. اضغط «حفظ التغييرات» لتطبيقها على كل مستخدمي النادي.
         </div>
       )}
+
+      {/* ═══ ★ هوية النادي — الشعار + اللون الأساسي (ظاهر دائماً بلا تابعات) ═══ */}
+      <div className="relative overflow-hidden rounded-2xl border-2 border-primary/25 bg-gradient-to-l from-primary/[0.07] via-primary/[0.03] to-transparent p-4 sm:p-5">
+        <div className="absolute -top-10 -left-10 h-36 w-36 rounded-full bg-primary/10 blur-3xl pointer-events-none" />
+        <div className="relative">
+          <div className="flex flex-wrap items-center gap-2 mb-1">
+            <ImageIcon className="h-4 w-4 text-primary" />
+            <h3 className="font-bold text-sm">هوية النادي — الشعار واللون الأساسي</h3>
+            <Badge variant="secondary" className="text-[10px]">
+              <Users className="h-3 w-3 ml-1" /> يظهر لكل مستخدمي النادي
+            </Badge>
+          </div>
+          <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
+            ارفع شعار ناديك <strong className="text-foreground">مرة واحدة فقط</strong> — يظهر تلقائياً في أعلى الموقع لكل الحسابات
+            (المدير، الكاشير، المحاسب…) وفي البطاقة الرقمية للمنخرطين ومطبوعات النادي.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-4">
+            {/* منطقة الرفع: نقرة أو سحب وإفلات */}
+            <div
+              onDragOver={(e) => { e.preventDefault(); setLogoDrag(true); }}
+              onDragLeave={() => setLogoDrag(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setLogoDrag(false);
+                const f = e.dataTransfer.files?.[0];
+                if (f) handleLogoUpload(f);
+              }}
+              onClick={() => fileInputRef.current?.click()}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInputRef.current?.click(); } }}
+              aria-label="منطقة رفع شعار النادي — انقر أو اسحب الملف هنا"
+              className={cn(
+                "group relative flex h-32 w-full sm:w-40 shrink-0 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed transition-all",
+                logoDrag
+                  ? "border-primary bg-primary/10 scale-[1.02]"
+                  : "border-border hover:border-primary/50 hover:bg-muted/40"
+              )}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleLogoUpload(f);
+                  e.target.value = "";
+                }}
+              />
+              {logoUploading ? (
+                <Loader2 className="h-7 w-7 animate-spin text-primary" />
+              ) : draft.logoUrl ? (
+                <>
+                  <img src={draft.logoUrl} alt="شعار النادي" className="absolute inset-2 rounded-xl object-contain p-2" />
+                  <span className="sr-only">الشعار الحالي — انقر للتغيير</span>
+                  <span className="absolute bottom-1 left-1.5 rounded-md bg-background/85 backdrop-blur px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
+                    انقر للتغيير
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Upload className="h-6 w-6 text-muted-foreground group-hover:text-primary transition-colors" />
+                  <span className="text-xs font-bold text-foreground">ارفع الشعار</span>
+                  <span className="text-[10px] text-muted-foreground">انقر أو اسحب الملف هنا</span>
+                  <span className="text-[9px] text-muted-foreground/70">PNG · JPG · SVG — حتى 300KB</span>
+                </>
+              )}
+            </div>
+            <div className="flex-1 min-w-0 space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={logoUploading}>
+                  {logoUploading ? <Loader2 className="h-4 w-4 ml-1 animate-spin" /> : <Upload className="h-4 w-4 ml-1" />}
+                  {draft.logoUrl ? "تغيير الشعار" : "اختر ملفاً"}
+                </Button>
+                {draft.logoUrl && (
+                  <Button size="sm" variant="ghost" className="text-rose-600 hover:text-rose-700" onClick={() => applyDraftLive({ ...draft, logoUrl: null })}>
+                    إزالة الشعار
+                  </Button>
+                )}
+              </div>
+              <ColorPickerField
+                label="اللون الأساسي للهوية (يُلوّن الواجهة والبطاقة الرقمية)"
+                presetDefault={THEME_PRESETS.find(p => p.id === (draft.themePreset || "ocean"))?.primary}
+                value={draft.primaryColor}
+                onChange={(v) => applyDraftLive({ ...draft, primaryColor: v, themePreset: null })}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
 
       <Tabs defaultValue="presets" className="w-full">
         <TabsList className="grid w-full grid-cols-3">
@@ -238,44 +332,7 @@ export function ThemeSettingsPanel() {
             </div>
           </div>
 
-          {/* Logo upload */}
-          <div className="rounded-xl border bg-card p-4 space-y-3">
-            <div className="flex items-center gap-2">
-              <ImageIcon className="h-4 w-4 text-primary" />
-              <h3 className="font-semibold text-sm">شعار النادي</h3>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="h-20 w-20 rounded-xl border-2 border-dashed border-border flex items-center justify-center overflow-hidden bg-muted/30">
-                {draft.logoUrl ? (
-                  <img src={draft.logoUrl} alt="logo" className="h-full w-full object-contain" />
-                ) : (
-                  <ImageIcon className="h-8 w-8 text-muted-foreground" />
-                )}
-              </div>
-              <div className="space-y-2">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/png,image/jpeg,image/svg+xml"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) handleLogoUpload(f);
-                  }}
-                />
-                <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={logoUploading}>
-                  {logoUploading ? <Loader2 className="h-4 w-4 ml-1 animate-spin" /> : <Upload className="h-4 w-4 ml-1" />}
-                  رفع شعار
-                </Button>
-                {draft.logoUrl && (
-                  <Button size="sm" variant="ghost" className="text-rose-600" onClick={() => applyDraftLive({ ...draft, logoUrl: null })}>
-                    إزالة
-                  </Button>
-                )}
-                <p className="text-[10px] text-muted-foreground">PNG/JPG/SVG — يظهر بالهيدر والطباعة والبطاقات</p>
-              </div>
-            </div>
-          </div>
+          {/* الشعار انتقل إلى قسم «هوية النادي» أعلى اللوحة — ظاهر دائماً */}
 
           {/* Border radius */}
           <div className="rounded-xl border bg-card p-4 space-y-3">

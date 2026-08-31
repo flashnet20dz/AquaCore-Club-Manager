@@ -450,16 +450,29 @@ export default function Home() {
   return (
     <SubscriptionGate>
     <div
-      className="min-h-screen bg-gradient-to-b from-background via-background to-muted/30 flex flex-col"
-      style={{ "--theme-primary": themePrimary, "--theme-secondary": themeSecondary } as React.CSSProperties}
+      className="min-h-screen bg-background flex flex-col"
+      style={{
+        backgroundImage:
+          "radial-gradient(1100px 480px at 85% -8%, rgba(13,148,136,0.06), transparent 62%)," +
+          "radial-gradient(900px 420px at 0% 108%, rgba(2,132,199,0.05), transparent 62%)," +
+          "linear-gradient(to bottom, var(--background), color-mix(in oklab, var(--muted) 30%, transparent))",
+        "--theme-primary": themePrimary,
+        "--theme-secondary": themeSecondary,
+      } as React.CSSProperties}
     >
       {/* Header */}
       <header className="sticky top-0 z-40 glass border-b border-border/40">
+        {/* خط العلامة تحت الهيدر */}
+        <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-[-1px] h-px bg-gradient-to-l from-transparent via-teal-500/40 to-transparent" />
         <div className="max-w-[1500px] mx-auto px-2 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-sky-600 text-white shadow-lg shadow-teal-500/30 overflow-hidden">
+            <div className={
+              headerLogo
+                ? "relative flex h-10 w-10 items-center justify-center rounded-xl bg-white ring-1 ring-black/10 shadow-sm overflow-hidden dark:ring-white/10"
+                : "relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-sky-600 text-white shadow-lg shadow-teal-500/30 overflow-hidden"
+            }>
               {headerLogo ? (
-                <img src={headerLogo} alt="شعار" className="w-full h-full object-contain" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                <img src={headerLogo} alt="شعار" className="w-full h-full object-contain p-0.5" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
               ) : (
                 <WavesIcon className="h-5 w-5" strokeWidth={2.5} />
               )}
