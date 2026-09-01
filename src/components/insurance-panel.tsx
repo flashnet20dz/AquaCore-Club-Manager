@@ -29,6 +29,7 @@ export function InsurancePanel({ subscribers, onRefresh }: InsurancePanelProps) 
   const [insuranceStatus, setInsuranceStatus] = useState<InsuranceStatus>({});
   const [loading, setLoading] = useState(true);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [bulkLoading, setBulkLoading] = useState<"insure" | "uninsure" | null>(null);
   const [exporting, setExporting] = useState(false);
   // 🔑 فلاتر جديدة: شهر، من/إلى، حالة
   const [monthFilter, setMonthFilter] = useState<string>(""); // YYYY-MM
@@ -107,27 +108,36 @@ export function InsurancePanel({ subscribers, onRefresh }: InsurancePanelProps) 
     }
   };
 
-  const handleBulkInsure = async () => {
-    const toInsure = selectedIds.filter((id) => !insuranceStatus[id]);
-    if (toInsure.length === 0) {
-      toast.info("المنخرطون المحددون مؤمنون بالفعل");
-      return;
-    }
-    setLoading(true);
-    let success = 0;
-    for (const id of toInsure) {
-      try {
-        const res = await fetch(`/api/subscribers/${id}/toggle-insurance`, { method: "PATCH" });
-        if (res.ok) {
-          success++;
-          setInsuranceStatus((prev) => ({ ...prev, [id]: true }));
+  // ✅ التأمين الجماعي في طلب واحد — يدعم مئات وآلاف المنخرطين دون مشاكل
+  const handleBulkInsure = async (action: "insure" | "uninsure") => {
+    if (selectedIds.length === 0 || bulkLoading) return;
+    setBulkLoading(action);
+    try {
+      const res = await fetch("/api/subscribers/bulk-insurance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscriberIds: selectedIds, action }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "فشل");
+      setInsuranceStatus((prev) => {
+        const next = { ...prev };
+        for (const id of selectedIds) {
+          if (action === "insure") next[id] = true;
+          else delete next[id];
         }
-      } catch {}
+        return next;
+      });
+      const verb = action === "insure" ? "تأمين" : "إلغاء تأمين";
+      const skippedNote = data.skipped > 0 ? ` — ${data.skipped} كانوا في هذه الحالة مسبقاً` : "";
+      toast.success(`تم ${verb} ${data.affected} منخرط${skippedNote}`);
+      setSelectedIds([]);
+      onRefresh?.();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "فشلت العملية الجماعية");
+    } finally {
+      setBulkLoading(null);
     }
-    toast.success(`تم تأمين ${success} منخرط`);
-    setSelectedIds([]);
-    setLoading(false);
-    onRefresh?.();
   };
 
   const toggleSelect = (id: string) => {
@@ -188,12 +198,30 @@ export function InsurancePanel({ subscribers, onRefresh }: InsurancePanelProps) 
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input placeholder="بحث بالاسم أو رقم العضوية..." value={search} onChange={(e) => setSearch(e.target.value)} className="pr-10 h-10" />
           </div>
-          <Button size="sm" variant="outline" onClick={selectAllUninsured}>تحديد الكل</Button>
+          <Button size="sm" variant="outline" onClick={selectAllUninsured}>تحديد غير المؤمنين</Button>
           <Button size="sm" variant="ghost" onClick={() => setSelectedIds([])}>إلغاء التحديد</Button>
           {selectedIds.length > 0 && (
-            <Button size="sm" onClick={handleBulkInsure} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-              <ShieldCheck className="h-3.5 w-3.5 ml-1" /> تأمين المحدد ({selectedIds.length})
-            </Button>
+            <>
+              <Button
+                size="sm"
+                onClick={() => handleBulkInsure("insure")}
+                disabled={bulkLoading !== null}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                {bulkLoading === "insure" ? <Loader2 className="h-3.5 w-3.5 ml-1 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5 ml-1" />}
+                {bulkLoading === "insure" ? `جارٍ التأمين (${selectedIds.length})…` : `تأمين المحدد (${selectedIds.length})`}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleBulkInsure("uninsure")}
+                disabled={bulkLoading !== null}
+                className="border-rose-400 text-rose-600 hover:bg-rose-50"
+              >
+                {bulkLoading === "uninsure" ? <Loader2 className="h-3.5 w-3.5 ml-1 animate-spin" /> : <ShieldOff className="h-3.5 w-3.5 ml-1" />}
+                {bulkLoading === "uninsure" ? `جارٍ الإلغاء (${selectedIds.length})…` : `إلغاء تأمين المحدد (${selectedIds.length})`}
+              </Button>
+            </>
           )}
         </div>
         {/* 🔑 فلاتر الشهر، من/إلى، حالة */}
@@ -244,7 +272,13 @@ export function InsurancePanel({ subscribers, onRefresh }: InsurancePanelProps) 
             <thead>
               <tr className="bg-blue-900 text-white">
                 <th className="p-2 w-10">
-                  <input type="checkbox" className="h-4 w-4" checked={selectedIds.length > 0 && selectedIds.length === filteredSubs.filter((s) => !insuranceStatus[s.id]).length} onChange={(e) => e.target.checked ? selectAllUninsured() : setSelectedIds([])} />
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={filteredSubs.length > 0 && selectedIds.length > 0 && selectedIds.length === filteredSubs.length}
+                    onChange={(e) => e.target.checked ? setSelectedIds(filteredSubs.map((s) => s.id)) : setSelectedIds([])}
+                    title="تحديد كل النتائج (مؤمنين وغير مؤمنين)"
+                  />
                 </th>
                 <th className="p-2 text-right w-20">رقم</th>
                 <th className="p-2 text-right">اللقب والاسم</th>
@@ -270,9 +304,7 @@ export function InsurancePanel({ subscribers, onRefresh }: InsurancePanelProps) 
                       className={cn("border-b transition hover:bg-accent/40", i % 2 === 0 ? "bg-white" : "bg-gray-50/50", isSelected && "ring-1 ring-inset ring-blue-400")}
                     >
                       <td className="p-2 text-center">
-                        {!isInsured && (
-                          <input type="checkbox" className="h-4 w-4" checked={isSelected} onChange={() => toggleSelect(s.id)} />
-                        )}
+                        <input type="checkbox" className="h-4 w-4" checked={isSelected} onChange={() => toggleSelect(s.id)} />
                       </td>
                       <td className="p-2 text-center font-mono text-xs text-muted-foreground">{s.fileNumber}</td>
                       <td className="p-2 text-right font-medium">{s.lastName} {s.firstName}</td>
