@@ -36,16 +36,16 @@ export function InsurancePanel({ subscribers, onRefresh }: InsurancePanelProps) 
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
 
-  // Fetch insurance status from payments
+  // Fetch insurance status — من مصدر مخصص بلا حد عددي
+  // (كانت تُبنى من /api/payments المحدود بآخر 100 دفعة — فبعد تأمين أكثر
+  //  من 100 منخرط كان الباقون يظهرون "غير مؤمنين" بعد تحديث الصفحة)
   const fetchInsuranceStatus = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/payments?category=insurance", { cache: "no-store" });
+      const res = await fetch("/api/subscribers/insurance-status", { cache: "no-store" });
       const data = await res.json();
       const status: InsuranceStatus = {};
-      for (const p of data.payments || []) {
-        if (p.subscriberId) status[p.subscriberId] = true;
-      }
+      for (const id of data.insuredIds || []) status[id] = true;
       setInsuranceStatus(status);
     } catch {
       // silent
