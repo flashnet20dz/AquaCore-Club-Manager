@@ -45,12 +45,12 @@ import { RenewalPanel } from "@/components/renewal-panel";
 import { ExportPanel } from "@/components/export-panel";
 import { ReportViewer } from "@/components/reports";
 import { SettingsPanel } from "@/components/settings-panel";
+import { ThemeSettingsPanel } from "@/components/theme-settings-panel";
 import { FinancialDashboard } from "@/components/financial-dashboard";
 import { FinancialPayments } from "@/components/financial-payments";
 import { FinancialReports } from "@/components/financial-reports";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SyncIndicator } from "@/components/sync-indicator";
-import { SetupChecklist } from "@/components/setup-checklist";
 import { UserManagement } from "@/components/user-management";
 import { WorkHoursPanel } from "@/components/work-hours-panel";
 import { WorkHoursManagement } from "@/components/work-hours-management";
@@ -171,8 +171,6 @@ export default function Home() {
   const defaultTab = sessionUser?.role === "accountant" ? "financial-dashboard"
     : (sessionUser?.role === "admin" || sessionUser?.role === "superadmin" ? "dashboard" : "attendance");
   const [activeTab, setActiveTab] = useState<string>(defaultTab);
-  // ★ التبويب الفرعي داخل الإعدادات — تضبطه قائمة إعداد النادي عند نقر بند (القفز العميق)
-  const [settingsSubTab, setSettingsSubTab] = useState<string | null>(null);
   // Hook موحد لجلب أنواع الاشتراك — Single Source of Truth
   // يجب استدعاؤه قبل أي early return (قواعد الـ Hooks)
   const { types: subscriptionTypes, refresh: refreshSubTypes } = useSubscriptionTypes();
@@ -186,20 +184,6 @@ export default function Home() {
       const savedTab = localStorage.getItem("rcs-active-tab");
       if (savedTab) setActiveTab(savedTab);
     } catch {}
-  }, []);
-
-  // ★ قائمة إعداد النادي: نقر بند → افتح الإعدادات على التبويب الفرعي المطلوب مباشرة
-  useEffect(() => {
-    const gotoSettings = (e: Event) => {
-      const tab = (e as CustomEvent<{ tab?: string }>).detail?.tab;
-      if (tab) setSettingsSubTab(tab);
-      setActiveTab("settings");
-      try { localStorage.setItem("rcs-active-tab", "settings"); } catch {}
-      setMobileNavOpen(false);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    };
-    window.addEventListener("aquacore-goto-settings", gotoSettings);
-    return () => window.removeEventListener("aquacore-goto-settings", gotoSettings);
   }, []);
 
   // مسح التقرير المفتوح عند تغيير التبويب + حفظ التبويب
@@ -450,29 +434,16 @@ export default function Home() {
   return (
     <SubscriptionGate>
     <div
-      className="min-h-screen bg-background flex flex-col"
-      style={{
-        backgroundImage:
-          "radial-gradient(1100px 480px at 85% -8%, rgba(13,148,136,0.06), transparent 62%)," +
-          "radial-gradient(900px 420px at 0% 108%, rgba(2,132,199,0.05), transparent 62%)," +
-          "linear-gradient(to bottom, var(--background), color-mix(in oklab, var(--muted) 30%, transparent))",
-        "--theme-primary": themePrimary,
-        "--theme-secondary": themeSecondary,
-      } as React.CSSProperties}
+      className="min-h-screen bg-gradient-to-b from-background via-background to-muted/30 flex flex-col"
+      style={{ "--theme-primary": themePrimary, "--theme-secondary": themeSecondary } as React.CSSProperties}
     >
       {/* Header */}
       <header className="sticky top-0 z-40 glass border-b border-border/40">
-        {/* خط العلامة تحت الهيدر */}
-        <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-[-1px] h-px bg-gradient-to-l from-transparent via-teal-500/40 to-transparent" />
         <div className="max-w-[1500px] mx-auto px-2 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <div className={
-              headerLogo
-                ? "relative flex h-10 w-10 items-center justify-center rounded-xl bg-white ring-1 ring-black/10 shadow-sm overflow-hidden dark:ring-white/10"
-                : "relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-sky-600 text-white shadow-lg shadow-teal-500/30 overflow-hidden"
-            }>
+            <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-sky-600 text-white shadow-lg shadow-teal-500/30 overflow-hidden">
               {headerLogo ? (
-                <img src={headerLogo} alt="شعار" className="w-full h-full object-contain p-0.5" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                <img src={headerLogo} alt="شعار" className="w-full h-full object-contain" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
               ) : (
                 <WavesIcon className="h-5 w-5" strokeWidth={2.5} />
               )}
@@ -481,18 +452,18 @@ export default function Home() {
                 <span className="relative inline-flex h-3 w-3 rounded-full bg-amber-500" />
               </span>
             </div>
-            <div className="min-w-0 hidden sm:block max-w-[190px] lg:max-w-none">
-              <h1 className="text-base sm:text-lg font-extrabold leading-tight truncate whitespace-nowrap">
+            <div className="min-w-0">
+              <h1 className="text-base sm:text-lg font-extrabold leading-tight">
                 {headerTitle}
               </h1>
-              <p className="text-[10px] sm:text-xs text-muted-foreground -mt-0.5 truncate whitespace-nowrap">
+              <p className="text-[10px] sm:text-xs text-muted-foreground -mt-0.5">
                 {headerSubtitle}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            {sessionUser.role !== "superadmin" && <div className="hidden sm:block"><SubscriptionBadge /></div>}
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end max-w-[60%] sm:max-w-none">
+            {sessionUser.role !== "superadmin" && <SubscriptionBadge />}
             <ThemeToggle />
             <SyncIndicator />
             <NotificationBell />
@@ -508,14 +479,14 @@ export default function Home() {
               title="بحث سريع (Ctrl+K)"
             >
               <Search className="h-4 w-4" />
-              <kbd className="hidden lg:inline text-[10px] font-mono border rounded px-1">Ctrl+K</kbd>
+              <kbd className="hidden sm:inline text-[10px] font-mono border rounded px-1">Ctrl+K</kbd>
             </Button>
-            {/* ★ زر شاشة البوابة الذكية (كشك مخصص للأجهزة اللوحية/المكتب) */}
+            {/* ★ زر شاشة البوابة الذكية */}
             <Button
               variant="outline"
               size="sm"
               onClick={() => setKioskOpen(true)}
-              className="hidden sm:inline-flex h-9 gap-1.5 border-teal-400/40 text-teal-700 hover:bg-teal-50"
+              className="h-9 gap-1.5 border-teal-400/40 text-teal-700 hover:bg-teal-50"
               title="شاشة البوابة الذكية"
             >
               <QrCode className="h-4 w-4" />
@@ -599,9 +570,6 @@ export default function Home() {
               </span>
             </Button>
           </div>
-
-          {/* 🏁 قائمة إعداد النادي — تظهر فقط للنوادي غير المكتملة (تُخفى يدوياً) */}
-          <SetupChecklist />
 
           {/* Desktop: horizontal scrollable tab bar (hidden on mobile) */}
           <div className="hidden sm:block overflow-x-auto pb-2 -mx-2 px-2">
@@ -1223,7 +1191,7 @@ export default function Home() {
           {/* ★ Modal: قائمة المنخرطين في فئة محددة */}
           {selectedCat && (
             <Dialog open={!!selectedCat} onOpenChange={(o) => !o && setSelectedCat(null)}>
-              <DialogContent className="sm:max-w-3xl max-h-[85dvh] overflow-y-auto">
+              <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle className="flex items-center gap-2">
                     <Crown className="h-5 w-5 text-primary" /> {selectedCat.title}
@@ -1359,10 +1327,11 @@ export default function Home() {
             </TabsContent>
           )}
 
-          {/* SETTINGS TAB (admin only) — المظهر والشعار أصبح أول تبويب داخل SettingsPanel نفسها */}
+          {/* SETTINGS TAB (admin only) */}
           {isAdmin && (
             <TabsContent value="settings" className="space-y-4 mt-0">
-              <SettingsPanel initialTab={settingsSubTab} />
+              <ThemeSettingsPanel />
+              <SettingsPanel />
             </TabsContent>
           )}
         </Tabs>
