@@ -96,17 +96,25 @@ export function UserManagement() {
     if (!pinModal || !pinValue || pinValue.length < 4) return;
     setPinSaving(true);
     try {
+      // ★ يجب إرسال action:"create" — بدونه يعامل الطلب كمحاولة دخول PIN
+      //   فيفشل دائماً برسالة «فشل إنشاء كود الكاشير»
       const res = await fetch("/api/cashier-pin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: pinModal.id, pin: pinValue }),
+        body: JSON.stringify({
+          action: "create",
+          pin: pinValue,
+          label: pinModal.name,
+          role: pinModal.role,
+        }),
       });
-      if (!res.ok) throw new Error("فشل حفظ الكود");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "فشل حفظ الكود");
       toast.success(`تم إنشاء كود الكاشير لـ ${pinModal.name}: ${pinValue}`);
       setPinModal(null);
       setPinValue("");
-    } catch {
-      toast.error("فشل إنشاء كود الكاشير");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "فشل إنشاء كود الكاشير");
     } finally {
       setPinSaving(false);
     }
