@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Users, Plus, Building2, Wallet, FileText, CreditCard,
-  Settings, QrCode, Calendar, TrendingUp, ArrowRight, CornerDownLeft, X,
+  Settings, QrCode, Calendar, TrendingUp, ArrowRight, CornerDownLeft, X, Landmark,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -96,19 +96,11 @@ export function CommandPalette({
     },
     {
       id: "financial",
-      label: "لوحة المالية والتقارير",
-      description: "الإدارة المالية والتقارير",
-      icon: Wallet,
-      action: () => { onNavigate("financial-dashboard"); onOpenChange(false); },
-      keywords: ["finance", "مالية", "تقارير", "دفعات"],
-    },
-    {
-      id: "charges",
-      label: "الأعباء والتسديدات",
-      description: "إدارة الأعباء والدفعات",
-      icon: FileText,
-      action: () => { onNavigate("charges"); onOpenChange(false); },
-      keywords: ["charges", "أعباء", "تسديدات"],
+      label: "المركز المالي",
+      description: "نظرة عامة + الصندوق وتقرير Z + الأعباء والتسديدات + التقارير",
+      icon: Landmark,
+      action: () => { onNavigate("financial-hub"); onOpenChange(false); },
+      keywords: ["finance", "مالية", "تقارير", "دفعات", "صندوق", "أعباء", "تسديدات"],
     },
     {
       id: "settings",
