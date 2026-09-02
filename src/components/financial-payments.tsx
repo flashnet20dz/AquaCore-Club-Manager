@@ -139,9 +139,11 @@ function toDateInputValue(d: Date): string {
 // ─────────────────────────────────────────────────────────────
 export function FinancialPayments() {
   // Filters
-  const [typeFilter, setTypeFilter] = useState<string>(""); // "" | "income" | "expense"
-  const [categoryFilter, setCategoryFilter] = useState<string>("");
-  const [paymentMethodFilter, setPaymentMethodFilter] = useState<string>("");
+  // ★ ملاحظة: قيمة «الكل» = "all" وليس "" — Radix Select يمنع value فارغاً
+  // (كان يُسقط الصفحة كلها بخطأ Select.Item عند فتح قسم المركز المالي)
+  const [typeFilter, setTypeFilter] = useState<string>("all"); // "all" | "income" | "expense"
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState<string>("all");
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
   const [searchPayee, setSearchPayee] = useState<string>("");
@@ -181,9 +183,9 @@ export function FinancialPayments() {
   // Build query string
   const buildQuery = useCallback(() => {
     const params = new URLSearchParams();
-    if (typeFilter) params.set("type", typeFilter);
-    if (categoryFilter) params.set("category", categoryFilter);
-    if (paymentMethodFilter) params.set("paymentMethod", paymentMethodFilter);
+    if (typeFilter !== "all") params.set("type", typeFilter);
+    if (categoryFilter !== "all") params.set("category", categoryFilter);
+    if (paymentMethodFilter !== "all") params.set("paymentMethod", paymentMethodFilter);
     if (dateFrom) params.set("dateFrom", dateFrom);
     if (dateTo) params.set("dateTo", dateTo);
     if (searchPayee.trim()) params.set("payeeName", searchPayee.trim());
@@ -226,13 +228,15 @@ export function FinancialPayments() {
   const categories = useMemo(() => {
     if (typeFilter === "income") return INCOME_CATEGORIES;
     if (typeFilter === "expense") return EXPENSE_CATEGORIES;
-    return [...INCOME_CATEGORIES, ...EXPENSE_CATEGORIES];
+    // ★ إزالة التكرار: «تأمين» موجودة في القائمتين — مفتاح React مزدوج يفسد القائمة
+    const merged = [...INCOME_CATEGORIES, ...EXPENSE_CATEGORIES];
+    return merged.filter((c, i) => merged.findIndex((x) => x.value === c.value) === i);
   }, [typeFilter]);
 
   // Reset category filter if not in current categories list
   useEffect(() => {
-    if (categoryFilter && !categories.find((c) => c.value === categoryFilter)) {
-      setCategoryFilter("");
+    if (categoryFilter !== "all" && !categories.find((c) => c.value === categoryFilter)) {
+      setCategoryFilter("all");
     }
   }, [categories, categoryFilter]);
 
@@ -283,15 +287,15 @@ export function FinancialPayments() {
   };
 
   const handleClearFilters = () => {
-    setTypeFilter("");
-    setCategoryFilter("");
-    setPaymentMethodFilter("");
+    setTypeFilter("all");
+    setCategoryFilter("all");
+    setPaymentMethodFilter("all");
     setDateFrom("");
     setDateTo("");
     setSearchPayee("");
   };
 
-  const hasActiveFilters = typeFilter || categoryFilter || paymentMethodFilter || dateFrom || dateTo || searchPayee.trim();
+  const hasActiveFilters = typeFilter !== "all" || categoryFilter !== "all" || paymentMethodFilter !== "all" || dateFrom || dateTo || searchPayee.trim();
 
   const handleOpenCreate = () => {
     setEditingTx(null);
@@ -546,7 +550,7 @@ export function FinancialPayments() {
                       <SelectValue placeholder="الكل" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">الكل</SelectItem>
+                      <SelectItem value="all">الكل</SelectItem>
                       <SelectItem value="income">مدخول</SelectItem>
                       <SelectItem value="expense">مصروف</SelectItem>
                     </SelectContent>
@@ -561,7 +565,7 @@ export function FinancialPayments() {
                       <SelectValue placeholder="الكل" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">الكل</SelectItem>
+                      <SelectItem value="all">الكل</SelectItem>
                       {categories.map((c) => (
                         <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
                       ))}
@@ -577,7 +581,7 @@ export function FinancialPayments() {
                       <SelectValue placeholder="الكل" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">الكل</SelectItem>
+                      <SelectItem value="all">الكل</SelectItem>
                       <SelectItem value="cash">نقدي</SelectItem>
                       <SelectItem value="bank">بنك</SelectItem>
                       <SelectItem value="cheque">شيك</SelectItem>

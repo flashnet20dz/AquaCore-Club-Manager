@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -27,6 +28,10 @@ interface CashOperation {
   category: string;
   note: string;
   time: string;
+  /** ★ هل رُحِّلت العملية إلى دفتر التسديدات (FinancialTransaction)؟ */
+  posted?: boolean;
+  /** ★ معرّف القيد في الدفتر (لحذفه عند حذف العملية من الصندوق) */
+  transactionId?: string | null;
 }
 
 interface ShiftState {
@@ -43,7 +48,7 @@ const CATEGORIES = {
   expense: ["مصاريف تشغيلية", "صيانة", "مشتريات", "نقل", "أخرى"],
 };
 
-export function CashRegister() {
+export function CashRegister({ onLedgerChanged }: { onLedgerChanged?: () => void } = {}) {
   const [shift, setShift] = useState<ShiftState>({
     open: false,
     openedAt: null,
@@ -53,6 +58,7 @@ export function CashRegister() {
   const [openingAmount, setOpeningAmount] = useState("");
   const [closeAmount, setCloseAmount] = useState("");
   const [opOpen, setOpOpen] = useState(false);
+  const [openShiftOpen, setOpenShiftOpen] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
   const [zReportOpen, setZReportOpen] = useState(false);
   const [printing, setPrinting] = useState(false);
@@ -62,6 +68,16 @@ export function CashRegister() {
   const [opAmount, setOpAmount] = useState("");
   const [opCategory, setOpCategory] = useState("");
   const [opNote, setOpNote] = useState("");
+  // ★ ترحيل العملية إلى دفتر التسديدات (مصدر واحد للحقيقة)
+  const [postToLedger, setPostToLedger] = useState(true);
+  const [posting, setPosting] = useState(false);
+
+  // ★ مداخيل الاشتراكات والتأمين تُقيَّد تلقائياً من شاشات التجديد والاستقبال —
+  //   ترحيلها من الصندوق يعني ازدواج محاسبي. البقية تُرحَّل افتراضياً.
+  const shouldDefaultPost = (type: "income" | "expense", category: string): boolean => {
+    if (type === "expense") return true;
+    return category === "مقبوضات إضافية" || category === "أخرى";
+  };
 
   // ★ تحميل الحالة من localStorage
   useEffect(() => {
@@ -90,36 +106,89 @@ export function CashRegister() {
     };
     saveShift(newShift);
     setOpeningAmount("");
+    setOpenShiftOpen(false);
     toast.success(`تم فتح الوردية برصيد بداية: ${balance} دج`);
   };
 
-  // ★ إضافة عملية
-  const handleAddOperation = () => {
+  // ★ إضافة عملية (مع ترحيل اختياري لدفتر التسديدات)
+  const handleAddOperation = async () => {
     const amount = parseFloat(opAmount);
     if (!amount || amount <= 0) {
       toast.error("أدخل مبلغاً صحيحاً");
       return;
     }
+    const category = opCategory || CATEGORIES[opType][0];
+    const time = new Date().toISOString();
+
+    let posted = false;
+    let transactionId: string | null = null;
+    if (postToLedger) {
+      setPosting(true);
+      try {
+        const res = await fetch("/api/financial/transactions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: opType,
+            category: opType === "income" ? "other_income" : "other_expense",
+            amount,
+            date: time,
+            paymentMethod: "cash",
+            payeeName: null,
+            payeeId: null,
+            reference: null,
+            note: `صندوق — ${category}${opNote ? " • " + opNote : ""}`,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "فشل الترحيل للدفتر");
+        posted = true;
+        transactionId = data.transaction?.id || null;
+      } catch (e) {
+        toast.warning("سُجّلت في الصندوق فقط — تعذّر الترحيل للدفتر: " + (e instanceof Error ? e.message : ""));
+      } finally {
+        setPosting(false);
+      }
+    }
+
     const op: CashOperation = {
       id: Date.now().toString(),
       type: opType,
       amount,
-      category: opCategory || CATEGORIES[opType][0],
+      category,
       note: opNote,
-      time: new Date().toISOString(),
+      time,
+      posted,
+      transactionId,
     };
     saveShift({ ...shift, operations: [...shift.operations, op] });
     setOpAmount("");
     setOpNote("");
     setOpCategory("");
     setOpOpen(false);
-    toast.success(opType === "income" ? `تم تسجيل مقبوض: ${amount} دج` : `تم تسجيل مصروف: ${amount} دج`);
+    toast.success(
+      (opType === "income" ? `تم تسجيل مقبوض: ${amount} دج` : `تم تسجيل مصروف: ${amount} دج`) +
+        (posted ? " — ورُحِّل لدفتر التسديدات ✓" : "")
+    );
+    if (posted) onLedgerChanged?.();
   };
 
-  // ★ حذف عملية
-  const handleDeleteOp = (id: string) => {
+  // ★ حذف عملية — إن كانت مُرحّلة تُحذف قيدها من الدفتر أيضاً (بلا ازدواج)
+  const handleDeleteOp = async (id: string) => {
+    const op = shift.operations.find((o) => o.id === id);
+    if (op?.posted && op.transactionId) {
+      try {
+        const res = await fetch(`/api/financial/transactions/${op.transactionId}`, { method: "DELETE" });
+        if (!res.ok) throw new Error();
+        toast.success("حُذفت العملية وقيدها من دفتر التسديدات");
+        onLedgerChanged?.();
+      } catch {
+        toast.error("حُذفت من الصندوق — تعذّر حذف القيد من الدفتر، احذفه يدوياً");
+      }
+    } else {
+      toast.success("تم حذف العملية");
+    }
     saveShift({ ...shift, operations: shift.operations.filter((o) => o.id !== id) });
-    toast.success("تم حذف العملية");
   };
 
   // ★ إغلاق الوردية + تقرير Z
@@ -192,6 +261,7 @@ export function CashRegister() {
         </div>
         <div class="border-top"></div>
         <div class="row"><span>عدد العمليات:</span><span>${shift.operations.length}</span></div>
+        <div class="row"><span>مُرحّل لدفتر التسديدات:</span><span>${shift.operations.filter((o) => o.posted).length}</span></div>
         <div class="sign">
           <div style="display:flex;justify-content:space-between;">
             <div class="sign-line sm">توقيع الكاشير</div>
@@ -276,23 +346,17 @@ export function CashRegister() {
         {!shift.open ? (
           <Button
             className="bg-emerald-600 hover:bg-emerald-700 text-white"
-            onClick={() => {
-              const v = prompt("رصيد البداية في الدرج (دج):", "0");
-              if (v !== null) {
-                setOpeningAmount(v);
-                setOpOpen(true);
-              }
-            }}
+            onClick={() => { setOpeningAmount(""); setOpenShiftOpen(true); }}
           >
             <Unlock className="h-4 w-4 ml-1" /> فتح الوردية
           </Button>
         ) : (
           <>
-            <Button onClick={() => { setOpType("income"); setOpOpen(true); }} variant="outline"
+            <Button onClick={() => { setOpType("income"); setPostToLedger(shouldDefaultPost("income", "")); setOpOpen(true); }} variant="outline"
               className="border-emerald-400 text-emerald-700 hover:bg-emerald-50">
               <Plus className="h-4 w-4 ml-1" /> مقبوضات
             </Button>
-            <Button onClick={() => { setOpType("expense"); setOpOpen(true); }} variant="outline"
+            <Button onClick={() => { setOpType("expense"); setPostToLedger(shouldDefaultPost("expense", "")); setOpOpen(true); }} variant="outline"
               className="border-rose-400 text-rose-700 hover:bg-rose-50">
               <Minus className="h-4 w-4 ml-1" /> مصاريف
             </Button>
@@ -304,30 +368,28 @@ export function CashRegister() {
       </div>
 
       {/* فتح الوردية */}
-      {openingAmount !== "" && !shift.open && (
-        <Dialog open={true} onOpenChange={() => setOpeningAmount("")}>
-          <DialogContent className="max-w-sm">
-            <DialogHeader>
-              <DialogTitle>فتح الوردية</DialogTitle>
-              <DialogDescription>أدخل رصيد البداية في درج الصندوق</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3">
-              <Input
-                type="number"
-                value={openingAmount}
-                onChange={(e) => setOpeningAmount(e.target.value)}
-                placeholder="0"
-                className="h-12 text-lg font-bold text-center"
-                dir="ltr"
-                autoFocus
-              />
-              <Button onClick={handleOpenShift} className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 text-white">
-                <Unlock className="h-4 w-4 ml-1" /> تأكيد فتح الوردية
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
+      <Dialog open={openShiftOpen} onOpenChange={setOpenShiftOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>فتح الوردية</DialogTitle>
+            <DialogDescription>أدخل رصيد البداية في درج الصندوق</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              type="number"
+              value={openingAmount}
+              onChange={(e) => setOpeningAmount(e.target.value)}
+              placeholder="0"
+              className="h-12 text-lg font-bold text-center"
+              dir="ltr"
+              autoFocus
+            />
+            <Button onClick={handleOpenShift} className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 text-white">
+              <Unlock className="h-4 w-4 ml-1" /> تأكيد فتح الوردية
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* نموذج إضافة عملية */}
       <Dialog open={opOpen} onOpenChange={setOpOpen}>
@@ -343,14 +405,14 @@ export function CashRegister() {
             <div className="grid grid-cols-2 gap-2">
               <Button
                 variant={opType === "income" ? "default" : "outline"}
-                onClick={() => { setOpType("income"); setOpCategory(""); }}
+                onClick={() => { setOpType("income"); setOpCategory(""); setPostToLedger(shouldDefaultPost("income", "")); }}
                 className={opType === "income" ? "bg-emerald-600" : ""}
               >
                 <TrendingUp className="h-4 w-4 ml-1" /> مقبوضات
               </Button>
               <Button
                 variant={opType === "expense" ? "default" : "outline"}
-                onClick={() => { setOpType("expense"); setOpCategory(""); }}
+                onClick={() => { setOpType("expense"); setOpCategory(""); setPostToLedger(shouldDefaultPost("expense", "")); }}
                 className={opType === "expense" ? "bg-rose-600" : ""}
               >
                 <TrendingDown className="h-4 w-4 ml-1" /> مصاريف
@@ -363,7 +425,7 @@ export function CashRegister() {
             </div>
             <div className="space-y-1.5">
               <Label className="text-sm font-semibold">التصنيف</Label>
-              <Select value={opCategory} onValueChange={setOpCategory}>
+              <Select value={opCategory} onValueChange={(v) => { setOpCategory(v); setPostToLedger(shouldDefaultPost(opType, v)); }}>
                 <SelectTrigger className="h-10"><SelectValue placeholder="اختر تصنيفاً" /></SelectTrigger>
                 <SelectContent>
                   {CATEGORIES[opType].map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
@@ -374,7 +436,19 @@ export function CashRegister() {
               <Label className="text-sm font-semibold">ملاحظة (اختياري)</Label>
               <Input value={opNote} onChange={(e) => setOpNote(e.target.value)} placeholder="..." className="h-10" />
             </div>
-            <Button onClick={handleAddOperation} className="w-full h-11">
+            <label className="flex items-start gap-2 rounded-lg border border-teal-500/30 bg-teal-500/5 p-2.5 cursor-pointer">
+              <Checkbox checked={postToLedger} onCheckedChange={(v) => setPostToLedger(v === true)} className="mt-0.5" />
+              <span className="text-xs leading-relaxed">
+                <span className="font-bold">ترحيل إلى دفتر التسديدات</span>
+                <span className="block text-muted-foreground">
+                  {opType === "expense"
+                    ? "يُقيّد المصروف في الدفتر المالي فوراً (يوصى به) — أما مداخيل الاشتراكات/التأمين فتُقيَّد تلقائياً من شاشات التجديد لتجنّب الازدواج"
+                    : "يُقيّد المقبوض في الدفتر المالي فوراً — أما تجديدات الاشتراك والتأمين فمقيّدة تلقائياً من شاشة التجديد"}
+                </span>
+              </span>
+            </label>
+            <Button onClick={handleAddOperation} disabled={posting} className="w-full h-11">
+              {posting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               {opType === "income" ? "تسجيل المقبوض" : "تسجيل المصروف"}
             </Button>
           </div>
@@ -463,7 +537,12 @@ export function CashRegister() {
                     {op.type === "income" ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold">{op.category}</p>
+                    <p className="text-sm font-semibold flex items-center gap-1.5">
+                      {op.category}
+                      {op.posted && (
+                        <Badge variant="outline" className="h-4 px-1 text-[9px] bg-teal-500/10 text-teal-700 border-teal-500/30">مُرحّل ✓</Badge>
+                      )}
+                    </p>
                     <p className="text-xs text-muted-foreground">
                       {new Date(op.time).toLocaleTimeString("ar-DZ", { hour: "2-digit", minute: "2-digit" })}
                       {op.note && ` • ${op.note}`}

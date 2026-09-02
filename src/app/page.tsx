@@ -8,7 +8,7 @@ import {
   QrCode, Download, Settings as SettingsIcon, LogOut, Moon, Sun, ChevronLeft,
   UserCheck, RefreshCcw, FileText, Bell, Zap, Award, Pencil, Trash2,
   CreditCard, Inbox, UserCog, Database, Layers, Menu, CalendarOff, ListPlus, Building2,
-  ArrowDownAZ, Banknote, Briefcase, Copy,
+  ArrowDownAZ, Banknote, Landmark, Copy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,9 +46,7 @@ import { ExportPanel } from "@/components/export-panel";
 import { ReportViewer } from "@/components/reports";
 import { SettingsPanel } from "@/components/settings-panel";
 import { ThemeSettingsPanel } from "@/components/theme-settings-panel";
-import { FinancialDashboard } from "@/components/financial-dashboard";
-import { FinancialPayments } from "@/components/financial-payments";
-import { FinancialReports } from "@/components/financial-reports";
+import { FinancialHub } from "@/components/financial-hub";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SyncIndicator } from "@/components/sync-indicator";
 import { UserManagement } from "@/components/user-management";
@@ -70,7 +68,6 @@ import { ContractsPanel } from "@/components/contracts-panel";
 import { NotificationBell } from "@/components/notification-bell";
 import { AnalyticsCharts } from "@/components/analytics-charts";
 import { BackupPanel } from "@/components/backup-panel";
-import { ChargesPanel } from "@/components/charges-panel";
 import { SubscriberRecordModal } from "@/components/subscriber-record-modal";
 import { WhatsAppReminders } from "@/components/whatsapp-reminders";
 import { hasPermission, ROLE_LABELS, ROLE_ICONS } from "@/lib/roles";
@@ -90,7 +87,6 @@ import { OnboardingChecklist } from "@/components/onboarding-checklist";
 import { AchievementsPanel } from "@/components/achievements-panel";
 import { KioskMode } from "@/components/kiosk-mode";
 import { POSReceipt } from "@/components/pos-receipt";
-import { CashRegister } from "@/components/cash-register";
 
 interface Stats {
   total: number;
@@ -168,7 +164,7 @@ export default function Home() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   // Controlled tabs + mobile nav drawer
   // 🔑 التبويب الافتراضي حسب الدور، لكن يُحفظ في localStorage ليبقى عند التحديث
-  const defaultTab = sessionUser?.role === "accountant" ? "financial-dashboard"
+  const defaultTab = sessionUser?.role === "accountant" ? "financial-hub"
     : (sessionUser?.role === "admin" || sessionUser?.role === "superadmin" ? "dashboard" : "attendance");
   const [activeTab, setActiveTab] = useState<string>(defaultTab);
   // Hook موحد لجلب أنواع الاشتراك — Single Source of Truth
@@ -178,11 +174,19 @@ export default function Home() {
   // التقرير المفتوح حالياً في مركز التقارير
   const [openReportId, setOpenReportId] = useState<string | null>(null);
 
+  // ★ التبويبات المالية المدمجة — قديم → جديد (توافق مع localStorage القديم)
+  const LEGACY_TAB_MAP: Record<string, string> = {
+    "financial-dashboard": "financial-hub",
+    "cash-register": "financial-hub",
+    "charges": "financial-hub",
+    "financial-payments": "financial-hub",
+    "financial-reports": "financial-hub",
+  };
   // ★ استرجاع التبويب المحفوظ عند تحميل الصفحة (يبقى عند التحديث)
   useEffect(() => {
     try {
       const savedTab = localStorage.getItem("rcs-active-tab");
-      if (savedTab) setActiveTab(savedTab);
+      if (savedTab) setActiveTab(LEGACY_TAB_MAP[savedTab] || savedTab);
     } catch {}
   }, []);
 
@@ -556,10 +560,10 @@ export default function Home() {
                  activeTab === "cards-pro" ? "مصمم البطاقات" :
                  activeTab === "import" ? "الاستيراد" :
                  activeTab === "export" ? "التصدير" :
-                 activeTab === "charges" ? "الأعباء" :
+                 activeTab === "charges" ? "المركز المالي" :
                  activeTab === "staff-compensations" ? "تعويضات العمال" :
-                 activeTab === "financial-dashboard" ? "لوحة المالية والتقارير" :
-                 activeTab === "cash-register" ? "الصندوق وتقرير Z" :
+                 activeTab === "financial-hub" ? "المركز المالي" :
+                 activeTab === "cash-register" ? "المركز المالي" :
                  activeTab === "financial-payments" ? "الدفعات" :
                  activeTab === "financial-reports" ? "التقارير المالية" :
                  activeTab === "members-directory" ? "سجل المنخرطين" :
@@ -654,9 +658,10 @@ export default function Home() {
                   <Download className="h-4 w-4" /> التصدير
                 </TabsTrigger>
               )}
-              {hasPermission(sessionUser.role, "charges") && (
-                <TabsTrigger value="charges" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <Wallet className="h-4 w-4" /> الأعباء والتسديدات
+              {/* ★ المركز المالي الموحّد: نظرة عامة + الصندوق وتقرير Z + الأعباء والتسديدات + التقارير */}
+              {(hasPermission(sessionUser.role, "charges") || hasPermission(sessionUser.role, "financialDashboard") || hasPermission(sessionUser.role, "financialReports")) && (
+                <TabsTrigger value="financial-hub" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
+                  <Landmark className="h-4 w-4" /> المركز المالي
                 </TabsTrigger>
               )}
               {hasPermission(sessionUser.role, "staffCompensations") && (
@@ -664,19 +669,8 @@ export default function Home() {
                   <Banknote className="h-4 w-4" /> تعويضات العمال
                 </TabsTrigger>
               )}
-              {/* ★ Financial System (المحاسب المالي) — 3 tabs */}
-              {hasPermission(sessionUser.role, "financialDashboard") && (
-                <TabsTrigger value="financial-dashboard" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <Briefcase className="h-4 w-4" /> لوحة المالية والتقارير
-                </TabsTrigger>
-              )}
-              {/* ★ الصندوق وتقرير Z (Cash Register & Z-Report) */}
-              {hasPermission(sessionUser.role, "financialDashboard") && (
-                <TabsTrigger value="cash-register" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <Wallet className="h-4 w-4" /> الصندوق وتقرير Z
-                </TabsTrigger>
-              )}
-              {/* ★ تم دمج الدفعات ضمن تبويب الأعباء، والتقارير ضمن لوحة المالية */}
+              {/* ★ المركز المالي الموحّد (كان: لوحة المالية والتقارير + الصندوق وتقرير Z) */}
+              {/* ★ تم دمج الدفعات والتقارير والصندوق ضمن تبويب المركز المالي */}
               {isAdmin && (
                 <TabsTrigger value="contracts" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
                   <FileText className="h-4 w-4" /> عقود العمال
@@ -1231,19 +1225,10 @@ export default function Home() {
             )}
           </TabsContent>
 
-          {/* CHARGES TAB (admin only) */}
-          {hasPermission(sessionUser.role, "charges") && (
-            <TabsContent value="charges" className="mt-0 space-y-4">
-              <ChargesPanel subscribers={subscribers} />
-              {/* ★ دمج الدفعات مع الأعباء والتسديدات */}
-              {hasPermission(sessionUser.role, "financialPayments") && (
-                <div className="mt-4">
-                  <h3 className="font-bold text-sm mb-3 flex items-center gap-2 text-primary">
-                    <Wallet className="h-4 w-4" /> الدفعات والمعاملات المالية
-                  </h3>
-                  <FinancialPayments />
-                </div>
-              )}
+          {/* ★ المركز المالي الموحّد — بدل 3 تبويبات: الأعباء والتسديدات + لوحة المالية والتقارير + الصندوق وتقرير Z */}
+          {(hasPermission(sessionUser.role, "charges") || hasPermission(sessionUser.role, "financialDashboard") || hasPermission(sessionUser.role, "financialReports")) && (
+            <TabsContent value="financial-hub" className="mt-0">
+              <FinancialHub role={sessionUser.role} subscribers={subscribers} />
             </TabsContent>
           )}
 
@@ -1255,28 +1240,7 @@ export default function Home() {
             </TabsContent>
           )}
 
-          {/* ★ FINANCIAL SYSTEM: دمج لوحة المالية + التقارير المالية في تبويب واحد */}
-          {hasPermission(sessionUser.role, "financialDashboard") && (
-            <TabsContent value="financial-dashboard" className="mt-0 space-y-4">
-              <FinancialDashboard />
-              {/* ★ دمج التقارير المالية مع لوحة المالية */}
-              {hasPermission(sessionUser.role, "financialReports") && (
-                <div className="mt-4">
-                  <h3 className="font-bold text-sm mb-3 flex items-center gap-2 text-primary">
-                    <FileText className="h-4 w-4" /> التقارير المالية
-                  </h3>
-                  <FinancialReports />
-                </div>
-              )}
-            </TabsContent>
-          )}
-
-          {/* ★ الصندوق وتقرير Z (Cash Register & Z-Report) */}
-          {hasPermission(sessionUser.role, "financialDashboard") && (
-            <TabsContent value="cash-register" className="mt-0">
-              <CashRegister />
-            </TabsContent>
-          )}
+          {/* ★ تم دمج: لوحة المالية + التقارير + الصندوق وتقرير Z ← المركز المالي */}
 
           {/* CONTRACTS TAB (admin only) */}
           {isAdmin && (
@@ -1462,12 +1426,13 @@ export default function Home() {
                 onClick={() => { handleTabChange("export"); setMobileNavOpen(false); }}
               />
             )}
-            {hasPermission(sessionUser.role, "charges") && (
+            {/* ★ المركز المالي الموحّد mobile nav — بدل 3 عناصر */}
+            {(hasPermission(sessionUser.role, "charges") || hasPermission(sessionUser.role, "financialDashboard") || hasPermission(sessionUser.role, "financialReports")) && (
               <MobileNavItem
-                icon={Wallet}
-                label="الأعباء والتسديدات"
-                active={activeTab === "charges"}
-                onClick={() => { handleTabChange("charges"); setMobileNavOpen(false); }}
+                icon={Landmark}
+                label="المركز المالي"
+                active={activeTab === "financial-hub"}
+                onClick={() => { handleTabChange("financial-hub"); setMobileNavOpen(false); }}
               />
             )}
             {hasPermission(sessionUser.role, "staffCompensations") && (
@@ -1478,25 +1443,7 @@ export default function Home() {
                 onClick={() => { handleTabChange("staff-compensations"); setMobileNavOpen(false); }}
               />
             )}
-            {/* ★ Financial system mobile nav */}
-            {hasPermission(sessionUser.role, "financialDashboard") && (
-              <MobileNavItem
-                icon={Briefcase}
-                label="لوحة المالية والتقارير"
-                active={activeTab === "financial-dashboard"}
-                onClick={() => { handleTabChange("financial-dashboard"); setMobileNavOpen(false); }}
-              />
-            )}
-            {/* ★ الصندوق وتقرير Z mobile nav */}
-            {hasPermission(sessionUser.role, "financialDashboard") && (
-              <MobileNavItem
-                icon={Wallet}
-                label="الصندوق وتقرير Z"
-                active={activeTab === "cash-register"}
-                onClick={() => { handleTabChange("cash-register"); setMobileNavOpen(false); }}
-              />
-            )}
-            {/* ★ تم دمج الدفعات ضمن تبويب الأعباء، والتقارير ضمن لوحة المالية */}
+            {/* ★ تم دمج عناصر المالية في المركز المالي أعلاه */}
             {isAdmin && (
               <MobileNavItem
                 icon={FileText}
