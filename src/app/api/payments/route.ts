@@ -115,7 +115,7 @@ export async function POST(req: NextRequest) {
           payeeId: category === "salary" ? (userId || null) : null,
           subscriberId: subscriberId || null,
           reference: `payment:${payment.id}`,
-          note: `${mapEntry.label} — تلقائي من لوحة الأعباء${note ? ` • ${note}` : ""}`,
+          note: `${mapEntry.label} — تسديد تشغيلي تلقائي${note ? ` • ${note}` : ""}`,
           createdById: user.id,
         });
       }

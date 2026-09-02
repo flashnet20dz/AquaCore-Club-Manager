@@ -74,7 +74,7 @@ interface OverviewData {
   movementsThisMonth: number;
 }
 
-export type OverviewNavSection = "overview" | "cash" | "ledger" | "charges" | "reports";
+export type OverviewNavSection = "overview" | "transactions" | "reports";
 
 interface FinancialOverviewProps {
   onNavigateSection?: (section: OverviewNavSection, ledgerType?: "income" | "expense") => void;
@@ -226,7 +226,7 @@ export function FinancialOverview({ onNavigateSection }: FinancialOverviewProps)
           detail={`تأمين ${formatShort(insTotal)} • مركب ${formatShort(compoundTotal)}`}
           tone="emerald"
           cta="عرض في الدفتر"
-          onClick={() => onNavigateSection?.("ledger", "income")}
+          onClick={() => onNavigateSection?.("transactions", "income")}
         />
         <ConceptCard
           icon={ReceiptText}
@@ -235,8 +235,8 @@ export function FinancialOverview({ onNavigateSection }: FinancialOverviewProps)
           value={formatDA(monthExpense)}
           detail={chargesTop ? `أعلى بند: ${chargesTop.label} (${formatShort(chargesTop.amount)})` : "لا مصاريف بعد"}
           tone="amber"
-          cta="إدارة الأعباء"
-          onClick={() => onNavigateSection?.("charges")}
+          cta="عرض المصاريف في الدفتر"
+          onClick={() => onNavigateSection?.("transactions", "expense")}
         />
         <ConceptCard
           icon={ArrowRightLeft}
@@ -246,7 +246,7 @@ export function FinancialOverview({ onNavigateSection }: FinancialOverviewProps)
           detail={`صافي الشهر: ${formatShort(mc.netThisMonth)} دج`}
           tone="teal"
           cta="فتح الدفتر"
-          onClick={() => onNavigateSection?.("ledger")}
+          onClick={() => onNavigateSection?.("transactions")}
         />
       </div>
 
@@ -447,7 +447,7 @@ export function FinancialOverview({ onNavigateSection }: FinancialOverviewProps)
                 size="sm"
                 variant="ghost"
                 className="text-teal-700 dark:text-teal-300 h-7 px-2 text-[11px]"
-                onClick={() => onNavigateSection?.("ledger")}
+                onClick={() => onNavigateSection?.("transactions")}
               >
                 فتح الدفتر <ChevronLeft className="h-3.5 w-3.5" />
               </Button>

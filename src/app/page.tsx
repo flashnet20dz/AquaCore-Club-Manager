@@ -1225,10 +1225,10 @@ export default function Home() {
             )}
           </TabsContent>
 
-          {/* ★ المركز المالي الموحّد — بدل 3 تبويبات: الأعباء والتسديدات + لوحة المالية والتقارير + الصندوق وتقرير Z */}
+          {/* ★ المركز المالي — صفحة تقارير ومعاملات مالية موحّدة بلا تكرار */}
           {(hasPermission(sessionUser.role, "charges") || hasPermission(sessionUser.role, "financialDashboard") || hasPermission(sessionUser.role, "financialReports")) && (
             <TabsContent value="financial-hub" className="mt-0">
-              <FinancialHub role={sessionUser.role} subscribers={subscribers} />
+              <FinancialHub role={sessionUser.role} />
             </TabsContent>
           )}
 

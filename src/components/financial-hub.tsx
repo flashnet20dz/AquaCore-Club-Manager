@@ -1,25 +1,30 @@
 "use client";
 
 /**
- * FinancialHub — المركز المالي الموحّد
+ * FinancialHub — المركز المالي
  * ═════════════════════════════════════════════════════════════
- * صفحة احترافية واحدة (بلا تكرار) بخبرة تسيير مالي:
- *   1) نظرة عامة          — لوحة قيادة تحليلية + بطاقات الدورة المالية الذكية
- *   2) الصندوق وتقرير Z   — ورديات الدرج + طباعة Z + ترحيل آلي للدفتر
- *   3) دفتر التسديدات     — مصدر الحقيقة الوحيد: كل قيد مالي (قبض/صرف)
- *   4) الأعباء والمستحقات — أجور من ساعات العمل، تأمين، حقوق مركب
- *   5) التقارير           — ملخص/أجور/مداخيل مع التصدير
+ * صفحة تقارير ومعاملات مالية واحدة — بسيطة وبلا تكرار:
+ *   1) نظرة عامة          — اللوحة التحليلية والمؤشرات الذكية
+ *   2) المعاملات المالية  — دفتر القيود الموحّد (مصدر الحقيقة الوحيد)
+ *   3) التقارير           — ملخص/أجور/مداخيل مع التصدير
  *
- * الفلسفة المحاسبية: كل دفعة في أي شاشة (تجديد، تأمين، مركب، أجر، صندوق)
- * تُرحَّل تلقائياً إلى دفتر التسديدات — أرقام المركز هي الحصيلة الكاملة.
- * كل قسم يظهر فقط لمن يملك صلاحيته.
+ * ما حُذف ولماذا (تفادي التكرار):
+ *   ✗ الصندوق وتقرير Z     — وردية الدرج كانت مصدر بيانات منفصلاً (localStorage)؛
+ *                             كل قيد يُسجَّل الآن مباشرة في الدفتر من «قيد جديد».
+ *   ✗ قسم الأعباء والتسديدات القديم — كان يكرّر ما في صفحاته المتخصصة:
+ *                             التأمين (تبويب التأمين)، حقوق المركب (تبويب حقوق المركب)،
+ *                             سجل التسديدات (هذا الدفتر نفسه) — وبطاقتين بنفس الاسم «حقوق المركب».
+ *   ✓ بقي فريد: أداة «أجور العمال» (ساعات العمل × الأجر — تسديد يُرحَّل للدفتر تلقائياً).
+ *
+ * الفلسفة المحاسبية: أي دفعة من أي شاشة (تجديد، تأمين، مركب، أجر، قيد يدوي)
+ * تظهر في هذا الدفتر تلقائياً — أرقام المركز هي الحصيلة الكاملة بلا ازدواج.
  */
 
 import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
-  Landmark, LayoutDashboard, Coins, ArrowRightLeft, FileText, ReceiptText,
-  RefreshCw, Loader2, Lock, Unlock, AlertTriangle, Activity,
+  Landmark, LayoutDashboard, ArrowRightLeft, FileText,
+  RefreshCw, Loader2, AlertTriangle, Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,8 +35,7 @@ import { hasPermission } from "@/lib/roles";
 import { FinancialOverview, type OverviewNavSection } from "@/components/financial/overview";
 import { FinancialPayments } from "@/components/financial-payments";
 import { FinancialReports } from "@/components/financial-reports";
-import { ChargesPanel } from "@/components/charges-panel";
-import { CashRegister } from "@/components/cash-register";
+import { WorkerWagesDialog } from "@/components/financial/worker-wages-dialog";
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -45,19 +49,10 @@ interface HubSummary {
   movementsThisMonth: number;
 }
 
-interface ShiftSnapshot {
-  open: boolean;
-  openedAt: string | null;
-  openingBalance: number;
-  operations: Array<{ id: string; type: "income" | "expense"; amount: number }>;
-}
-
 interface FinancialHubProps {
   role: string;
-  subscribers: Parameters<typeof ChargesPanel>[0]["subscribers"];
 }
 
-const SHIFT_KEY = "aquacore-cash-shift";
 const SECTION_KEY = "rcs-financial-hub-section";
 
 // ─────────────────────────────────────────────────────────────
@@ -73,38 +68,29 @@ function formatShort(n: number): string {
   return String(Math.round(n));
 }
 
-function readShiftSnapshot(): ShiftSnapshot | null {
-  try {
-    const raw = localStorage.getItem(SHIFT_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as ShiftSnapshot;
-  } catch {
-    return null;
-  }
-}
-
 // ─────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────
-export function FinancialHub({ role, subscribers }: FinancialHubProps) {
+export function FinancialHub({ role }: FinancialHubProps) {
   const perms = {
     overview: hasPermission(role, "financialDashboard"),
-    cash: hasPermission(role, "financialDashboard"),
-    ledger: hasPermission(role, "financialPayments"),
-    charges: hasPermission(role, "charges"),
+    transactions: hasPermission(role, "financialPayments"),
     reports: hasPermission(role, "financialReports"),
+    /** أداة أجور العمال — صلاحية الأعباء (مدير النادي) — تطابق صلاحية POST /api/payments */
+    wages: hasPermission(role, "charges"),
   };
 
   const firstAllowed: HubSection =
-    perms.overview ? "overview" : perms.ledger ? "ledger" : perms.charges ? "charges" : perms.reports ? "reports" : "overview";
+    perms.overview ? "overview" : perms.transactions ? "transactions" : perms.reports ? "reports" : "overview";
 
   const [section, setSection] = useState<HubSection>(firstAllowed);
   const [summary, setSummary] = useState<HubSummary | null>(null);
   const [loading, setLoading] = useState(perms.overview);
   const [refreshing, setRefreshing] = useState(false);
-  const [shiftSnap, setShiftSnap] = useState<ShiftSnapshot | null>(null);
   /** ترشيح مبدئي للدفتر عند القدوم من بطاقة (قبض/صرف) */
   const [ledgerPreset, setLedgerPreset] = useState<"income" | "expense" | undefined>(undefined);
+  /** إشارة تحديث الدفتر بعد تسديد أجر */
+  const [ledgerRefresh, setLedgerRefresh] = useState(0);
 
   // استرجاع القسم المحفوظ (مع ضمان الصلاحية)
   useEffect(() => {
@@ -112,7 +98,6 @@ export function FinancialHub({ role, subscribers }: FinancialHubProps) {
       const saved = localStorage.getItem(SECTION_KEY) as HubSection | null;
       if (saved && perms[saved]) setSection(saved);
     } catch {}
-    setShiftSnap(readShiftSnapshot());
   }, []);
 
   const fetchSummary = useCallback(async (silent = false) => {
@@ -136,7 +121,6 @@ export function FinancialHub({ role, subscribers }: FinancialHubProps) {
 
   const switchSection = useCallback((s: HubSection) => {
     setSection(s);
-    setShiftSnap(readShiftSnapshot());
     try { localStorage.setItem(SECTION_KEY, s); } catch {}
     // تحديث ذكي: الأرقام الحية عند العودة لنظرة عامة
     if (s === "overview") fetchSummary(true);
@@ -144,33 +128,19 @@ export function FinancialHub({ role, subscribers }: FinancialHubProps) {
 
   /** تنقل ذكي من بطاقات النظرة العامة (مع ترشيح مبدئي للدفتر) */
   const handleNavigateSection = useCallback((s: HubSection, ledgerType?: "income" | "expense") => {
-    if (s === "ledger") setLedgerPreset(ledgerType);
+    if (s === "transactions") setLedgerPreset(ledgerType);
     switchSection(s);
   }, [switchSection]);
 
-  // مزامنة حالة الصندوق عند رجوع التركيز للنافذة
-  useEffect(() => {
-    const onFocus = () => setShiftSnap(readShiftSnapshot());
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, []);
-
   const refreshAll = () => {
     fetchSummary(true);
-    toast.promise(Promise.resolve(), { success: "تم تحديث المركز المالي" });
+    setLedgerRefresh((n) => n + 1);
+    toast.success("تم تحديث المركز المالي");
   };
-
-  const expectedDrawer = shiftSnap
-    ? shiftSnap.openingBalance +
-      shiftSnap.operations.filter((o) => o.type === "income").reduce((s, o) => s + o.amount, 0) -
-      shiftSnap.operations.filter((o) => o.type === "expense").reduce((s, o) => s + o.amount, 0)
-    : 0;
 
   const SECTIONS: Array<{ id: HubSection; label: string; icon: typeof LayoutDashboard; hint: string; show: boolean }> = [
     { id: "overview", label: "نظرة عامة", icon: LayoutDashboard, hint: "اللوحة التحليلية والمؤشرات الذكية", show: perms.overview },
-    { id: "cash", label: "الصندوق وتقرير Z", icon: Coins, hint: "ورديات الدرج والطباعة", show: perms.cash },
-    { id: "ledger", label: "دفتر التسديدات", icon: ArrowRightLeft, hint: "كل القيود المالية — مصدر الحقيقة", show: perms.ledger },
-    { id: "charges", label: "الأعباء والمستحقات", icon: ReceiptText, hint: "أجور العمال والتأمين وحقوق المركب", show: perms.charges },
+    { id: "transactions", label: "المعاملات المالية", icon: ArrowRightLeft, hint: "دفتر القيود الكامل — كل مدخول ومصروف", show: perms.transactions },
     { id: "reports", label: "التقارير", icon: FileText, hint: "ملخص وأجور ومداخيل مع التصدير", show: perms.reports },
   ];
   const visibleSections = SECTIONS.filter((s) => s.show);
@@ -199,7 +169,7 @@ export function FinancialHub({ role, subscribers }: FinancialHubProps) {
             <div className="min-w-0">
               <h2 className="text-base sm:text-lg font-extrabold leading-tight">المركز المالي</h2>
               <p className="text-[11px] sm:text-xs text-white/80">
-                كل العمليات المالية للنادي — التسجيلات والأعباء والتسديدات — بلا ازدواج محاسبي
+                تقارير ومعاملات مالية — كل تفاصيل النادي في دفتر واحد بلا ازدواج
               </p>
             </div>
           </div>
@@ -230,9 +200,9 @@ export function FinancialHub({ role, subscribers }: FinancialHubProps) {
         </div>
 
         {/* رقائق المؤشرات الحية */}
-        <div className="relative mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="relative mt-3 grid grid-cols-3 gap-2">
           {perms.overview && loading ? (
-            Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-xl bg-white/15" />)
+            Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-xl bg-white/15" />)
           ) : (
             <>
               {perms.overview && (
@@ -249,14 +219,6 @@ export function FinancialHub({ role, subscribers }: FinancialHubProps) {
                   label="حركات هذا الشهر"
                   value={summary ? `${summary.movementsThisMonth}` : "—"}
                   tone="teal"
-                />
-              )}
-              {perms.cash && (
-                <KpiChip
-                  icon={shiftSnap?.open ? Unlock : Lock}
-                  label={shiftSnap?.open ? "الصندوق مفتوح" : "الصندوق مغلق"}
-                  value={shiftSnap?.open ? formatShort(expectedDrawer) : "—"}
-                  tone={shiftSnap?.open ? "amber" : "slate"}
                 />
               )}
               {perms.overview && (
@@ -318,27 +280,16 @@ export function FinancialHub({ role, subscribers }: FinancialHubProps) {
         </motion.section>
       )}
 
-      {section === "cash" && perms.cash && (
-        <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} key="cash" className="space-y-3">
+      {section === "transactions" && perms.transactions && (
+        <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} key={`transactions-${ledgerPreset ?? "all"}`} className="space-y-2">
           <SectionHint
-            text="افتح الوردية عند بداية الدوام وسجّل كل حركة درج — العمليات تُرحَّل تلقائياً إلى دفتر التسديدات، وعند الإغلاق يصدر تقرير Z للمطابقة."
+            text="مصدر الحقيقة الوحيد: كل مدخول ومصروف يظهر هنا تلقائياً — التسجيلات من التجديد، التأمين وحقوق المركب من صفحاتهما، وأجور العمال والقيود اليدوية من «قيد جديد»."
           />
-          <CashRegister onLedgerChanged={() => { setShiftSnap(readShiftSnapshot()); fetchSummary(true); }} />
-        </motion.section>
-      )}
-
-      {section === "ledger" && perms.ledger && (
-        <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} key={`ledger-${ledgerPreset ?? "all"}`} className="space-y-2">
-          <SectionHint
-            text="مصدر الحقيقة الوحيد: كل مدخول ومصروف في النادي (تسجيلات، أعباء، تسديدات، صندوق) يظهر هنا تلقائياً — حرّر أو أضف القيود اليدوية من زر «قيد جديد»."
+          <FinancialPayments
+            initialType={ledgerPreset}
+            refreshSignal={ledgerRefresh}
+            headerActions={perms.wages ? <WorkerWagesDialog onSaved={() => { setLedgerRefresh((n) => n + 1); fetchSummary(true); }} /> : undefined}
           />
-          <FinancialPayments initialType={ledgerPreset} />
-        </motion.section>
-      )}
-
-      {section === "charges" && perms.charges && (
-        <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} key="charges">
-          <ChargesPanel subscribers={subscribers} />
         </motion.section>
       )}
 
@@ -358,14 +309,12 @@ function KpiChip({ icon: Icon, label, value, tone }: {
   icon: typeof Activity;
   label: string;
   value: string;
-  tone: "emerald" | "rose" | "teal" | "amber" | "slate";
+  tone: "emerald" | "rose" | "teal";
 }) {
   const tones: Record<string, string> = {
     emerald: "bg-emerald-500/20 border-emerald-300/40",
     rose: "bg-rose-500/20 border-rose-300/40",
     teal: "bg-teal-400/20 border-teal-200/40",
-    amber: "bg-amber-500/20 border-amber-300/40",
-    slate: "bg-white/10 border-white/25",
   };
   return (
     <div className={cn("rounded-xl border p-2 flex flex-col justify-center gap-0.5 backdrop-blur-sm", tones[tone])}>

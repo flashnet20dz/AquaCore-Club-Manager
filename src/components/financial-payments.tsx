@@ -139,7 +139,16 @@ function toDateInputValue(d: Date): string {
 // ─────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────
-export function FinancialPayments({ initialType }: { initialType?: "income" | "expense" } = {}) {
+interface FinancialPaymentsProps {
+  /** ترشيح مبدئي للنوع عند القدوم من بطاقة النظرة العامة */
+  initialType?: "income" | "expense";
+  /** أزرار إضافية في شريط الأدوات (مثل: أجور العمال — بصلاحيتها الخاصة) */
+  headerActions?: React.ReactNode;
+  /** تغيّر قيمته ⇒ إعادة جلب القيود (بعد تسديد أجر مثلاً) */
+  refreshSignal?: number;
+}
+
+export function FinancialPayments({ initialType, headerActions, refreshSignal }: FinancialPaymentsProps = {}) {
   // Filters
   // ★ ملاحظة: قيمة «الكل» = "all" وليس "" — Radix Select يمنع value فارغاً
   // (كان يُسقط الصفحة كلها بخطأ Select.Item عند فتح قسم المركز المالي)
@@ -216,6 +225,11 @@ export function FinancialPayments({ initialType }: { initialType?: "income" | "e
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // إعادة الجلب عند طلب خارجي (بعد تسديد أجر من الحوار الجانبي)
+  useEffect(() => {
+    if (refreshSignal !== undefined && refreshSignal > 0) fetchData();
+  }, [refreshSignal]);
 
   // Reset selection when page/filter changes
   useEffect(() => {
@@ -505,9 +519,9 @@ export function FinancialPayments({ initialType }: { initialType?: "income" | "e
             <Wallet className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-foreground">الدفعات والتسديدات</h2>
+            <h2 className="text-lg font-bold text-foreground">المعاملات المالية</h2>
             <p className="text-xs text-muted-foreground">
-              إجمالي الصفحة: مدخول{" "}
+              دفتر القيود الموحّد — إجمالي الصفحة: مدخول{" "}
               <span className="text-emerald-600 dark:text-emerald-400 font-bold">{formatDA(totalIncome)}</span>
               {" • "}مصروف{" "}
               <span className="text-rose-600 dark:text-rose-400 font-bold">{formatDA(totalExpense)}</span>
@@ -519,6 +533,7 @@ export function FinancialPayments({ initialType }: { initialType?: "income" | "e
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {headerActions}
           <Button variant="outline" size="sm" onClick={() => setShowFilters((s) => !s)} className="lg:hidden">
             <Filter className="h-4 w-4" />
             فلاتر
