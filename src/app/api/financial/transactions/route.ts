@@ -115,7 +115,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "النادي غير محدد" }, { status: 400 });
     }
 
-    const validIncomeCategories = ["subscription", "renewal", "insurance", "other_income"];
+    const validIncomeCategories = ["subscription", "renewal", "insurance", "compound", "other_income"];
     const validExpenseCategories = ["wages", "insurance", "compound_rights", "office_supplies", "other_expense"];
     if (type === "income" && !validIncomeCategories.includes(category)) {
       return NextResponse.json({ error: "فئة مدخول غير صالحة" }, { status: 400 });

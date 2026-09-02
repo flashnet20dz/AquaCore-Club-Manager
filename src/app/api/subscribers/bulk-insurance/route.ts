@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { applyBalanceDelta, recomputeBalanceTx } from "@/lib/financial-posting";
 
 /**
  * POST /api/subscribers/bulk-insurance
@@ -76,6 +77,30 @@ export async function POST(req: NextRequest) {
               userId: user.id,
             })),
           });
+          // ★ ترحيل جماعي للدفتر المالي — مرجع قابل للتتبع bulk-ins:{subscriberId}
+          await tx.financialTransaction.createMany({
+            data: toInsure.map((s) => ({
+              clubId: s.clubId,
+              type: "income",
+              category: "insurance",
+              amount: feeByName.get(s.subscriptionType) ?? 500,
+              date: new Date(),
+              paymentMethod: "cash",
+              payeeName: `${s.lastName} ${s.firstName}`.trim(),
+              subscriberId: s.id,
+              reference: `bulk-ins:${s.id}`,
+              note: "تأمين منخرط — ترحيل جماعي",
+              createdById: user.id,
+            })),
+          });
+          // تحديث رصيد كل نادي متأثر (superadmin قد يمس عدة نوادٍ)
+          const perClub = new Map<string, number>();
+          for (const s of toInsure) {
+            perClub.set(s.clubId, (perClub.get(s.clubId) || 0) + (feeByName.get(s.subscriptionType) ?? 500));
+          }
+          for (const [clubId, total] of perClub) {
+            await applyBalanceDelta(tx, clubId, "income", "insurance", total);
+          }
           await tx.activity.createMany({
             data: toInsure.map((s) => ({
               clubId: s.clubId,
@@ -102,6 +127,23 @@ export async function POST(req: NextRequest) {
           await tx.payment.deleteMany({
             where: { id: { in: paymentsToDelete.map((p) => p.id) } },
           });
+          // ★ حذف القيود المرحّلة المرتبطة (فردي payment: أو جماعي bulk-ins:)
+          const refs = paymentsToDelete.flatMap((p) => {
+            const r = [`payment:${p.id}`];
+            if (p.subscriberId) r.push(`bulk-ins:${p.subscriberId}`);
+            return r;
+          });
+          const found = await tx.financialTransaction.findMany({
+            where: { reference: { in: refs }, category: "insurance", type: "income" },
+            select: { id: true, clubId: true },
+          });
+          if (found.length > 0) {
+            await tx.financialTransaction.deleteMany({ where: { id: { in: found.map((f) => f.id) } } });
+            const perClub = new Set(found.map((f) => f.clubId));
+            for (const clubId of perClub) {
+              await recomputeBalanceTx(tx, clubId);
+            }
+          }
           await tx.activity.createMany({
             data: paymentsToDelete
               .map((p) => (p.subscriberId ? idToSub.get(p.subscriberId) : undefined))

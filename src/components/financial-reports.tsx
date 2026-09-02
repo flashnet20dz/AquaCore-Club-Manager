@@ -70,6 +70,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   subscription: "اشتراك",
   renewal: "تجديد",
   insurance: "تأمين",
+  compound: "حقوق المركب",
   other_income: "مدخول آخر",
   wages: "أجور عمال",
   compound_rights: "حقوق المركب",
