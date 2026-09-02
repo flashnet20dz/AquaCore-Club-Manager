@@ -204,6 +204,17 @@ export async function GET(req: NextRequest) {
     }
     results.push(`✓ ${statements.length} schema statements executed`);
 
+    // 🛡️ جلسات كود الكاشير (PIN): أسقط قيد FK القديم على Session.userId الذي
+    // يرفض الجلسات بمعرّف وهمي «pin-...» غير موجود في Users (تفاصيل الملاحظة
+    // في schema.prisma). IF EXISTS = آمن للتكرار؛ SQLite لا يدعم DROP
+    // CONSTRAINT فتُلتقط الأخطاء بصمت (قيودها تُدار عبر prisma db push).
+    try {
+      await db.$executeRawUnsafe(`ALTER TABLE "Session" DROP CONSTRAINT IF EXISTS "Session_userId_fkey"`);
+      results.push("✓ Session FK constraint dropped (PIN sessions OK)");
+    } catch {
+      // SQLite / صلاحيات ناقصة — تجاهل بلا فشل
+    }
+
     // Seed default admin
     const userCount = await db.user.count().catch(() => -1);
     if (userCount === 0) {

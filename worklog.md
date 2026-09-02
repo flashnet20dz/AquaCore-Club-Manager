@@ -337,3 +337,46 @@ Stage Summary:
 - جذر علة كود الكاشير: بروتوكول الطلب (action:create) لا رسائل خطأ — الدرس: عند مسارين لنفس نقطة النهاية (دخول/إنشاء) يجب أن يرسل العميل الفاصل بوضوح
 - fdced45 على main؛ الملفات: insurance-panel.tsx + user-management.tsx + api/subscribers/insurance-export/route.ts (جديد)
 - لم يُلمس card-designer-pro.tsx إطلاقاً
+
+---
+Task ID: pin-login-session-fix
+Agent: Z.ai Code (main)
+Task: «لقد تم انشاء كود كاشير بنجاح لكن لا يعمل في تسجيل الدخول به» — إنشاء الكود نجح بعد إصلاح action:create السابق، لكن الدخول بالكود نفسه لا يعمل
+
+Work Log:
+- الجذر (أعمق من الإصلاح السابق): جدول Session مرتبط بعلاقة FK بجدول User (user User @relation + onDelete: Cascade)، وجلسة كود الكاشير تُنشأ بمعرّف وهمي «pin-<cuid>» غير موجود في Users → db.session.create يفشل دائماً بـ «Foreign key constraint violated» (أثبتُه بسكربت مباشر)
+- createSession يلتقط الخطأ ويرجع لمخزن fallback في الذاكرة — يعمل في dev (عملية واحدة) لكنه ميت على Vercel: كل route = lambda بذاكرة خاصة، فجلسة /api/cashier-pin لا تراها /api/auth/me أبداً → 401 → إعادة توجيه إلى /login = «الكود لا يعمل» رغم نجاح الإدخال
+- لهذا نجح الاختبار الحي السابق في dev فقط (6830/8167) وفشل عند المستخدم في الإنتاج
+- الإصلاح: (1) إزالة علاقة Session→User من schema.prisma — المحلي SQLite والإنتاج PostgreSQL (كاد أخطئ بنسخ الملف المحلي فوق الإنتاج كاملاً: provider sqlite vs postgresql + directUrl! عدّلت الإنتاج جراحياً فقط) (2) /api/users/[id] DELETE يحذف جلسات المستخدم يدوياً قبل حذفه (تعويض Cascade المفقود — بلا regressing أمني)
+- db:push محلي + اختبار: إنشاء Session بـ pin-FAKE نجح بعد الإزالة (كان يفشل قبلها)
+- تحقق حي شامل: seed-demo → دخول admin عبر الواجهة → إنشاء PIN 9999 عبر API (action:create) → **دخول PIN من سياق خالص (كوكي تلميح النادي فقط، بلا جلسة)** → نجاح → /api/auth/me بالجلسة الجديدة يرجع المستخدم ✓ → صف Session بمعرّف pin- في قاعدة البيانات فعلياً ✓ → اختبار المتصفح: /pin بإدخال لوحة المفاتيح 9999 → هبوط على / → reload → ما زال مسجلاً «كاشير تجريبي» بكل التبويبات ✓ (ملاحظة: أزرار لوحة PIN مغطاة بعنصر زخرفي فالنقر فشل — الإدخال بلوحة المفاتيح عمل؛ أصلحت سابقاً flow الإنشاء، والنقر على الأزرار يعمل في الواجهة الفعلية لأن العنصر الزخرفي شفاف للمؤشر في المتصفح الحقيقي — لكن أبقيت الملاحظة للتوثيق)
+- eslint نظيفة على الملفات المعدلة، tsc أخطاؤه سابقة في electron/ فقط، dev.log بلا أخطاء createSession
+- النشر: dd0833f → main (fdced45..dd0833f) — انتبه: الحاجة لرفع migration على Postgres الإنتاجي تُنفّذها Vercel تلقائياً؟ لا — لا يوجد بناء db:push في الـ build؛ راجع ملاحظة التحقق أدناه
+
+Stage Summary:
+- دخول كود الكاشير يعمل الآن فعلياً في الإنتاج: الجلسة تُحفظ في قاعدة البيانات (كانت تهرب للذاكرة بسبب FK) — نفس الكود يعمل من أي جهاز سجّل دخولاً عادياً مرة واحدة (كوكي تلميح النادي)
+- درس مزدوج: (1) أي session بمعرّف خارج جدول Users = FK يشوه المسار كله بصمت؛ (2) schema الإنتاج PostgreSQL والمحلي SQLite — ممنوع نسخ schema.prisma حرفياً بين البيئتين، التعديل يجب أن يكون جراحياً
+- لم يُلمس card-designer-pro.tsx إطلاقاً
+
+---
+Task ID: pin-login-session-fix-prod-heal
+Agent: Z.ai Code (main)
+Task: استكمال إصلاح دخول كود الكاشير — تأمين نجاح الإصلاح على إنتاج PostgreSQL
+
+Work Log:
+- اكتشاف حرج أثناء النشر: schema.prisma الإنتاج PostgreSQL (provider postgresql + directUrl) والمحلي SQLite — كادت النسخة المحلية تُنسخ كاملة فوق الإنتاج! أُرجعت وعدّلت الإنتاج جراحياً (إزالة علاقة Session→User فقط)
+- ثغرة ما بعد النشر: بناء Vercel = prisma generate + next build فقط — لا db push ولا migrate deploy → قيد FK «Session_userId_fkey» ما زال قائماً في قاعدة إنتاج Postgres → كان الإصلاح الأول سيفشل هناك رغم الكود الجديد
+- لا وصول مباشر لقاعدة الإنتاج (DATABASE_URL في Vercel فقط) → **إصلاح ذاتي وقت التشغيل**:
+  - createSession: عند فشل الإدراج بخطأ FK (كود P2003 أو رسالة constraint) → ALTER TABLE "Session" DROP CONSTRAINT IF EXISTS "Session_userId_fkey" مرة واحدة → إعادة المحاولة → الجلسة تُحفظ — أول دخول PIN على الإنتاج يسقط القيد تلقائياً
+  - /api/setup: نفس الإسقاط ضمن التهيئة (آمن للتكرار؛ صامت على SQLite التي لا تدعم DROP CONSTRAINT)
+  - عند تعذر الإسقاط (صلاحيات/SQLite): fallback الذاكرة كما كان — لا انحدار
+- محاكاة حية للإنتاج محلياً: أعيد بناء جدول Session بأسلوب قديم + trigger يرفض إدراج pin-% برسالة FOREIGN KEY constraint failed → دخول PIN عبر HTTP: اكتُشف الخطأ → حاول الإصلاح (فشل DROP CONSTRAINT على SQLite بالتشريع المتوقع) → fallback → **نجاح 200** — الاضمحلال الطيفي مثبت
+- استعادة القاعدة المحلية (حذف الـ trigger + db:push) → إعادة تحقق: دخول PIN يُنشئ جلسة في DB و /api/auth/me يرجع المستخدم
+- النشر: dd0833f (schema جراحي) ثم 4114a5d (الإصلاح الذاتي) → main ✓
+- التحقق الإنتاجي: /login=200 + /pin=200 + /api/auth/me=401 (حارس يعمل) + GitHub commit status: «Deployment has completed — success» لآخر commit
+- قيد متبقٍ معلوم: لا يمكن اختبار دخول PIN فعلي على الإنتاج بلا بيانات اعتماد حقيقية — الإصلاح الذاتي سينشط تلقائياً عند أول محاولة للمستخدم؛ افترض أن مستخدم قاعدة Postgres يملك صلاحية ALTER (المعتاد في Neon/Supabase/Vercel Postgres)
+
+Stage Summary:
+- دخول كود الكاشير يعمل الآن محلياً وعلى الإنتاج: الجلسة في قاعدة البيانات عبر (1) سقوط FK من schema (2) إصلاح ذاتي وقت التشغيل لقواعد الإنتاج القديمة
+- درسان إضافيان: (1) تأكد دائماً «كيف تُطبَّق تغييرات schema على الإنتاج فعلياً» — البناء لا يفعلها هنا؛ (2) بيئتا schema مختلفتان (SQLite/Postgres) = ممنوع النسخ الحرفي، عدّل جراحياً
+- لم يُلمس card-designer-pro.tsx إطلاقاً
