@@ -75,6 +75,7 @@ const INCOME_CATEGORIES: { value: string; label: string }[] = [
   { value: "subscription", label: "اشتراك" },
   { value: "renewal", label: "تجديد" },
   { value: "insurance", label: "تأمين" },
+  { value: "compound", label: "حقوق المركب" },
   { value: "other_income", label: "مدخول آخر" },
 ];
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { normalizePaymentStatus, isExemptStatus } from "@/lib/rcs";
+import { postLedgerEntry } from "@/lib/financial-posting";
 
 export async function GET(req: NextRequest) {
   try {
@@ -94,42 +95,65 @@ export async function POST(req: NextRequest) {
     // ★ EXEMPT renewal: amount = 0, no financial claim
     const finalAmount = exempt ? 0 : (amount || 0);
 
-    const renewal = await db.renewal.create({
-      data: {
-        clubId: sub.clubId,
-        subscriberId,
-        renewalDate,
-        expiryDate,
-        months: months || 1,
-        amount: finalAmount,
-        paymentStatus: normalizedStatus,
-        note: exempt
-          ? (note || "تجديد معفى — بدون مطالبة مالية")
-          : (note || null),
-      },
-      include: { subscriber: true },
-    });
+    // ★ ذرّية كاملة: التجديد + تحديث المنخرط + ترحيل المدخول للدفتر المالي
+    // (التسجيلات تدخل المركز المالي تلقائياً — بلا تدخل يدوي)
+    const renewal = await db.$transaction(async (tx) => {
+      const created = await tx.renewal.create({
+        data: {
+          clubId: sub.clubId,
+          subscriberId,
+          renewalDate,
+          expiryDate,
+          months: months || 1,
+          amount: finalAmount,
+          paymentStatus: normalizedStatus,
+          note: exempt
+            ? (note || "تجديد معفى — بدون مطالبة مالية")
+            : (note || null),
+        },
+        include: { subscriber: true },
+      });
 
-    // Update subscriber's last payment & status
-    // ★ For EXEMPT: keep lastPaymentDate as-is (no payment happened),
-    //    but update paymentStatus to "معفى" so the subscriber is marked exempt.
-    await db.subscriber.update({
-      where: { id: subscriberId },
-      data: {
-        lastPaymentDate: exempt ? sub.lastPaymentDate : renewalDate,
-        paymentStatus: normalizedStatus,
-      },
-    });
+      // Update subscriber's last payment & status
+      // ★ For EXEMPT: keep lastPaymentDate as-is (no payment happened),
+      //    but update paymentStatus to "معفى" so the subscriber is marked exempt.
+      await tx.subscriber.update({
+        where: { id: subscriberId },
+        data: {
+          lastPaymentDate: exempt ? sub.lastPaymentDate : renewalDate,
+          paymentStatus: normalizedStatus,
+        },
+      });
 
-    await db.activity.create({
-      data: {
-        clubId: sub.clubId,
-        subscriberId,
-        type: "renewal",
-        description: exempt
-          ? `تم تجديد اشتراك ${sub.lastName} ${sub.firstName} — معفى (بدون مطالبة مالية)`
-          : `تم تجديد اشتراك ${sub.lastName} ${sub.firstName} لمدة ${months || 1} شهر بمبلغ ${finalAmount} دج بتاريخ ${renewalDate.toISOString().split("T")[0]}`,
-      },
+      // ★ ترحيل تلقائي: مدخول التجديد إلى دفتر التسديدات (لا التحويل للمعفيّ)
+      if (finalAmount > 0) {
+        await postLedgerEntry(tx, {
+          clubId: sub.clubId,
+          type: "income",
+          category: "renewal",
+          amount: finalAmount,
+          date: renewalDate,
+          paymentMethod: "cash",
+          payeeName: `${sub.lastName} ${sub.firstName}`.trim(),
+          subscriberId,
+          reference: `renewal:${created.id}`,
+          note: `تسجيل — تجديد ${months || 1} شهر (${normalizedStatus}) — تلقائي من التجديد`,
+          createdById: currentUser.id,
+        });
+      }
+
+      await tx.activity.create({
+        data: {
+          clubId: sub.clubId,
+          subscriberId,
+          type: "renewal",
+          description: exempt
+            ? `تم تجديد اشتراك ${sub.lastName} ${sub.firstName} — معفى (بدون مطالبة مالية)`
+            : `تم تجديد اشتراك ${sub.lastName} ${sub.firstName} لمدة ${months || 1} شهر بمبلغ ${finalAmount} دج بتاريخ ${renewalDate.toISOString().split("T")[0]}`,
+        },
+      });
+
+      return created;
     });
 
     return NextResponse.json({ renewal }, { status: 201 });

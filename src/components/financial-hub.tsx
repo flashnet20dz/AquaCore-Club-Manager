@@ -3,23 +3,23 @@
 /**
  * FinancialHub — المركز المالي الموحّد
  * ═════════════════════════════════════════════════════════════
- * يدمج في صفحة واحدة احترافية (بلا تكرار):
- *   1) نظرة عامة       — لوحة المالية الكاملة (رصيد/مقارنات/رسوم بيانية)
- *   2) الصندوق وتقرير Z — ورديات الدرج + طباعة Z + ترحيل آلي لدفتر التسديدات
- *   3) الأعباء والتسديدات — تسجيل الأعباء + دفتر الحركات المالي الكامل
- *   4) التقارير          — ملخص/أجور/تفصيل المداخيل مع التصدير
+ * صفحة احترافية واحدة (بلا تكرار) بخبرة تسيير مالي:
+ *   1) نظرة عامة          — لوحة قيادة تحليلية + بطاقات الدورة المالية الذكية
+ *   2) الصندوق وتقرير Z   — ورديات الدرج + طباعة Z + ترحيل آلي للدفتر
+ *   3) دفتر التسديدات     — مصدر الحقيقة الوحيد: كل قيد مالي (قبض/صرف)
+ *   4) الأعباء والمستحقات — أجور من ساعات العمل، تأمين، حقوق مركب
+ *   5) التقارير           — ملخص/أجور/مداخيل مع التصدير
  *
- * الفلسفة المحاسبية: مصدر واحد للحقيقة (دفتر التسديدات) — عمليات
- * الصندوق اليدوية تُرحَّل تلقائياً إليه، فلا يوجد دفتران منفصلان.
+ * الفلسفة المحاسبية: كل دفعة في أي شاشة (تجديد، تأمين، مركب، أجر، صندوق)
+ * تُرحَّل تلقائياً إلى دفتر التسديدات — أرقام المركز هي الحصيلة الكاملة.
  * كل قسم يظهر فقط لمن يملك صلاحيته.
  */
 
 import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
-  Landmark, LayoutDashboard, Coins, ArrowRightLeft, FileText,
-  RefreshCw, Loader2, Wallet, TrendingUp, TrendingDown, Activity,
-  Lock, Unlock, AlertTriangle,
+  Landmark, LayoutDashboard, Coins, ArrowRightLeft, FileText, ReceiptText,
+  RefreshCw, Loader2, Lock, Unlock, AlertTriangle, Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { hasPermission } from "@/lib/roles";
 
-import { FinancialDashboard } from "@/components/financial-dashboard";
+import { FinancialOverview, type OverviewNavSection } from "@/components/financial/overview";
 import { FinancialPayments } from "@/components/financial-payments";
 import { FinancialReports } from "@/components/financial-reports";
 import { ChargesPanel } from "@/components/charges-panel";
@@ -36,20 +36,13 @@ import { CashRegister } from "@/components/cash-register";
 // ─────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────
-type HubSection = "overview" | "cash" | "charges" | "reports";
+type HubSection = OverviewNavSection;
 
-interface DashboardSummary {
-  balance: {
-    totalIncome: number;
-    totalExpense: number;
-    balance: number;
-  };
-  monthlyComparison: {
-    thisMonthIncome: number;
-    thisMonthExpense: number;
-    netThisMonth: number;
-  };
+interface HubSummary {
+  balance: { totalIncome: number; totalExpense: number; balance: number };
+  monthlyComparison: { netThisMonth: number; thisMonthIncome: number; thisMonthExpense: number };
   periodIncome: { today: number; week: number; month: number; year: number };
+  movementsThisMonth: number;
 }
 
 interface ShiftSnapshot {
@@ -62,7 +55,6 @@ interface ShiftSnapshot {
 interface FinancialHubProps {
   role: string;
   subscribers: Parameters<typeof ChargesPanel>[0]["subscribers"];
-  /** التنقل من عناصر أخرى (لوحة المالية → التسديدات) */
 }
 
 const SHIFT_KEY = "aquacore-cash-shift";
@@ -98,18 +90,21 @@ export function FinancialHub({ role, subscribers }: FinancialHubProps) {
   const perms = {
     overview: hasPermission(role, "financialDashboard"),
     cash: hasPermission(role, "financialDashboard"),
-    charges: hasPermission(role, "charges") || hasPermission(role, "financialPayments"),
+    ledger: hasPermission(role, "financialPayments"),
+    charges: hasPermission(role, "charges"),
     reports: hasPermission(role, "financialReports"),
   };
 
   const firstAllowed: HubSection =
-    perms.overview ? "overview" : perms.charges ? "charges" : perms.reports ? "reports" : "overview";
+    perms.overview ? "overview" : perms.ledger ? "ledger" : perms.charges ? "charges" : perms.reports ? "reports" : "overview";
 
   const [section, setSection] = useState<HubSection>(firstAllowed);
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [summary, setSummary] = useState<HubSummary | null>(null);
+  const [loading, setLoading] = useState(perms.overview);
   const [refreshing, setRefreshing] = useState(false);
   const [shiftSnap, setShiftSnap] = useState<ShiftSnapshot | null>(null);
+  /** ترشيح مبدئي للدفتر عند القدوم من بطاقة (قبض/صرف) */
+  const [ledgerPreset, setLedgerPreset] = useState<"income" | "expense" | undefined>(undefined);
 
   // استرجاع القسم المحفوظ (مع ضمان الصلاحية)
   useEffect(() => {
@@ -121,6 +116,7 @@ export function FinancialHub({ role, subscribers }: FinancialHubProps) {
   }, []);
 
   const fetchSummary = useCallback(async (silent = false) => {
+    if (!perms.overview) return;
     if (silent) setRefreshing(true); else setLoading(true);
     try {
       const res = await fetch("/api/financial/dashboard", { cache: "no-store" });
@@ -146,6 +142,12 @@ export function FinancialHub({ role, subscribers }: FinancialHubProps) {
     if (s === "overview") fetchSummary(true);
   }, [fetchSummary]);
 
+  /** تنقل ذكي من بطاقات النظرة العامة (مع ترشيح مبدئي للدفتر) */
+  const handleNavigateSection = useCallback((s: HubSection, ledgerType?: "income" | "expense") => {
+    if (s === "ledger") setLedgerPreset(ledgerType);
+    switchSection(s);
+  }, [switchSection]);
+
   // مزامنة حالة الصندوق عند رجوع التركيز للنافذة
   useEffect(() => {
     const onFocus = () => setShiftSnap(readShiftSnapshot());
@@ -165,10 +167,11 @@ export function FinancialHub({ role, subscribers }: FinancialHubProps) {
     : 0;
 
   const SECTIONS: Array<{ id: HubSection; label: string; icon: typeof LayoutDashboard; hint: string; show: boolean }> = [
-    { id: "overview", label: "نظرة عامة", icon: LayoutDashboard, hint: "الرصيد والرسوم البيانية والمقارنات", show: perms.overview },
+    { id: "overview", label: "نظرة عامة", icon: LayoutDashboard, hint: "اللوحة التحليلية والمؤشرات الذكية", show: perms.overview },
     { id: "cash", label: "الصندوق وتقرير Z", icon: Coins, hint: "ورديات الدرج والطباعة", show: perms.cash },
-    { id: "charges", label: "الأعباء والتسديدات", icon: ArrowRightLeft, hint: "تسجيل الأعباء ودفتر الحركات", show: perms.charges },
-    { id: "reports", label: "التقارير", icon: FileText, hint: "ملخص وأجور ومداخيل", show: perms.reports },
+    { id: "ledger", label: "دفتر التسديدات", icon: ArrowRightLeft, hint: "كل القيود المالية — مصدر الحقيقة", show: perms.ledger },
+    { id: "charges", label: "الأعباء والمستحقات", icon: ReceiptText, hint: "أجور العمال والتأمين وحقوق المركب", show: perms.charges },
+    { id: "reports", label: "التقارير", icon: FileText, hint: "ملخص وأجور ومداخيل مع التصدير", show: perms.reports },
   ];
   const visibleSections = SECTIONS.filter((s) => s.show);
 
@@ -196,20 +199,22 @@ export function FinancialHub({ role, subscribers }: FinancialHubProps) {
             <div className="min-w-0">
               <h2 className="text-base sm:text-lg font-extrabold leading-tight">المركز المالي</h2>
               <p className="text-[11px] sm:text-xs text-white/80">
-                كل العمليات المالية للنادي — التسجيلات والأعباء والتسديدات — في مكان واحد
+                كل العمليات المالية للنادي — التسجيلات والأعباء والتسديدات — بلا ازدواج محاسبي
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {loading ? (
-              <Skeleton className="h-9 w-36 bg-white/20" />
-            ) : (
-              <div className="text-left">
-                <p className="text-[10px] sm:text-[11px] text-white/75">الرصيد الحالي</p>
-                <p className="text-xl sm:text-2xl font-extrabold tabular-nums leading-none">
-                  {formatDA(balance)}
-                </p>
-              </div>
+          <div className="flex items-center gap-2.5">
+            {perms.overview && (
+              loading ? (
+                <Skeleton className="h-9 w-36 bg-white/20" />
+              ) : (
+                <div className="text-left">
+                  <p className="text-[10px] sm:text-[11px] text-white/75">الرصيد الحالي (الدفتر)</p>
+                  <p className="text-xl sm:text-2xl font-extrabold tabular-nums leading-none">
+                    {formatDA(balance)}
+                  </p>
+                </div>
+              )
             )}
             <Button
               size="sm"
@@ -225,34 +230,50 @@ export function FinancialHub({ role, subscribers }: FinancialHubProps) {
         </div>
 
         {/* رقائق المؤشرات الحية */}
-        <div className="relative mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-          {loading ? (
-            Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-xl bg-white/15" />)
+        <div className="relative mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {perms.overview && loading ? (
+            Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-xl bg-white/15" />)
           ) : (
             <>
-              <KpiChip icon={TrendingUp} label="مداخيل الشهر" value={summary ? formatShort(summary.monthlyComparison.thisMonthIncome) : "—"} tone="emerald" />
-              <KpiChip icon={TrendingDown} label="مصاريف الشهر" value={summary ? formatShort(summary.monthlyComparison.thisMonthExpense) : "—"} tone="rose" />
-              <KpiChip icon={Activity} label="صافي الشهر" value={summary ? formatShort(summary.monthlyComparison.netThisMonth) : "—"} tone="sky" />
-              <KpiChip icon={Wallet} label="مدخول اليوم" value={summary ? formatShort(summary.periodIncome.today) : "—"} tone="teal" />
-              <KpiChip
-                icon={shiftSnap?.open ? Unlock : Lock}
-                label={shiftSnap?.open ? "الصندوق مفتوح" : "الصندوق مغلق"}
-                value={shiftSnap?.open ? formatShort(expectedDrawer) : "—"}
-                tone={shiftSnap?.open ? "amber" : "slate"}
-              />
-              <div className={cn(
-                "rounded-xl border p-2 flex flex-col justify-center gap-0.5 backdrop-blur-sm",
-                balanceTone === "danger" && "bg-rose-500/20 border-rose-300/40",
-                balanceTone === "warn" && "bg-amber-500/20 border-amber-300/40",
-                balanceTone === "ok" && "bg-emerald-500/20 border-emerald-300/40"
-              )}>
-                <span className="text-[10px] text-white/80 flex items-center gap-1">
-                  <AlertTriangle className="h-3 w-3" /> الوضع المالي
-                </span>
-                <span className="text-sm font-extrabold">
-                  {balanceTone === "danger" ? "رصيد سالب" : balanceTone === "warn" ? "رصيد منخفض" : "جيد ✓"}
-                </span>
-              </div>
+              {perms.overview && (
+                <KpiChip
+                  icon={Activity}
+                  label="صافي الشهر"
+                  value={summary ? formatShort(summary.monthlyComparison.netThisMonth) : "—"}
+                  tone={(summary?.monthlyComparison.netThisMonth ?? 0) >= 0 ? "emerald" : "rose"}
+                />
+              )}
+              {perms.overview && (
+                <KpiChip
+                  icon={ArrowRightLeft}
+                  label="حركات هذا الشهر"
+                  value={summary ? `${summary.movementsThisMonth}` : "—"}
+                  tone="teal"
+                />
+              )}
+              {perms.cash && (
+                <KpiChip
+                  icon={shiftSnap?.open ? Unlock : Lock}
+                  label={shiftSnap?.open ? "الصندوق مفتوح" : "الصندوق مغلق"}
+                  value={shiftSnap?.open ? formatShort(expectedDrawer) : "—"}
+                  tone={shiftSnap?.open ? "amber" : "slate"}
+                />
+              )}
+              {perms.overview && (
+                <div className={cn(
+                  "rounded-xl border p-2 flex flex-col justify-center gap-0.5 backdrop-blur-sm",
+                  balanceTone === "danger" && "bg-rose-500/20 border-rose-300/40",
+                  balanceTone === "warn" && "bg-amber-500/20 border-amber-300/40",
+                  balanceTone === "ok" && "bg-emerald-500/20 border-emerald-300/40"
+                )}>
+                  <span className="text-[10px] text-white/80 flex items-center gap-1">
+                    <AlertTriangle className="h-3 w-3" /> الوضع المالي
+                  </span>
+                  <span className="text-sm font-extrabold">
+                    {balanceTone === "danger" ? "رصيد سالب" : balanceTone === "warn" ? "رصيد منخفض" : "جيد ✓"}
+                  </span>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -293,29 +314,31 @@ export function FinancialHub({ role, subscribers }: FinancialHubProps) {
       {/* ═══ محتوى الأقسام ═══ */}
       {section === "overview" && perms.overview && (
         <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} key="overview">
-          <FinancialDashboard onViewAllTransactions={() => switchSection("charges")} />
+          <FinancialOverview onNavigateSection={handleNavigateSection} />
         </motion.section>
       )}
 
       {section === "cash" && perms.cash && (
         <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} key="cash" className="space-y-3">
-          <MoneyFlowExplainer />
+          <SectionHint
+            text="افتح الوردية عند بداية الدوام وسجّل كل حركة درج — العمليات تُرحَّل تلقائياً إلى دفتر التسديدات، وعند الإغلاق يصدر تقرير Z للمطابقة."
+          />
           <CashRegister onLedgerChanged={() => { setShiftSnap(readShiftSnapshot()); fetchSummary(true); }} />
         </motion.section>
       )}
 
+      {section === "ledger" && perms.ledger && (
+        <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} key={`ledger-${ledgerPreset ?? "all"}`} className="space-y-2">
+          <SectionHint
+            text="مصدر الحقيقة الوحيد: كل مدخول ومصروف في النادي (تسجيلات، أعباء، تسديدات، صندوق) يظهر هنا تلقائياً — حرّر أو أضف القيود اليدوية من زر «قيد جديد»."
+          />
+          <FinancialPayments initialType={ledgerPreset} />
+        </motion.section>
+      )}
+
       {section === "charges" && perms.charges && (
-        <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} key="charges" className="space-y-4">
-          <MoneyFlowExplainer />
-          {hasPermission(role, "charges") && <ChargesPanel subscribers={subscribers} />}
-          {hasPermission(role, "financialPayments") && (
-            <div className="space-y-2">
-              <h3 className="font-bold text-sm flex items-center gap-2 text-primary">
-                <ArrowRightLeft className="h-4 w-4" /> دفتر التسديدات — كل الحركات المالية (قبض وصرف)
-              </h3>
-              <FinancialPayments />
-            </div>
-          )}
+        <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} key="charges">
+          <ChargesPanel subscribers={subscribers} />
         </motion.section>
       )}
 
@@ -332,15 +355,14 @@ export function FinancialHub({ role, subscribers }: FinancialHubProps) {
 // رقاقة مؤشر
 // ─────────────────────────────────────────────────────────────
 function KpiChip({ icon: Icon, label, value, tone }: {
-  icon: typeof Wallet;
+  icon: typeof Activity;
   label: string;
   value: string;
-  tone: "emerald" | "rose" | "sky" | "teal" | "amber" | "slate";
+  tone: "emerald" | "rose" | "teal" | "amber" | "slate";
 }) {
   const tones: Record<string, string> = {
     emerald: "bg-emerald-500/20 border-emerald-300/40",
     rose: "bg-rose-500/20 border-rose-300/40",
-    sky: "bg-sky-500/20 border-sky-300/40",
     teal: "bg-teal-400/20 border-teal-200/40",
     amber: "bg-amber-500/20 border-amber-300/40",
     slate: "bg-white/10 border-white/25",
@@ -356,33 +378,13 @@ function KpiChip({ icon: Icon, label, value, tone }: {
 }
 
 // ─────────────────────────────────────────────────────────────
-// شريط توضيح الدورة المالية — وضوح المصطلحات الثلاثة
+// تلميح تعريفي أعلى القسم — سطر واحد واضح
 // ─────────────────────────────────────────────────────────────
-export function MoneyFlowExplainer() {
-  const items = [
-    { icon: TrendingUp, title: "التسجيلات", desc: "مداخيل اشتراكات وتأمين المنخرطين — تُقيَّد تلقائياً من التجديد والاستقبال", tone: "emerald" },
-    { icon: Coins, title: "الأعباء", desc: "أجور العمال من ساعات العمل، اللوازم، والمصاريف التشغيلية — تُدخل يدوياً", tone: "amber" },
-    { icon: ArrowRightLeft, title: "التسديدات", desc: "دفتر كل الحركة المالية (قبض/صرف) بفلاتره وإيصالاته وتصديره", tone: "sky" },
-  ] as const;
-  const toneCls: Record<string, string> = {
-    emerald: "border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300",
-    amber: "border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300",
-    sky: "border-sky-500/30 bg-sky-500/5 text-sky-700 dark:text-sky-300",
-  };
+function SectionHint({ text }: { text: string }) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-      {items.map((it) => {
-        const Icon = it.icon;
-        return (
-          <div key={it.title} className={cn("rounded-xl border p-2.5 flex items-start gap-2", toneCls[it.tone])}>
-            <Icon className="h-4 w-4 mt-0.5 shrink-0" />
-            <div className="min-w-0">
-              <p className="text-xs font-extrabold">{it.title}</p>
-              <p className="text-[11px] leading-relaxed text-muted-foreground">{it.desc}</p>
-            </div>
-          </div>
-        );
-      })}
+    <div className="rounded-xl border border-teal-500/25 bg-teal-500/5 px-3 py-2 flex items-start gap-2">
+      <Landmark className="h-3.5 w-3.5 text-teal-600 mt-0.5 shrink-0" />
+      <p className="text-[11px] leading-relaxed text-muted-foreground">{text}</p>
     </div>
   );
 }

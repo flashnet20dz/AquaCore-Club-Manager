@@ -35,6 +35,10 @@ export async function GET() {
         topExpenses: [],
         periodIncome: { today: 0, week: 0, month: 0, year: 0 },
         chartData: [],
+        monthIncomeByCategory: {},
+        monthExpenseByCategory: {},
+        paymentMethods: [],
+        movementsThisMonth: 0,
       });
     }
 
@@ -144,6 +148,40 @@ export async function GET() {
       });
     }
 
+    // 7) تفصيل الشهر الحالي حسب الفئة + طرق الدفع + عدد الحركات
+    //    (يغذي بطاقات الدورة المالية الذكية في المركز المالي)
+    const [monthIncByCat, monthExpByCat, monthMethods, movementsThisMonth] = await Promise.all([
+      db.financialTransaction.groupBy({
+        by: ["category"],
+        where: { clubId: targetClubId, type: "income", date: { gte: thisMonthStart } },
+        _sum: { amount: true },
+      }),
+      db.financialTransaction.groupBy({
+        by: ["category"],
+        where: { clubId: targetClubId, type: "expense", date: { gte: thisMonthStart } },
+        _sum: { amount: true },
+      }),
+      db.financialTransaction.groupBy({
+        by: ["paymentMethod"],
+        where: { clubId: targetClubId, date: { gte: thisMonthStart } },
+        _sum: { amount: true },
+        _count: true,
+      }),
+      db.financialTransaction.count({
+        where: { clubId: targetClubId, date: { gte: thisMonthStart } },
+      }),
+    ]);
+
+    const monthIncomeByCategory: Record<string, number> = {};
+    for (const g of monthIncByCat) monthIncomeByCategory[g.category] = g._sum.amount || 0;
+    const monthExpenseByCategory: Record<string, number> = {};
+    for (const g of monthExpByCat) monthExpenseByCategory[g.category] = g._sum.amount || 0;
+    const paymentMethods = monthMethods.map((m) => ({
+      method: m.paymentMethod,
+      amount: m._sum.amount || 0,
+      count: m._count,
+    }));
+
     return NextResponse.json({
       balance: {
         totalIncome: balance.totalIncome,
@@ -170,6 +208,10 @@ export async function GET() {
         year: yearAgg._sum.amount || 0,
       },
       chartData,
+      monthIncomeByCategory,
+      monthExpenseByCategory,
+      paymentMethods,
+      movementsThisMonth,
     });
   } catch (error) {
     console.error("GET /api/financial/dashboard error:", error);

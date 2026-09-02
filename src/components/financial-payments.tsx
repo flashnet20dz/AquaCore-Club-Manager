@@ -70,6 +70,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   subscription: "اشتراك",
   renewal: "تجديد",
   insurance: "تأمين",
+  compound: "حقوق المركب",
   other_income: "مدخول آخر",
   wages: "أجور عمال",
   compound_rights: "حقوق المركب",
@@ -87,6 +88,7 @@ const INCOME_CATEGORIES = [
   { value: "subscription", label: "اشتراك" },
   { value: "renewal", label: "تجديد" },
   { value: "insurance", label: "تأمين" },
+  { value: "compound", label: "حقوق المركب" },
   { value: "other_income", label: "مدخول آخر" },
 ];
 
@@ -137,11 +139,12 @@ function toDateInputValue(d: Date): string {
 // ─────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────
-export function FinancialPayments() {
+export function FinancialPayments({ initialType }: { initialType?: "income" | "expense" } = {}) {
   // Filters
   // ★ ملاحظة: قيمة «الكل» = "all" وليس "" — Radix Select يمنع value فارغاً
   // (كان يُسقط الصفحة كلها بخطأ Select.Item عند فتح قسم المركز المالي)
-  const [typeFilter, setTypeFilter] = useState<string>("all"); // "all" | "income" | "expense"
+  // ★ initialType: ترشيح مبدئي عند القدوم من بطاقة الدورة المالية (قبض/صرف)
+  const [typeFilter, setTypeFilter] = useState<string>(initialType ?? "all"); // "all" | "income" | "expense"
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<string>("all");
   const [dateFrom, setDateFrom] = useState<string>("");

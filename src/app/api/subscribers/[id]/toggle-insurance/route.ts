@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { postLedgerEntry, deleteLedgerByReferencesTx } from "@/lib/financial-posting";
 
 // PATCH /api/subscribers/[id]/toggle-insurance
 // Toggles isInsured status and records a payment if newly insured
@@ -24,39 +25,60 @@ export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ i
     });
 
     if (existingInsurance) {
-      // Remove insurance (delete payment)
-      await db.payment.delete({ where: { id: existingInsurance.id } });
-      await db.activity.create({
-        data: {
-          clubId: sub.clubId,
-          subscriberId: id,
-          userId: user.id,
-          type: "payment",
-          description: `إلغاء تأمين المنخرط: ${sub.lastName} ${sub.firstName}`,
-        },
+      // ★ إلغاء التأمين: حذف الدفعة + القيد المرحّل في الدفتر المالي (ذرّياً)
+      await db.$transaction(async (tx) => {
+        await tx.payment.delete({ where: { id: existingInsurance.id } });
+        // المرجع قد يكون من التأمين الفردي (payment:) أو الجماعي (bulk-ins:)
+        await deleteLedgerByReferencesTx(tx, sub.clubId, [
+          `payment:${existingInsurance.id}`,
+          `bulk-ins:${id}`,
+        ]);
+        await tx.activity.create({
+          data: {
+            clubId: sub.clubId,
+            subscriberId: id,
+            userId: user.id,
+            type: "payment",
+            description: `إلغاء تأمين المنخرط: ${sub.lastName} ${sub.firstName}`,
+          },
+        });
       });
       return NextResponse.json({ success: true, isInsured: false, memberId: id });
     } else {
-      // Add insurance (create payment of 500 DA)
-      await db.payment.create({
-        data: {
+      // ★ إضافة التأمين: دفعة 500 دج + ترحيل تلقائي للدفتر المالي (ذرّياً)
+      await db.$transaction(async (tx) => {
+        const payment = await tx.payment.create({
+          data: {
+            clubId: sub.clubId,
+            subscriberId: id,
+            category: "insurance",
+            amount: 500,
+            method: "cash",
+            note: "تأمين",
+            userId: user.id,
+          },
+        });
+        await postLedgerEntry(tx, {
           clubId: sub.clubId,
-          subscriberId: id,
+          type: "income",
           category: "insurance",
           amount: 500,
-          method: "cash",
-          note: "تأمين",
-          userId: user.id,
-        },
-      });
-      await db.activity.create({
-        data: {
-          clubId: sub.clubId,
+          paymentMethod: "cash",
+          payeeName: `${sub.lastName} ${sub.firstName}`.trim(),
           subscriberId: id,
-          userId: user.id,
-          type: "payment",
-          description: `تأمين المنخرط: ${sub.lastName} ${sub.firstName}`,
-        },
+          reference: `payment:${payment.id}`,
+          note: "تأمين منخرط — تلقائي",
+          createdById: user.id,
+        });
+        await tx.activity.create({
+          data: {
+            clubId: sub.clubId,
+            subscriberId: id,
+            userId: user.id,
+            type: "payment",
+            description: `تأمين المنخرط: ${sub.lastName} ${sub.firstName}`,
+          },
+        });
       });
       return NextResponse.json({ success: true, isInsured: true, memberId: id });
     }

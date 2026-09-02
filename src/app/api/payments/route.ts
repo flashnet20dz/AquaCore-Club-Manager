@@ -1,6 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { postLedgerEntry, deleteLedgerByReferencesTx } from "@/lib/financial-posting";
+
+/**
+ * خريطة فئات لوحة الأعباء (دفتر Payment التشغيلي) ← فئات الدفتر المالي
+ * (FinancialTransaction) — كل دفعة تُرحَّل تلقائياً لدفتر واحد للحقيقة.
+ */
+const LEDGER_MAP: Record<string, { type: "income" | "expense"; category: string; label: string }> = {
+  subscription: { type: "income", category: "subscription", label: "تسجيل اشتراك" },
+  insurance: { type: "income", category: "insurance", label: "تأمين منخرط" },
+  compound: { type: "income", category: "compound", label: "حقوق المركب" },
+  other: { type: "income", category: "other_income", label: "مدخول آخر" },
+  salary: { type: "expense", category: "wages", label: "أجر عامل" },
+};
 
 export async function GET(req: NextRequest) {
   try {
@@ -64,21 +77,50 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "فئة غير صالحة" }, { status: 400 });
     }
 
-    const payment = await db.payment.create({
-      data: {
-        clubId: user.clubId!,
-        category,
-        amount: parseInt(amount),
-        method: method || "cash",
-        note: note || null,
-        subscriberId: subscriberId || null,
-        userId: userId || null,
-        receiptNumber: receiptNumber || null,
-      },
-      include: {
-        subscriber: { select: { id: true, fileNumber: true, lastName: true, firstName: true } },
-        user: { select: { id: true, name: true, role: true } },
-      },
+    const amountNum = parseInt(amount);
+    // للرواتب: اسم العامل (جهة الصرف) للتقرير المحاسبي
+    const worker = userId ? await db.user.findUnique({ where: { id: userId }, select: { name: true } }) : null;
+
+    // ★ ذرّية: دفعة تشغيلية + ترحيل تلقائي للدفتر المالي (مصدر واحد للحقيقة)
+    const payment = await db.$transaction(async (tx) => {
+      const payment = await tx.payment.create({
+        data: {
+          clubId: user.clubId!,
+          category,
+          amount: amountNum,
+          method: method || "cash",
+          note: note || null,
+          subscriberId: subscriberId || null,
+          userId: userId || null,
+          receiptNumber: receiptNumber || null,
+        },
+        include: {
+          subscriber: { select: { id: true, fileNumber: true, lastName: true, firstName: true } },
+          user: { select: { id: true, name: true, role: true } },
+        },
+      });
+
+      const mapEntry = LEDGER_MAP[category];
+      if (mapEntry) {
+        await postLedgerEntry(tx, {
+          clubId: user.clubId!,
+          type: mapEntry.type,
+          category: mapEntry.category,
+          amount: amountNum,
+          paymentMethod: method || "cash",
+          payeeName:
+            category === "salary"
+              ? (worker?.name || payment.user?.name || null)
+              : (payment.subscriber ? `${payment.subscriber.lastName} ${payment.subscriber.firstName}` : null),
+          payeeId: category === "salary" ? (userId || null) : null,
+          subscriberId: subscriberId || null,
+          reference: `payment:${payment.id}`,
+          note: `${mapEntry.label} — تلقائي من لوحة الأعباء${note ? ` • ${note}` : ""}`,
+          createdById: user.id,
+        });
+      }
+
+      return payment;
     });
 
     return NextResponse.json({ payment }, { status: 201 });
@@ -99,15 +141,21 @@ export async function DELETE(req: NextRequest) {
     const id = url.searchParams.get("id");
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
+    const existing = await db.payment.findUnique({ where: { id } });
+    if (!existing) return NextResponse.json({ error: "غير موجود" }, { status: 404 });
     // Verify the payment belongs to the user's club (superadmin bypasses)
-    if (user.role !== "superadmin") {
-      const existing = await db.payment.findFirst({ where: { id, clubId: user.clubId! } });
-      if (!existing) {
-        return NextResponse.json({ error: "غير موجود" }, { status: 404 });
-      }
+    if (user.role !== "superadmin" && existing.clubId !== user.clubId) {
+      return NextResponse.json({ error: "غير موجود" }, { status: 404 });
     }
 
-    await db.payment.delete({ where: { id } });
+    // ★ ذرّية: حذف الدفعة + القيد المرحّل المرتبط بها في الدفتر المالي
+    await db.$transaction(async (tx) => {
+      await tx.payment.delete({ where: { id } });
+      const refs = [`payment:${id}`];
+      if (existing.subscriberId) refs.push(`bulk-ins:${existing.subscriberId}`, `bulk-comp:${existing.subscriberId}`);
+      await deleteLedgerByReferencesTx(tx, existing.clubId, refs);
+    });
+
     return NextResponse.json({ success: true });
   } catch (e) {
     console.error("DELETE payment:", e);
