@@ -283,7 +283,6 @@ model User {
 
   workHours       WorkHours[]
   payments        Payment[]
-  sessions        Session[]
   employees       Employee[]
   guardAssignments GuardAssignment[]
   codeBatches     CodeBatch[]                       // الدفعات التي ولّدها هذا المستخدم
@@ -377,10 +376,14 @@ model Setting {
   @@index([clubId])
 }
 
+// ⚠️ Session.userId لا يملك علاقة FK بجدول User عمداً: جلسات كود الكاشير
+// (PIN) تُنشأ بمعرّف وهمي «pin-...» غير موجود في Users — مع الـ FK كان
+// الإدراج يفشل دائماً (Foreign key constraint) فيرجع النظام لمخزن في
+// الذاكرة يعمل محلياً لكنه ميت على Vercel (كل route بذاكرته) فلا يكتمل
+// دخول PIN أبداً. حذف مستخدم ينظّف جلساته يدوياً في /api/users/[id].
 model Session {
   id              String   @id
   userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   data            String
   expiresAt       DateTime
   createdAt       DateTime @default(now())

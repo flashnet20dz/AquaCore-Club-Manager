@@ -102,6 +102,10 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: "غير موجود" }, { status: 404 });
     }
 
+    // 🔒 جلسات المستخدم تُحذف يدوياً — Session بلا علاقة FK بـ User
+    // (انظر ملاحظة schema.prisma: جلسات PIN بمعرّف وهمي pin-...)،
+    // فبدون هذا الحذف تبقى جلسات المستخدم المحذوف صالحة تقنياً.
+    await db.session.deleteMany({ where: { userId: id } });
     await db.user.delete({ where: { id } });
     return NextResponse.json({ success: true });
   } catch (e) {
