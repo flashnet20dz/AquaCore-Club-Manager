@@ -182,6 +182,72 @@ export async function GET() {
       count: m._count,
     }));
 
+    // ═══ 8) المستحقات (Dues) — من الدفتر نفسه (مصدر واحد للحقيقة) + أجور من Pointage ═══
+    const allIncome = safeParse(balance.incomeByCategory);
+    const allExpense = safeParse(balance.expenseByCategory);
+
+    // إجمالي أجور العمال المستحقة تاريخياً (ساعات معتمدة × سعر الساعة لكل عامل)
+    const [allWh, allEmployees, rateSetting] = await Promise.all([
+      db.workHours.findMany({
+        where: { clubId: targetClubId, status: "approved" },
+        select: { userId: true, startTime: true, endTime: true, note: true },
+      }),
+      db.employee.findMany({ where: { clubId: targetClubId, userId: { not: null } }, select: { userId: true, hourRate: true } }),
+      db.setting.findFirst({ where: { clubId: targetClubId, key: "workHourRate" }, select: { value: true } }),
+    ]);
+    const rateMap = new Map(allEmployees.map((e) => [e.userId as string, e.hourRate]));
+    const defaultRate = parseInt(rateSetting?.value || "200") || 200;
+    let wagesGross = 0;
+    for (const r of allWh) {
+      let breakMinutes = 0, workStatus = "present";
+      try {
+        if (r.note && r.note.startsWith("{")) {
+          const meta = JSON.parse(r.note);
+          breakMinutes = meta.breakMinutes || 0;
+          workStatus = meta.workStatus || "present";
+        }
+      } catch {}
+      if (workStatus !== "present" && workStatus !== "half-day") continue;
+      const h = Math.max(0, (new Date(r.endTime).getTime() - new Date(r.startTime).getTime()) / 3600000 - breakMinutes / 60);
+      wagesGross += h * (rateMap.get(r.userId) || defaultRate);
+    }
+    wagesGross = Math.round(wagesGross);
+
+    const dues = {
+      insurance: {
+        label: "التأمين",
+        collected: allIncome.insurance || 0,
+        paid: allExpense.insurance || 0,
+        remaining: Math.max(0, (allIncome.insurance || 0) - (allExpense.insurance || 0)),
+      },
+      compound: {
+        label: "حقوق المركب",
+        collected: allIncome.compound || 0,
+        paid: allExpense.compound_rights || 0,
+        remaining: Math.max(0, (allIncome.compound || 0) - (allExpense.compound_rights || 0)),
+      },
+      wages: {
+        label: "أجور العمال",
+        collected: wagesGross,
+        paid: allExpense.wages || 0,
+        remaining: Math.max(0, wagesGross - (allExpense.wages || 0)),
+      },
+      officeSupplies: {
+        label: "الأدوات المكتبية",
+        collected: allExpense.office_supplies || 0,
+        paid: allExpense.office_supplies || 0,
+        remaining: 0,
+      },
+      otherDebt: {
+        label: "ديون أخرى",
+        collected: allExpense.other_expense || 0,
+        paid: allExpense.other_expense || 0,
+        remaining: 0,
+      },
+    };
+    dues.wages.remaining = Math.max(0, wagesGross - dues.wages.paid);
+    const duesTotalRemaining = dues.insurance.remaining + dues.compound.remaining + dues.wages.remaining;
+
     return NextResponse.json({
       balance: {
         totalIncome: balance.totalIncome,
@@ -212,6 +278,8 @@ export async function GET() {
       monthExpenseByCategory,
       paymentMethods,
       movementsThisMonth,
+      dues,
+      duesTotalRemaining,
     });
   } catch (error) {
     console.error("GET /api/financial/dashboard error:", error);

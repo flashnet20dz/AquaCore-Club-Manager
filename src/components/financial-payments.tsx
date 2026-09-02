@@ -773,6 +773,8 @@ export function FinancialPayments({ initialType, headerActions, refreshSignal }:
                     <TableHead className="text-xs hidden md:table-cell">الجهة</TableHead>
                     <TableHead className="text-xs hidden lg:table-cell">طريقة الدفع</TableHead>
                     <TableHead className="text-xs hidden lg:table-cell">المرجع</TableHead>
+                    <TableHead className="text-xs hidden xl:table-cell">الوصف</TableHead>
+                    <TableHead className="text-xs hidden xl:table-cell">سجّلها</TableHead>
                     <TableHead className="text-xs text-left">إجراءات</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -830,6 +832,12 @@ export function FinancialPayments({ initialType, headerActions, refreshSignal }:
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground hidden lg:table-cell">
                           {tx.reference || "—"}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground hidden xl:table-cell max-w-[180px]">
+                          <span className="line-clamp-1" title={tx.note || undefined}>{tx.note || "—"}</span>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground hidden xl:table-cell whitespace-nowrap">
+                          {tx.user?.name || "—"}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-0.5 justify-end">

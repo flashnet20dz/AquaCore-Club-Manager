@@ -66,6 +66,8 @@ interface FinancialTransactionDialogProps {
   transaction?: TransactionData | null;
   currentBalance: number;
   onSaved?: () => void;
+  /** قيم مبدئية لوضع الإنشاء (الدفع من المركز المالي — نفس مسار القيد الواحد) */
+  preset?: Partial<Pick<TransactionData, "type" | "category" | "payeeName" | "note">> | null;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -120,6 +122,7 @@ export function FinancialTransactionDialog({
   transaction,
   currentBalance,
   onSaved,
+  preset,
 }: FinancialTransactionDialogProps) {
   const isEdit = !!transaction;
 
@@ -153,18 +156,20 @@ export function FinancialTransactionDialog({
       setReference(transaction.reference || "");
       setNote(transaction.note || "");
     } else {
-      setType("income");
-      setCategory("");
+      // ★ الدفع من المركز المالي: preset يفتح النافذة على فئة المصروف المطلوبة —
+      // نفس نافذة القيد الواحد في الدفتر → لا عملية ثانية أبداً
+      setType(preset?.type ?? "income");
+      setCategory(preset?.category ?? "");
       setAmount("");
       setDate(toDateInputValue(new Date()));
       setPaymentMethod("cash");
-      setPayeeName("");
+      setPayeeName(preset?.payeeName ?? "");
       setPayeeId("");
       setReference("");
-      setNote("");
+      setNote(preset?.note ?? "");
     }
     setShowSuggestions(false);
-  }, [open, transaction]);
+  }, [open, transaction, preset]);
 
   // Load suggestions based on type + payeeName prefix
   React.useEffect(() => {

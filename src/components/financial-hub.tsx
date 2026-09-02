@@ -23,7 +23,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
-  Landmark, LayoutDashboard, ArrowRightLeft, FileText,
+  Landmark, LayoutDashboard, ArrowRightLeft, FileText, Wallet,
   RefreshCw, Loader2, AlertTriangle, Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -33,14 +33,14 @@ import { toast } from "sonner";
 import { hasPermission } from "@/lib/roles";
 
 import { FinancialOverview, type OverviewNavSection } from "@/components/financial/overview";
+import { DuesSection } from "@/components/financial/dues-section";
 import { FinancialPayments } from "@/components/financial-payments";
 import { FinancialReports } from "@/components/financial-reports";
-import { WorkerWagesDialog } from "@/components/financial/worker-wages-dialog";
 
 // ─────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────
-type HubSection = OverviewNavSection;
+type HubSection = OverviewNavSection | "dues";
 
 interface HubSummary {
   balance: { totalIncome: number; totalExpense: number; balance: number };
@@ -74,10 +74,9 @@ function formatShort(n: number): string {
 export function FinancialHub({ role }: FinancialHubProps) {
   const perms = {
     overview: hasPermission(role, "financialDashboard"),
+    dues: hasPermission(role, "financialDashboard"),
     transactions: hasPermission(role, "financialPayments"),
     reports: hasPermission(role, "financialReports"),
-    /** أداة أجور العمال — صلاحية الأعباء (مدير النادي) — تطابق صلاحية POST /api/payments */
-    wages: hasPermission(role, "charges"),
   };
 
   const firstAllowed: HubSection =
@@ -122,8 +121,10 @@ export function FinancialHub({ role }: FinancialHubProps) {
   const switchSection = useCallback((s: HubSection) => {
     setSection(s);
     try { localStorage.setItem(SECTION_KEY, s); } catch {}
-    // تحديث ذكي: الأرقام الحية عند العودة لنظرة عامة
+    // تحديث ذكي: أرقام النظرة العامة عند العودة إليها، وتحديث الدفتر
+    // عند العودة إليه (بعد أي تسديد من قسم المستحقات أو صفحة أخرى)
     if (s === "overview") fetchSummary(true);
+    if (s === "transactions") setLedgerRefresh((n) => n + 1);
   }, [fetchSummary]);
 
   /** تنقل ذكي من بطاقات النظرة العامة (مع ترشيح مبدئي للدفتر) */
@@ -139,7 +140,8 @@ export function FinancialHub({ role }: FinancialHubProps) {
   };
 
   const SECTIONS: Array<{ id: HubSection; label: string; icon: typeof LayoutDashboard; hint: string; show: boolean }> = [
-    { id: "overview", label: "نظرة عامة", icon: LayoutDashboard, hint: "اللوحة التحليلية والمؤشرات الذكية", show: perms.overview },
+    { id: "overview", label: "نظرة عامة", icon: LayoutDashboard, hint: "بطاقات الرصيد واللوحة التحليلية والمؤشرات", show: perms.overview },
+    { id: "dues", label: "المستحقات", icon: Wallet, hint: "التأمين وحقوق المركب وأجور العمال والديون — مع التسديد", show: perms.dues },
     { id: "transactions", label: "المعاملات المالية", icon: ArrowRightLeft, hint: "دفتر القيود الكامل — كل مدخول ومصروف", show: perms.transactions },
     { id: "reports", label: "التقارير", icon: FileText, hint: "ملخص وأجور ومداخيل مع التصدير", show: perms.reports },
   ];
@@ -280,16 +282,18 @@ export function FinancialHub({ role }: FinancialHubProps) {
         </motion.section>
       )}
 
+      {section === "dues" && perms.dues && (
+        <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} key="dues">
+          <DuesSection onChanged={() => fetchSummary(true)} />
+        </motion.section>
+      )}
+
       {section === "transactions" && perms.transactions && (
         <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} key={`transactions-${ledgerPreset ?? "all"}`} className="space-y-2">
           <SectionHint
             text="مصدر الحقيقة الوحيد: كل مدخول ومصروف يظهر هنا تلقائياً — التسجيلات من التجديد، التأمين وحقوق المركب من صفحاتهما، وأجور العمال والقيود اليدوية من «قيد جديد»."
           />
-          <FinancialPayments
-            initialType={ledgerPreset}
-            refreshSignal={ledgerRefresh}
-            headerActions={perms.wages ? <WorkerWagesDialog onSaved={() => { setLedgerRefresh((n) => n + 1); fetchSummary(true); }} /> : undefined}
-          />
+          <FinancialPayments initialType={ledgerPreset} refreshSignal={ledgerRefresh} />
         </motion.section>
       )}
 

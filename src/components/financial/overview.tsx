@@ -23,6 +23,7 @@ import {
   UserPlus, ReceiptText, ArrowRightLeft, TrendingUp, TrendingDown,
   Activity, Wallet, CalendarDays, PiggyBank, Gauge, Loader2,
   RefreshCw, AlertTriangle, ChevronLeft, Inbox, Landmark, Banknote, ScrollText,
+  ArrowDownCircle, ArrowUpCircle, Hourglass, BadgeCheck, ShieldCheck, Building2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -68,6 +69,9 @@ interface OverviewData {
   }>;
   periodIncome: { today: number; week: number; month: number; year: number };
   chartData: Array<{ month: string; income: number; expense: number }>;
+  /** المستحقات (من نفس API اللوحة) */
+  dues?: Record<string, { label: string; collected: number; paid: number; remaining: number }>;
+  duesTotalRemaining?: number;
   monthIncomeByCategory: Record<string, number>;
   monthExpenseByCategory: Record<string, number>;
   paymentMethods: Array<{ method: string; amount: number; count: number }>;
@@ -216,6 +220,43 @@ export function FinancialOverview({ onNavigateSection }: FinancialOverviewProps)
 
   return (
     <div className="space-y-4">
+      {/* ═══ 0) بطاقات الرصيد العام — نظام محاسبي حقيقي ═══ */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <BalanceCard icon={ArrowDownCircle} label="إجمالي الأموال الداخلة" value={formatDA(data.balance.totalIncome)} tone="emerald" />
+        <BalanceCard icon={ArrowUpCircle} label="إجمالي الأموال الخارجة" value={formatDA(data.balance.totalExpense)} tone="rose" />
+        <BalanceCard
+          icon={Landmark}
+          label="الرصيد الحالي"
+          value={formatDA(data.balance.balance)}
+          tone={data.balance.balance < 0 ? "rose" : "teal"}
+          strong
+        />
+        <BalanceCard
+          icon={Hourglass}
+          label="المبالغ المستحقة"
+          value={formatDA(data.duesTotalRemaining ?? 0)}
+          tone={(data.duesTotalRemaining ?? 0) > 0 ? "amber" : "emerald"}
+          onClick={() => onNavigateSection?.("dues" as OverviewNavSection)}
+          cta="فتح المستحقات"
+        />
+      </div>
+      <div className="grid grid-cols-3 lg:grid-cols-4 gap-2">
+        <BalanceCard
+          icon={BadgeCheck}
+          label="المبالغ المدفوعة (التزامات)"
+          value={formatDA((data.dues?.insurance.paid ?? 0) + (data.dues?.compound.paid ?? 0) + (data.dues?.wages.paid ?? 0))}
+          tone="slate"
+        />
+        <BalanceCard
+          icon={UserPlus}
+          label="إجمالي اشتراكات المنخرطين"
+          value={formatDA((data.balance.incomeByCategory.subscription || 0) + (data.balance.incomeByCategory.renewal || 0))}
+          tone="slate"
+        />
+        <BalanceCard icon={ShieldCheck} label="إجمالي التأمين" value={formatDA(data.balance.incomeByCategory.insurance || 0)} tone="slate" />
+        <BalanceCard icon={Building2} label="إجمالي حقوق المركب" value={formatDA(data.balance.incomeByCategory.compound || 0)} tone="slate" />
+      </div>
+
       {/* ═══ 1) بطاقات الدورة المالية الذكية ═══ */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <ConceptCard
@@ -500,6 +541,48 @@ const TONES = {
   amber: { chip: "bg-amber-500/12 text-amber-600 dark:text-amber-400", border: "border-t-amber-500", cta: "text-amber-700 dark:text-amber-300" },
   teal: { chip: "bg-teal-500/12 text-teal-600 dark:text-teal-400", border: "border-t-teal-500", cta: "text-teal-700 dark:text-teal-300" },
 } as const;
+
+// ─────────────────────────────────────────────────────────────
+// بطاقة الرصيد العام (الجزء العلوي — نظام محاسبي)
+// ─────────────────────────────────────────────────────────────
+function BalanceCard({ icon: Icon, label, value, tone, strong, onClick, cta }: {
+  icon: typeof Wallet;
+  label: string;
+  value: string;
+  tone: "emerald" | "rose" | "teal" | "amber" | "slate";
+  strong?: boolean;
+  onClick?: () => void;
+  cta?: string;
+}) {
+  const tones: Record<string, string> = {
+    emerald: "border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300",
+    rose: "border-rose-500/30 bg-rose-500/5 text-rose-700 dark:text-rose-300",
+    teal: "border-teal-500/30 bg-teal-500/5 text-teal-700 dark:text-teal-300",
+    amber: "border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300",
+    slate: "border-border/60 bg-card text-foreground",
+  };
+  const clickable = !!onClick;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!clickable}
+      className={cn(
+        "rounded-xl border p-3 text-right transition flex flex-col gap-1",
+        tones[tone],
+        clickable ? "hover:shadow-md hover:-translate-y-0.5 cursor-pointer" : "cursor-default"
+      )}
+    >
+      <span className="text-[10px] font-semibold flex items-center gap-1.5 opacity-90 truncate">
+        <Icon className="h-3.5 w-3.5 shrink-0" /> {label}
+      </span>
+      <span className={cn("font-extrabold tabular-nums leading-none", strong ? "text-lg sm:text-xl" : "text-base sm:text-lg")}>
+        {value}
+      </span>
+      {cta && <span className="text-[10px] font-bold opacity-70 flex items-center gap-0.5">{cta} <ChevronLeft className="h-3 w-3" /></span>}
+    </button>
+  );
+}
 
 function ConceptCard({
   icon: Icon, title, subtitle, value, detail, tone, cta, onClick,

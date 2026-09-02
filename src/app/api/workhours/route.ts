@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser, hasPermission } from "@/lib/session";
+import { parseWallDateTime, utcMonthStart, utcMonthEnd } from "@/lib/wall-clock";
 
 export async function GET(req: NextRequest) {
   try {
@@ -25,9 +26,8 @@ export async function GET(req: NextRequest) {
 
     if (month) {
       const [year, mon] = month.split("-").map(Number);
-      const start = new Date(year, mon - 1, 1);
-      const end = new Date(year, mon, 0, 23, 59, 59);
-      where.date = { gte: start, lte: end };
+      // ★ حدود الشهر بـ UTC لتطابق التخزين (wall-clock UTC) — بلا انحراف توقيت
+      where.date = { gte: utcMonthStart(month), lte: utcMonthEnd(month) };
     }
 
     const workHours = await db.workHours.findMany({
@@ -112,9 +112,9 @@ export async function POST(req: NextRequest) {
         data: {
           clubId: currentUser.clubId!,
           userId: targetUserId || currentUser.id,
-          date: new Date(date),
-          startTime: new Date(`${date}T00:00`),
-          endTime: new Date(`${date}T00:00`),
+          date: parseWallDateTime(date, "00:00"),
+          startTime: parseWallDateTime(date, "00:00"),
+          endTime: parseWallDateTime(date, "00:00"),
           note: noteMeta,
           status: currentUser.role === "admin" || currentUser.role === "superadmin" ? "approved" : "pending",
           approvedById: (currentUser.role === "admin" || currentUser.role === "superadmin") ? currentUser.id : null,
@@ -131,11 +131,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "وقت البداية والنهاية مطلوبان" }, { status: 400 });
     }
 
-    const startDate = new Date(`${date}T${startTime}`);
-    let endDate = new Date(`${date}T${endTime}`);
+    // ★ تخزين wall-clock UTC: الوقت المُدخل يُحفظ كما هو حرفياً —
+    // 09:00 تبقى 09:00 في أي خادم وأي متصفح (جذر إصلاح انحراف الساعة +1)
+    const startDate = parseWallDateTime(date, startTime);
+    let endDate = parseWallDateTime(date, endTime);
     if (endDate <= startDate) {
-      endDate = new Date(endDate);
-      endDate.setDate(endDate.getDate() + 1);
+      endDate = new Date(endDate.getTime() + 86400000); // وردية ليلية تعبر منتصف الليل
     }
     const diffMs = endDate.getTime() - startDate.getTime();
     if (diffMs < 15 * 60 * 1000) {
@@ -146,7 +147,7 @@ export async function POST(req: NextRequest) {
       data: {
         clubId: currentUser.clubId!,
         userId: targetUserId || currentUser.id,
-        date: new Date(date),
+        date: parseWallDateTime(date, "00:00"),
         startTime: startDate,
         endTime: endDate,
         note: noteMeta,

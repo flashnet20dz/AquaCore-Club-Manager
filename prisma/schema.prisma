@@ -82,6 +82,7 @@ model Club {
   // ★ Financial system (المحاسب المالي)
   financialTransactions FinancialTransaction[]        // العمليات المالية (مداخيل + مصاريف)
   financialBalance      FinancialBalance?              // الرصيد المالي للحظي
+  wagePayments          WagePayment[]                  // تسديدات أجور العمال
 }
 
 // Club subscription (اشتراك النادي)
@@ -288,6 +289,7 @@ model User {
   codeBatches     CodeBatch[]                       // الدفعات التي ولّدها هذا المستخدم
   compensationHistory CompensationHistory[]           // سجل تدقيق التعويضات
   staffCompensations StaffCompensation[]
+  wagePayments    WagePayment[]                       // تسديدات الأجور المستلمة
   // ★ Financial system
   financialTransactions FinancialTransaction[]        // العمليات المالية التي سجّلها هذا المستخدم
 }
@@ -1197,9 +1199,54 @@ model FinancialTransaction {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  // ★ تسديدات الأجور المرتبطة بهذا القيد (1:1 فعلياً — transactionId فريد في WagePayment)
+  wagePayment     WagePayment?
+
   @@index([clubId, type, category])
   @@index([clubId, date])
   @@index([clubId, payeeName])
+}
+
+// ═══════════════════════════════════════════════════════════
+// WAGE PAYMENTS (تسديدات أجور العمال) — per club
+// ═══════════════════════════════════════════════════════════
+// كل تسديد أجر = سجل WagePayment واحد مرتبط 1:1 بقيد مالي واحد
+// (FinancialTransaction عبر transactionId الفريد) — فلا ازدواج أبداً:
+// صفحة ساعات العمل والمركز المالي يقرآن نفس القيد.
+// لقطة الحساب (hours/hourRate/grossAmount/prevPaid) محفوظة للتدقيق.
+model WagePayment {
+  id            String   @id @default(cuid())
+  clubId        String
+  club          Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  userId        String   // العامل المستفيد
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // الفترة التي يُسدَّد عنها (wall-clock UTC: بداية/نهاية الفترة)
+  periodStart   DateTime
+  periodEnd     DateTime
+  periodLabel   String   // "أوت 2026" أو "01/08/2026 → 31/08/2026"
+
+  // لقطة الحساب وقت التسديد (توثيق محاسبي حتى لو تغيّرت الأسعار لاحقاً)
+  hours         Float    @default(0)  // مجموع ساعات الفترة المحسوبة
+  hourRate      Int      @default(0)  // سعر الساعة المطبّق
+  grossAmount   Int      @default(0)  // إجمالي مستحق الفترة وقت التسديد
+  prevPaid      Int      @default(0)  // المدفوع سابقاً قبل هذه الدفعة
+  amount        Int      // المبلغ المسدَّد في هذه الدفعة
+
+  method        String   @default("cash")  // cash | bank | cheque
+  paidAt        DateTime @default(now())   // تاريخ الدفع الفعلي
+  note          String?
+
+  // ★ الربط 1:1 بالقيد المالي — قيد فريد يمنع التكرار على مستوى قاعدة البيانات
+  transactionId String?
+  transaction   FinancialTransaction? @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  createdById   String?
+  createdAt     DateTime @default(now())
+
+  @@unique([transactionId])
+  @@index([clubId, userId, periodStart])
+  @@index([clubId, paidAt])
 }
 
 // سجل لحظي للرصيد المالي للنادي (singleton لكل نادي)

@@ -128,6 +128,16 @@ function lastDayOfMonth(): string {
   return toDateInputValue(new Date(d.getFullYear(), d.getMonth() + 1, 0));
 }
 
+function firstDayOfLastMonth(): string {
+  const d = new Date();
+  return toDateInputValue(new Date(d.getFullYear(), d.getMonth() - 1, 1));
+}
+
+function lastDayOfLastMonth(): string {
+  const d = new Date();
+  return toDateInputValue(new Date(d.getFullYear(), d.getMonth(), 0));
+}
+
 function hoursBetween(start: string, end: string): number {
   const s = new Date(start).getTime();
   const e = new Date(end).getTime();
@@ -593,6 +603,29 @@ export function FinancialReports() {
       {/* Period + type selector */}
       <Card>
         <CardContent className="p-4">
+          {/* ★ فترات سريعة: اليوم / هذا الأسبوع / الشهر / الشهر الماضي / مخصصة */}
+          <div className="flex items-center gap-1.5 flex-wrap mb-3">
+            <span className="text-[11px] text-muted-foreground ml-1">فترات سريعة:</span>
+            {([
+              { label: "اليوم", from: toDateInputValue(new Date()), to: toDateInputValue(new Date()) },
+              { label: "هذا الأسبوع", from: toDateInputValue(new Date(Date.now() - 6 * 86400000)), to: toDateInputValue(new Date()) },
+              { label: "هذا الشهر", from: firstDayOfMonth(), to: lastDayOfMonth() },
+              { label: "الشهر الماضي", from: firstDayOfLastMonth(), to: lastDayOfLastMonth() },
+            ] as const).map((p) => (
+              <button
+                key={p.label}
+                onClick={() => { setDateFrom(p.from); setDateTo(p.to); }}
+                className={cn(
+                  "px-2.5 py-1 rounded-lg text-[11px] font-bold transition border",
+                  dateFrom === p.from && dateTo === p.to
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="space-y-1">
               <Label className="text-xs flex items-center gap-1.5">

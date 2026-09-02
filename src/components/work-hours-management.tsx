@@ -20,6 +20,8 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { formatWallTime, formatWallDate, toLocalYMD } from "@/lib/wall-clock";
+import { WagesSection } from "@/components/wages/wages-section";
 
 interface WorkHour {
   id: string;
@@ -92,13 +94,13 @@ function calcWorkHours(startTime: string, endTime: string, breakMinutes: number 
 }
 
 function formatDate(d: string | Date): string {
-  const date = new Date(d);
-  return `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`;
+  // ★ التواريخ مخزّنة wall-clock UTC — تُقرأ بمكوّنات UTC (بلا انحراف)
+  return formatWallDate(d);
 }
 
 function formatTime(d: string | Date): string {
-  const date = new Date(d);
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  // ★ الأوقات مخزّنة wall-clock UTC — تُقرأ بمكوّنات UTC (جذر إصلاح +1h)
+  return formatWallTime(d);
 }
 
 export function WorkHoursManagement() {
@@ -117,11 +119,13 @@ export function WorkHoursManagement() {
   const [saving, setSaving] = useState(false);
   const [rateSaving, setRateSaving] = useState(false);
   const [editingRate, setEditingRate] = useState<{ userId: string; name: string; hourlyRate: number; position: string } | null>(null);
+  /** إشارة إعادة حساب أجور العمال بعد أي تغيير في ساعات النقاط */
+  const [wagesRefresh, setWagesRefresh] = useState(0);
 
   // Form state
   const [form, setForm] = useState({
     targetUserId: "",
-    date: new Date().toISOString().split("T")[0],
+    date: toLocalYMD(),
     startTime: "08:00",
     endTime: "17:00",
     breakMinutes: 0,
@@ -164,7 +168,7 @@ export function WorkHoursManagement() {
 
   // Stats
   const stats = useMemo(() => {
-    const today = new Date().toISOString().split("T")[0];
+    const today = toLocalYMD();
     const todayRecords = workHours.filter((w) => new Date(w.date).toISOString().split("T")[0] === today);
     const presentToday = todayRecords.filter((w) => w.workStatus === "present").length;
     const absentToday = todayRecords.filter((w) => w.workStatus === "absent").length;
@@ -227,10 +231,11 @@ export function WorkHoursManagement() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       toast.success("تم تسجيل ساعات العمل");
+      setWagesRefresh((n) => n + 1);
       setDialogOpen(false);
       setForm({
         targetUserId: "",
-        date: new Date().toISOString().split("T")[0],
+        date: toLocalYMD(),
         startTime: "08:00",
         endTime: "17:00",
         breakMinutes: 0,
@@ -256,6 +261,7 @@ export function WorkHoursManagement() {
       if (!res.ok) throw new Error("فشل");
       toast.success(status === "approved" ? "تمت الموافقة" : "تم الرفض");
       fetchWorkHours();
+      setWagesRefresh((n) => n + 1);
     } catch {
       toast.error("فشل");
     }
@@ -268,6 +274,7 @@ export function WorkHoursManagement() {
       if (!res.ok) throw new Error("فشل");
       toast.success("تم الحذف");
       fetchWorkHours();
+      setWagesRefresh((n) => n + 1);
     } catch {
       toast.error("فشل");
     }
@@ -600,15 +607,15 @@ export function WorkHoursManagement() {
                 <span className="text-muted-foreground">ساعات العمل: </span>
                 <span className="font-bold text-teal-700">
                   {calcWorkHours(
-                    `${form.date}T${form.startTime}`,
-                    `${form.date}T${form.endTime}`,
+                    `${form.date}T${form.startTime}Z`,
+                    `${form.date}T${form.endTime}Z`,
                     form.breakMinutes
                   ).toFixed(1)} ساعة
                 </span>
                 {(() => {
                   const selectedStaff = staff.find((s) => s.id === form.targetUserId);
                   if (!selectedStaff || !selectedStaff.hourlyRate) return null;
-                  const hours = calcWorkHours(`${form.date}T${form.startTime}`, `${form.date}T${form.endTime}`, form.breakMinutes);
+                  const hours = calcWorkHours(`${form.date}T${form.startTime}Z`, `${form.date}T${form.endTime}Z`, form.breakMinutes);
                   return (
                     <>
                       <span className="text-muted-foreground"> | الأجر: </span>
@@ -747,6 +754,11 @@ export function WorkHoursManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ★ قسم أجور العمال — منفصل تماماً عن جدول Pointage
+          الحساب من ساعات العمل الفعلية المسجلة، والتسديد يُنشئ قيداً مالياً واحداً
+          مشتركاً مع المركز المالي (بلا ازدواج) */}
+      <WagesSection refreshSignal={wagesRefresh} />
     </div>
   );
 }
