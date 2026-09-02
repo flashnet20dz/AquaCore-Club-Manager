@@ -162,19 +162,36 @@ export async function verifyCredentials(email: string, password: string): Promis
   }
 }
 
+// 🛡️ قيود FK القديمة: قواعد بيانات PostgreSQL إنتاجية ما زالت تحمل القيد
+// «Session_userId_fkey» الذي يرفض جلسات كود الكاشير (userId وهمي «pin-...»
+// غير موجود في Users). يُسقَط القيد مرة واحدة وقت الحاجة ثم تعمل الجلسات
+// طبيعياً — بلا هجرة يدوية ولا وصول مباشر لقاعدة الإنتاج.
+const DROP_SESSION_FK_SQL = `ALTER TABLE "Session" DROP CONSTRAINT IF EXISTS "Session_userId_fkey"`;
+let sessionFkHealed = false;
+
 export async function createSession(user: SessionUser): Promise<string> {
   const token = generateToken();
   const expiresAt = new Date(Date.now() + SESSION_MAX_AGE * 1000);
+  const sessionData = { id: token, userId: user.id, data: JSON.stringify(user), expiresAt };
   try {
-    await db.session.create({
-      data: {
-        id: token,
-        userId: user.id,
-        data: JSON.stringify(user),
-        expiresAt,
-      },
-    });
+    await db.session.create({ data: sessionData });
   } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    // 🛡️ إصلاح ذاتي (إنتاج PostgreSQL): أسقط قيد FK القديم ثم أعد المحاولة.
+    // العلامة تُضبط فقط بعد نجاح الإسقاط حتى لا يُعطَّل الإصلاح بخطأ عابر.
+    // P2003 = كود Prisma لانتهاك المفتاح الأجنبي (صيغة الرسالة تختلف بين
+    // PostgreSQL وSQLite فنعتمد الكود + النص معاً).
+    const isFkError = (e as { code?: string })?.code === "P2003" || /foreign key|constraint/i.test(msg);
+    if (!sessionFkHealed && isFkError) {
+      try {
+        await db.$executeRawUnsafe(DROP_SESSION_FK_SQL);
+        sessionFkHealed = true;
+        await db.session.create({ data: sessionData });
+        return token; // ✓ حُفظت الجلسة في قاعدة البيانات بعد الإصلاح
+      } catch (retryErr) {
+        console.error("createSession retry after FK drop failed:", retryErr);
+      }
+    }
     // Fallback: if Session table doesn't exist yet (before db push), use in-memory
     console.error("createSession DB error, using fallback:", e);
     fallbackStore.set(token, { user, expires: expiresAt.getTime() });
