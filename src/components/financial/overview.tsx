@@ -4,11 +4,14 @@
  * FinancialOverview — لوحة القيادة المالية (نظرة عامة)
  * ═════════════════════════════════════════════════════════════
  * القلب التحليلي للمركز المالي — بخبرة تسيير مالي:
- *   1) بطاقات الدورة المالية الذكية (تسجيلات/أعباء/تسديدات) بأرقام حية
- *   2) مؤشرات KPI بمقارنة الشهر السابق (نسب التغير)
- *   3) التدفق النقدي 6 أشهر + توزيع المداخيل والأعباء (دونات)
- *   4) طرق الدفع + مؤشرات ذكية (نسبة الأعباء، تغطية الرصيد، توقع الشهر)
- *   5) أكبر المصاريف + آخر القيود
+ *   1) بطاقات الرصيد العام (داخل/خارج/رصيد/مستحقات/التزامات مدفوعة)
+ *   1-b) إيرادات المنخرطين — نفس أرقام لوحة التحكم (رسوم الاشتراكات/التأمين/المركب/الإيرادات)
+ *        عبر DashboardRevenueBlock الذي يستدعي /api/stats — نفس مصدر لوحة التحكم حرفياً
+ *   2) بطاقات الدورة المالية الذكية (تسجيلات/أعباء/تسديدات) بأرقام حية
+ *   3) مؤشرات KPI بمقارنة الشهر السابق (نسب التغير)
+ *   4) التدفق النقدي 6 أشهر + توزيع المداخيل والأعباء (دونات)
+ *   5) طرق الدفع + مؤشرات ذكية (نسبة الأعباء، تغطية الرصيد، توقع الشهر)
+ *   6) أكبر المصاريف + آخر القيود
  *
  * كل الأرقام من /api/financial/dashboard — المصدر: دفتر التسديدات.
  */
@@ -23,13 +26,14 @@ import {
   UserPlus, ReceiptText, ArrowRightLeft, TrendingUp, TrendingDown,
   Activity, Wallet, CalendarDays, PiggyBank, Gauge, Loader2,
   RefreshCw, AlertTriangle, ChevronLeft, Inbox, Landmark, Banknote, ScrollText,
-  ArrowDownCircle, ArrowUpCircle, Hourglass, BadgeCheck, ShieldCheck, Building2,
+  ArrowDownCircle, ArrowUpCircle, Hourglass, BadgeCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { DashboardRevenueBlock } from "@/components/financial/dashboard-revenue";
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -221,7 +225,7 @@ export function FinancialOverview({ onNavigateSection }: FinancialOverviewProps)
   return (
     <div className="space-y-4">
       {/* ═══ 0) بطاقات الرصيد العام — نظام محاسبي حقيقي ═══ */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
         <BalanceCard icon={ArrowDownCircle} label="إجمالي الأموال الداخلة" value={formatDA(data.balance.totalIncome)} tone="emerald" />
         <BalanceCard icon={ArrowUpCircle} label="إجمالي الأموال الخارجة" value={formatDA(data.balance.totalExpense)} tone="rose" />
         <BalanceCard
@@ -239,23 +243,22 @@ export function FinancialOverview({ onNavigateSection }: FinancialOverviewProps)
           onClick={() => onNavigateSection?.("dues" as OverviewNavSection)}
           cta="فتح المستحقات"
         />
-      </div>
-      <div className="grid grid-cols-3 lg:grid-cols-4 gap-2">
         <BalanceCard
           icon={BadgeCheck}
           label="المبالغ المدفوعة (التزامات)"
           value={formatDA((data.dues?.insurance.paid ?? 0) + (data.dues?.compound.paid ?? 0) + (data.dues?.wages.paid ?? 0))}
           tone="slate"
         />
-        <BalanceCard
-          icon={UserPlus}
-          label="إجمالي اشتراكات المنخرطين"
-          value={formatDA((data.balance.incomeByCategory.subscription || 0) + (data.balance.incomeByCategory.renewal || 0))}
-          tone="slate"
-        />
-        <BalanceCard icon={ShieldCheck} label="إجمالي التأمين" value={formatDA(data.balance.incomeByCategory.insurance || 0)} tone="slate" />
-        <BalanceCard icon={Building2} label="إجمالي حقوق المركب" value={formatDA(data.balance.incomeByCategory.compound || 0)} tone="slate" />
       </div>
+
+      {/* ═══ 0-b) إيرادات المنخرطين — نفس أرقام لوحة التحكم (نفس المصدر /api/stats) ═══ */}
+      <DashboardRevenueBlock
+        ledger={{
+          subscriptions: (data.balance.incomeByCategory.subscription || 0) + (data.balance.incomeByCategory.renewal || 0),
+          insurance: data.balance.incomeByCategory.insurance || 0,
+          compound: data.balance.incomeByCategory.compound || 0,
+        }}
+      />
 
       {/* ═══ 1) بطاقات الدورة المالية الذكية ═══ */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
