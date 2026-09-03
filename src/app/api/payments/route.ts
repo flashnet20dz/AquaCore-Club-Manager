@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
-import { postLedgerEntry, deleteLedgerByReferencesTx } from "@/lib/financial-posting";
+import { postLedgerEntry, cancelLedgerByReferencesTx } from "@/lib/financial-posting";
+import { ensureRuntimeColumns } from "@/lib/runtime-schema";
 
 /**
  * خريطة فئات لوحة الأعباء (دفتر Payment التشغيلي) ← فئات الدفتر المالي
@@ -132,6 +133,7 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    await ensureRuntimeColumns();
     const user = await getCurrentUser();
     if (!user || (user.role !== "admin" && user.role !== "superadmin")) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
@@ -155,12 +157,16 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "غير موجود" }, { status: 404 });
     }
 
-    // ★ ذرّية: حذف الدفعة + القيد المرحّل المرتبط بها في الدفتر المالي + سجل التدقيق
+    // ★ ذرّية: حذف الدفعة القديمة (سجل تشغيلي) + إلغاء قيدها المرحّل ناعماً في الدفتر
+    // (القيد الملغى يبقى في سجل النظام بوضع «ملغاة» ولا يدخل في الرصيد)
     await db.$transaction(async (tx) => {
       await tx.payment.delete({ where: { id } });
       const refs = [`payment:${id}`];
       if (existing.subscriberId) refs.push(`bulk-ins:${existing.subscriberId}`, `bulk-comp:${existing.subscriberId}`);
-      await deleteLedgerByReferencesTx(tx, existing.clubId, refs);
+      await cancelLedgerByReferencesTx(tx, existing.clubId, refs, {
+        cancelledById: user.id,
+        reason: `إلغاء دفعة قديمة (${existing.category}) — ${reason}`,
+      });
       await tx.auditLog.create({
         data: {
           clubId: existing.clubId,

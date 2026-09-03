@@ -1259,7 +1259,8 @@ export default function Home() {
           {hasPermission(sessionUser.role, "workHours") && (
             <TabsContent value="workhours" className="mt-0">
               {/* ★ المحاسب المالي + المدير = واجهة الإدارة الكاملة (ساعات + أجور) */}
-              {canViewWorkHoursManagement ? <WorkHoursManagement /> : <PointagePanel />}
+              {/* ★ role يُمرَّر لعرض قسم «أيام وساعات استغلال المسبح» للمدير فقط */}
+              {canViewWorkHoursManagement ? <WorkHoursManagement role={sessionUser.role} /> : <PointagePanel />}
             </TabsContent>
           )}
 

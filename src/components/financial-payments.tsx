@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus, Search, Filter, X, Pencil, Trash2, Printer, Download,
   Loader2, ChevronRight, ChevronLeft, ArrowUpDown, ArrowUp, ArrowDown,
-  Wallet, AlertTriangle, Inbox, FileSpreadsheet, CheckSquare,
+  Wallet, AlertTriangle, Inbox, FileSpreadsheet, CheckSquare, XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,12 +55,21 @@ interface Transaction {
   createdById?: string | null;
   createdAt: string;
   user?: { id: string; name: string; email: string } | null;
+  // ★ الإلغاء الناعم — الملغاة تبقى في السجل بوضع «ملغاة»
+  status?: string; // active | cancelled
+  cancelledAt?: string | null;
+  cancellationReason?: string | null;
+  cancelledByName?: string | null;
 }
 
 interface TransactionsResponse {
   transactions: Transaction[];
   pagination: { page: number; limit: number; total: number; totalPages: number };
-  stats: { totalIncome: number; totalExpense: number; balance: number };
+  stats: {
+    totalIncome: number; totalExpense: number; balance: number;
+    incomeCount?: number; expenseCount?: number;
+    cancelledTotal?: number; cancelledCount?: number;
+  };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -156,6 +165,8 @@ export function FinancialPayments({ initialType, headerActions, refreshSignal }:
   const [typeFilter, setTypeFilter] = useState<string>(initialType ?? "all"); // "all" | "income" | "expense"
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<string>("all");
+  // ★ حالة العملية: النشطة افتراضياً — «ملغاة» لعرض سجل الإلغاءات — «الكل» للسجل الكامل
+  const [statusFilter, setStatusFilter] = useState<string>("active"); // "active" | "cancelled" | "all"
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
   const [searchPayee, setSearchPayee] = useState<string>("");
@@ -198,13 +209,14 @@ export function FinancialPayments({ initialType, headerActions, refreshSignal }:
     if (typeFilter !== "all") params.set("type", typeFilter);
     if (categoryFilter !== "all") params.set("category", categoryFilter);
     if (paymentMethodFilter !== "all") params.set("paymentMethod", paymentMethodFilter);
+    if (statusFilter !== "all") params.set("status", statusFilter);
     if (dateFrom) params.set("dateFrom", dateFrom);
     if (dateTo) params.set("dateTo", dateTo);
     if (searchPayee.trim()) params.set("payeeName", searchPayee.trim());
     params.set("page", String(page));
     params.set("limit", String(pageSize));
     return params.toString();
-  }, [typeFilter, categoryFilter, paymentMethodFilter, dateFrom, dateTo, searchPayee, page, pageSize]);
+  }, [typeFilter, categoryFilter, paymentMethodFilter, statusFilter, dateFrom, dateTo, searchPayee, page, pageSize]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -307,12 +319,13 @@ export function FinancialPayments({ initialType, headerActions, refreshSignal }:
     setTypeFilter("all");
     setCategoryFilter("all");
     setPaymentMethodFilter("all");
+    setStatusFilter("active");
     setDateFrom("");
     setDateTo("");
     setSearchPayee("");
   };
 
-  const hasActiveFilters = typeFilter !== "all" || categoryFilter !== "all" || paymentMethodFilter !== "all" || dateFrom || dateTo || searchPayee.trim();
+  const hasActiveFilters = typeFilter !== "all" || categoryFilter !== "all" || paymentMethodFilter !== "all" || statusFilter !== "active" || dateFrom || dateTo || searchPayee.trim();
 
   const handleOpenCreate = () => {
     setEditingTx(null);
@@ -354,8 +367,8 @@ export function FinancialPayments({ initialType, headerActions, refreshSignal }:
         body: JSON.stringify({ reason: deleteReason.trim() }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "فشل الحذف");
-      toast.success("تم حذف العملية");
+      if (!res.ok) throw new Error(data.error || "فشل الإلغاء");
+      toast.success("تم إلغاء العملية — تبقى في السجل بوضع «ملغاة» ولا تدخل في الرصيد");
       setDeleteTarget(null);
       setDeleteReason("");
       fetchData();
@@ -394,9 +407,9 @@ export function FinancialPayments({ initialType, headerActions, refreshSignal }:
     setSelectedIds(new Set());
     fetchData();
     if (failed === 0) {
-      toast.success(`تم حذف ${success} عملية بنجاح`);
+      toast.success(`تم إلغاء ${success} عملية بنجاح`);
     } else {
-      toast.warning(`تم حذف ${success}، فشل ${failed} عملية`);
+      toast.warning(`تم إلغاء ${success}، تعذّر إلغاء ${failed} عملية`);
     }
   };
 
@@ -509,6 +522,8 @@ export function FinancialPayments({ initialType, headerActions, refreshSignal }:
   const totalIncome = data?.stats.totalIncome || 0;
   const totalExpense = data?.stats.totalExpense || 0;
   const balance = data?.stats.balance || 0;
+  const cancelledCount = data?.stats.cancelledCount || 0;
+  const cancelledTotal = data?.stats.cancelledTotal || 0;
 
   return (
     <div dir="rtl" className="space-y-4 pb-2">
@@ -529,6 +544,14 @@ export function FinancialPayments({ initialType, headerActions, refreshSignal }:
               <span className={cn("font-bold", balance < 0 ? "text-rose-600 dark:text-rose-400" : "text-foreground")}>
                 {formatDA(balance)}
               </span>
+              {cancelledCount > 0 && (
+                <>
+                  {" • "}ملغاة{" "}
+                  <span className="text-muted-foreground font-semibold" title="لا تدخل في الرصيد">
+                    {formatDA(cancelledTotal)} ({cancelledCount})
+                  </span>
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -603,6 +626,21 @@ export function FinancialPayments({ initialType, headerActions, refreshSignal }:
                       <SelectItem value="cash">نقدي</SelectItem>
                       <SelectItem value="bank">بنك</SelectItem>
                       <SelectItem value="cheque">شيك</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* ★ الحالة: نشطة / ملغاة / الكل */}
+                <div className="space-y-1">
+                  <Label className="text-xs">الحالة</Label>
+                  <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
+                    <SelectTrigger className="h-9 w-full">
+                      <SelectValue placeholder="نشطة" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">نشطة</SelectItem>
+                      <SelectItem value="cancelled">ملغاة</SelectItem>
+                      <SelectItem value="all">الكل</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -781,12 +819,14 @@ export function FinancialPayments({ initialType, headerActions, refreshSignal }:
                 <TableBody>
                   {sortedTransactions.map((tx, idx) => {
                     const isSelected = selectedIds.has(tx.id);
+                    const isCancelled = tx.status === "cancelled";
                     return (
                       <TableRow
                         key={tx.id}
                         className={cn(
                           "border-border/40 transition-colors",
-                          isSelected && "bg-primary/5"
+                          isSelected && "bg-primary/5",
+                          isCancelled && "opacity-55 hover:opacity-80"
                         )}
                       >
                         <TableCell>
@@ -814,12 +854,14 @@ export function FinancialPayments({ initialType, headerActions, refreshSignal }:
                         <TableCell className="text-xs text-foreground">
                           {CATEGORY_LABELS[tx.category] || tx.category}
                         </TableCell>
-                        <TableCell className={cn(
-                          "text-xs font-bold tabular-nums",
-                          tx.type === "income" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
-                        )}>
-                          {tx.type === "income" ? "+" : "-"}
-                          {formatDA(tx.amount)}
+                        <TableCell className="text-xs font-bold tabular-nums">
+                          <span className={cn(
+                            tx.type === "income" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400",
+                            isCancelled && "line-through decoration-2"
+                          )}>
+                            {tx.type === "income" ? "+" : "-"}
+                            {formatDA(tx.amount)}
+                          </span>
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                           {formatDate(tx.date)}
@@ -841,52 +883,60 @@ export function FinancialPayments({ initialType, headerActions, refreshSignal }:
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-0.5 justify-end">
-                            <TooltipProvider>
+                            {isCancelled ? (
                               <UITooltip>
                                 <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7"
-                                    onClick={() => handlePrintReceipt(tx)}
-                                  >
-                                    <Printer className="h-3.5 w-3.5" />
-                                  </Button>
+                                  <span className="inline-flex">
+                                    <Badge variant="outline" className="text-[9px] gap-0.5 bg-muted text-muted-foreground border-border">
+                                      <XCircle className="h-2.5 w-2.5" /> ملغاة
+                                    </Badge>
+                                  </span>
                                 </TooltipTrigger>
-                                <TooltipContent side="top">طباعة الإيصال</TooltipContent>
+                                <TooltipContent side="top" className="max-w-56 text-xs">
+                                  <p className="font-bold">عملية ملغاة — خارج الرصيد</p>
+                                  {tx.cancellationReason && <p>السبب: {tx.cancellationReason}</p>}
+                                  {tx.cancelledAt && <p>وقت الإلغاء: {formatDateTime(tx.cancelledAt)}</p>}
+                                  {tx.cancelledByName && <p>ألغاها: {tx.cancelledByName}</p>}
+                                </TooltipContent>
                               </UITooltip>
+                            ) : (
+                              <TooltipProvider>
+                                <UITooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handlePrintReceipt(tx)}>
+                                      <Printer className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top">طباعة الإيصال</TooltipContent>
+                                </UITooltip>
 
-                              <UITooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7"
-                                    onClick={() => handleOpenEdit(tx)}
-                                  >
-                                    <Pencil className="h-3.5 w-3.5" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top">تعديل</TooltipContent>
-                              </UITooltip>
+                                <UITooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleOpenEdit(tx)}>
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top">تعديل</TooltipContent>
+                                </UITooltip>
 
-                              <UITooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7 text-rose-600 hover:text-rose-700 hover:bg-rose-500/10"
-                                    onClick={() => {
-                                      setDeleteTarget(tx);
-                                      setDeleteReason("");
-                                    }}
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top">حذف</TooltipContent>
-                              </UITooltip>
-                            </TooltipProvider>
+                                <UITooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7 text-rose-600 hover:text-rose-700 hover:bg-rose-500/10"
+                                      onClick={() => {
+                                        setDeleteTarget(tx);
+                                        setDeleteReason("");
+                                      }}
+                                    >
+                                      <XCircle className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top">إلغاء العملية (تبقى في السجل — لا تدخل في الرصيد)</TooltipContent>
+                                </UITooltip>
+                              </TooltipProvider>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>

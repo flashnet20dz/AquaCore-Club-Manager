@@ -1,4 +1,6 @@
-// Prisma schema for RCS Club — Multi-Tenant Platform
+// Prisma schema for AquaCore Club Manager — SQLite (Desktop/Electron offline)
+// Auto-generated from schema.prisma by scripts/generate-sqlite-schema.js — DO NOT EDIT MANUALLY
+// For web (Vercel + Postgres), use schema.prisma
 // النادي الهاوي متعدد الرياضات — الرائد سعيدة — فرع السباحة
 // Multi-Tenant: each club is an isolated tenant
 
@@ -7,9 +9,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -481,6 +482,8 @@ model SwimmingTimeSlot {
   maxCapacity     Int      @default(30)
   active          Boolean  @default(true)
   sortOrder       Int      @default(0)
+  // ★ ربط الحصة بيوم من أيام الأسبوع (sun|mon|tue|wed|thu|fri|sat) — null = تظهر في كل الأيام
+  dayOfWeek       String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -1196,6 +1199,13 @@ model FinancialTransaction {
   createdById     String?
   user            User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
+  // ★ الإلغاء الناعم — لا حذف فعلي للعمليات المالية:
+  // الملغاة تبقى في السجل بـ Badge «ملغاة» ولا تدخل في الرصيد/المداخيل/المصاريف/التقارير
+  status             String    @default("active")   // active | cancelled
+  cancelledAt        DateTime?
+  cancelledById      String?
+  cancellationReason String?
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -1243,6 +1253,12 @@ model WagePayment {
 
   createdById   String?
   createdAt     DateTime @default(now())
+
+  // ★ الإلغاء الناعم — إلغاء التسديد يحفظ السجل بوضع «ملغى» ولا يحذفه
+  status             String    @default("active")   // active | cancelled
+  cancelledAt        DateTime?
+  cancelledById      String?
+  cancellationReason String?
 
   @@unique([transactionId])
   @@index([clubId, userId, periodStart])

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
-import { postLedgerEntry, deleteLedgerByReferencesTx } from "@/lib/financial-posting";
+import { postLedgerEntry, cancelLedgerByReferencesTx } from "@/lib/financial-posting";
+import { ensureRuntimeColumns } from "@/lib/runtime-schema";
 
 /**
  * PATCH /api/subscribers/[id]/toggle-compound
@@ -10,6 +11,7 @@ import { postLedgerEntry, deleteLedgerByReferencesTx } from "@/lib/financial-pos
  */
 export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    await ensureRuntimeColumns();
     const user = await getCurrentUser();
     if (!user || !["admin", "assistant", "superadmin"].includes(user.role)) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
@@ -28,13 +30,16 @@ export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ i
     });
 
     if (existingCompound) {
-      // ★ حذف دفعة حقوق المركب + القيد المرحّل في الدفتر المالي (ذرّياً)
+      // ★ حذف الدفعة التشغيلية + إلغاء القيد المرحّل ناعماً في الدفتر (ذرّياً)
       await db.$transaction(async (tx) => {
         await tx.payment.delete({ where: { id: existingCompound.id } });
-        await deleteLedgerByReferencesTx(tx, sub.clubId, [
+        await cancelLedgerByReferencesTx(tx, sub.clubId, [
           `payment:${existingCompound.id}`,
           `bulk-comp:${id}`,
-        ]);
+        ], {
+          cancelledById: user.id,
+          reason: `إلغاء حقوق المركب للمنخرط ${sub.lastName} ${sub.firstName}`,
+        });
         await tx.activity.create({
           data: {
             clubId: sub.clubId,

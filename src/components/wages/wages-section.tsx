@@ -56,6 +56,10 @@ interface WagePaymentRow {
   periodLabel: string;
   transactionId: string | null;
   legacy?: boolean;
+  // ★ الإلغاء الناعم — الملغى يبقى في السجل بوضع «ملغى» ولا يُحتسب مدفوعاً
+  status?: string;
+  cancelledAt?: string | null;
+  cancellationReason?: string | null;
 }
 
 interface WorkerWage {
@@ -519,18 +523,22 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
           ) : (
             <div className="divide-y divide-border/40 max-h-56 overflow-y-auto">
               {allPayments.map((p) => (
-                <div key={p.id} className="flex items-center gap-2 px-3 py-2 text-sm">
+                <div key={p.id} className={cn("flex items-center gap-2 px-3 py-2 text-sm", p.status === "cancelled" && "opacity-60")}>
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold truncate">{p.workerName}{p.legacy && <span className="text-[9px] text-muted-foreground"> (سجل قديم)</span>}</p>
+                    <p className="font-semibold truncate">
+                      {p.workerName}{p.legacy && <span className="text-[9px] text-muted-foreground"> (سجل قديم)</span>}
+                      {p.status === "cancelled" && <span className="text-[9px] text-rose-600 font-bold"> — ملغى</span>}
+                    </p>
                     <p className="text-[10px] text-muted-foreground">
                       {fmtDateTime(p.paidAt)} • {METHOD_LABELS[p.method] || p.method} • القيد: {p.transactionId ? p.transactionId.slice(-8) : "—"}
                       {p.note ? ` • ${p.note}` : ""}
+                      {p.status === "cancelled" && p.cancellationReason ? ` • السبب: ${p.cancellationReason}` : ""}
                     </p>
                   </div>
-                  <Badge variant="outline" className="bg-emerald-500/15 text-emerald-700 border-emerald-500/30 tabular-nums shrink-0">
+                  <Badge variant="outline" className={cn("tabular-nums shrink-0", p.status === "cancelled" ? "bg-muted text-muted-foreground border-border line-through" : "bg-emerald-500/15 text-emerald-700 border-emerald-500/30")}>
                     {formatDA(p.amount)}
                   </Badge>
-                  {canVoid && (
+                  {canVoid && p.status !== "cancelled" && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -566,21 +574,23 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
           )}
           <div className="divide-y divide-border/40 max-h-72 overflow-y-auto mt-1.5">
             {recentAll.map((p) => (
-              <div key={p.id} className="flex items-center gap-2 px-3 py-2 text-sm">
+              <div key={p.id} className={cn("flex items-center gap-2 px-3 py-2 text-sm", p.status === "cancelled" && "opacity-60")}>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold truncate">
                     {p.workerName}
                     {p.legacy && <span className="text-[9px] text-muted-foreground"> (سجل قديم)</span>}
+                    {p.status === "cancelled" && <span className="text-[9px] text-rose-600 font-bold"> — ملغى</span>}
                   </p>
                   <p className="text-[10px] text-muted-foreground truncate">
                     {fmtDateTime(p.paidAt)} • {METHOD_LABELS[p.method] || p.method} • الفترة: {p.periodLabel}
                     {p.note ? ` • ${p.note}` : ""}
+                    {p.status === "cancelled" && p.cancellationReason ? ` • السبب: ${p.cancellationReason}` : ""}
                   </p>
                 </div>
-                <Badge variant="outline" className="bg-emerald-500/15 text-emerald-700 border-emerald-500/30 tabular-nums shrink-0">
+                <Badge variant="outline" className={cn("tabular-nums shrink-0", p.status === "cancelled" ? "bg-muted text-muted-foreground border-border line-through" : "bg-emerald-500/15 text-emerald-700 border-emerald-500/30")}>
                   {formatDA(p.amount)}
                 </Badge>
-                {canVoid && (
+                {canVoid && p.status !== "cancelled" && (
                   <Button
                     variant="outline"
                     size="sm"

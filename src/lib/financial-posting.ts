@@ -112,9 +112,9 @@ export async function applyBalanceDelta(
 }
 
 /**
- * حذف القيد المرحَّل المرتبط بمرجع (payment:{id} مثلاً) + إعادة حساب الرصيد كاملاً.
- * يُستدعى داخل db.$transaction عند حذف/إلغاء العملية الأصلية.
- * @returns true إن وُجد قيد وحُذف
+ * حذف القيد المرحَّل المرتبط بمرجع — ★ مستبدل بـ cancelLedgerByReferencesTx
+ * (لم يعد يُستخدم: الإلغاء ناعم لا حذف — محفوظ للتوافق فقط).
+ * @deprecated استخدم cancelLedgerByReferencesTx
  */
 export async function deleteLedgerByReferenceTx(
   tx: PrismaTx,
@@ -132,33 +132,39 @@ export async function deleteLedgerByReferenceTx(
 }
 
 /**
- * حذف القيود المرحّلة المرتبطة بعدة مراجع محتملة (دفعة فردية أو جماعية)
- * + إعادة حساب الرصيد مرة واحدة. يُستدعى داخل db.$transaction.
- * @returns عدد القيود المحذوفة
+ * إلغاء القيود المرحّلة المرتبطة بعدة مراجع محتملة — إلغاء ناعم لا حذف:
+ * status=cancelled + cancelledAt/cancelledById/cancellationReason
+ * + إعادة حساب الرصيد مرة واحدة (الملغى لا يدخل فيه).
+ * يُستدعى داخل db.$transaction عند إلغاء العملية الأصلية.
+ * @returns عدد القيود المُلغاة
  */
-export async function deleteLedgerByReferencesTx(
+export async function cancelLedgerByReferencesTx(
   tx: PrismaTx,
   clubId: string,
-  references: string[]
+  references: string[],
+  meta?: { cancelledById?: string | null; reason?: string | null }
 ): Promise<number> {
   const refs = references.filter(Boolean);
   if (refs.length === 0) return 0;
-  const found = await tx.financialTransaction.findMany({
-    where: { clubId, reference: { in: refs } },
-    select: { id: true },
+  const result = await tx.financialTransaction.updateMany({
+    where: { clubId, reference: { in: refs }, status: "active" },
+    data: {
+      status: "cancelled",
+      cancelledAt: new Date(),
+      cancelledById: meta?.cancelledById ?? null,
+      cancellationReason: meta?.reason ?? null,
+    },
   });
-  if (found.length === 0) return 0;
-  await tx.financialTransaction.deleteMany({ where: { id: { in: found.map((f) => f.id) } } });
-  await recomputeBalanceTx(tx, clubId);
-  return found.length;
+  if (result.count > 0) await recomputeBalanceTx(tx, clubId);
+  return result.count;
 }
 
 /**
- * إعادة حساب الرصيد من الصفر من كل القيود (الأدق بعد أي حذف/تعديل جماعي).
+ * إعادة حساب الرصيد من الصفر من كل القيود النشطة (الملغاة مستثناة).
  */
 export async function recomputeBalanceTx(tx: PrismaTx, clubId: string): Promise<void> {
   const allTx = await tx.financialTransaction.findMany({
-    where: { clubId },
+    where: { clubId, status: "active" },
     select: { type: true, category: true, amount: true, date: true, id: true },
     orderBy: { date: "asc" },
   });
@@ -201,6 +207,34 @@ export async function recomputeBalanceTx(tx: PrismaTx, clubId: string): Promise<
       lastTransactionDate: last?.date ?? null,
     },
   });
+}
+
+/**
+ * إلغاء قيد مالي واحد بالمعرّف — إلغاء ناعم + إعادة حساب الرصيد.
+ * يُستدعى داخل db.$transaction. @returns true أُلغى الآن، false غير موجود أو ملغى مسبقاً
+ */
+export async function cancelLedgerEntryTx(
+  tx: PrismaTx,
+  clubId: string,
+  id: string,
+  meta: { cancelledById?: string | null; reason: string }
+): Promise<boolean> {
+  const existing = await tx.financialTransaction.findFirst({
+    where: { id, clubId },
+    select: { id: true, status: true },
+  });
+  if (!existing || existing.status === "cancelled") return false;
+  await tx.financialTransaction.update({
+    where: { id },
+    data: {
+      status: "cancelled",
+      cancelledAt: new Date(),
+      cancelledById: meta.cancelledById ?? null,
+      cancellationReason: meta.reason,
+    },
+  });
+  await recomputeBalanceTx(tx, clubId);
+  return true;
 }
 
 /**

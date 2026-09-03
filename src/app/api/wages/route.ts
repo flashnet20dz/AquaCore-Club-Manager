@@ -19,6 +19,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { utcRange, parseWallDateTime } from "@/lib/wall-clock";
 import { applyBalanceDelta, recomputeBalanceTx } from "@/lib/financial-posting";
+import { ensureRuntimeColumns } from "@/lib/runtime-schema";
 
 // ═══════════════════════════════════════════════════════════
 // ★ إصلاح ذاتي للإنتاج: Vercel build لا يُنفّذ db:push —
@@ -85,7 +86,11 @@ interface WorkerWageRow {
   paid: number;
   remaining: number;
   status: "unpaid" | "partial" | "paid";
-  payments: Array<{ id: string; amount: number; method: string; paidAt: string; note: string | null; periodLabel: string; transactionId: string | null; legacy?: boolean }>;
+  payments: Array<{
+    id: string; amount: number; method: string; paidAt: string; note: string | null;
+    periodLabel: string; transactionId: string | null; legacy?: boolean;
+    status?: string; cancelledAt?: string | null; cancellationReason?: string | null;
+  }>;
 }
 
 async function computeWages(clubId: string, from: string, to: string) {
@@ -113,7 +118,7 @@ async function computeWages(clubId: string, from: string, to: string) {
     select: { userId: true, date: true, startTime: true, endTime: true, note: true },
   });
 
-  // تسديدات الأجور المرتبطة بنفس الفترة
+  // تسديدات الأجور المرتبطة بنفس الفترة (الملغاة تُعرض في السجل ولا تُحسب مدفوعاً)
   const wagePayments = await db.wagePayment.findMany({
     where: { clubId, periodStart: start, periodEnd: end },
     orderBy: { paidAt: "desc" },
@@ -155,7 +160,8 @@ async function computeWages(clubId: string, from: string, to: string) {
     const totalHours = Math.round((agg?.hours || 0) * 100) / 100;
     const gross = Math.round(totalHours * hourRate);
     const wpRows = wagePayments.filter((p) => p.userId === u.id);
-    const wpPaid = wpRows.reduce((s, p) => s + p.amount, 0);
+    // ★ المدفوع = التسديدات النشطة فقط — الملغى لا يُحتسب (يعود المبلغ للمتبقي)
+    const wpPaid = wpRows.filter((p) => p.status !== "cancelled").reduce((s, p) => s + p.amount, 0);
     const legacyPaid = legacySalary.filter((p) => p.userId === u.id).reduce((s, p) => s + p.amount, 0);
     const paid = wpPaid + legacyPaid;
     const remaining = Math.max(0, gross - paid);
@@ -177,6 +183,7 @@ async function computeWages(clubId: string, from: string, to: string) {
         ...wpRows.map((p) => ({
           id: p.id, amount: p.amount, method: p.method, paidAt: p.paidAt.toISOString(),
           note: p.note, periodLabel: p.periodLabel, transactionId: p.transactionId, legacy: false,
+          status: p.status, cancelledAt: p.cancelledAt?.toISOString() ?? null, cancellationReason: p.cancellationReason,
         })),
         ...legacySalary.filter((p) => p.userId === u.id).map((p) => ({
           id: p.id, amount: p.amount, method: "cash", paidAt: p.date.toISOString(),
@@ -210,6 +217,7 @@ function hasWageAccess(role: string): boolean {
 // ═══════════════════════════════════════════════════════════
 export async function GET(req: NextRequest) {
   try {
+    await ensureRuntimeColumns();
     const currentUser = await getCurrentUser();
     if (!currentUser || !hasWageAccess(currentUser.role)) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
@@ -259,6 +267,7 @@ export async function GET(req: NextRequest) {
         id: p.id, workerName: p.user.name, amount: p.amount, method: p.method,
         paidAt: p.paidAt.toISOString(), note: p.note, periodLabel: p.periodLabel,
         transactionId: p.transactionId, legacy: false,
+        status: p.status, cancelledAt: p.cancelledAt?.toISOString() ?? null, cancellationReason: p.cancellationReason,
       })),
       ...recentLegacy.map((p) => ({
         id: p.id, workerName: p.user?.name || "—", amount: p.amount, method: "cash",
@@ -289,6 +298,7 @@ export async function GET(req: NextRequest) {
 // ═══════════════════════════════════════════════════════════
 export async function POST(req: NextRequest) {
   try {
+    await ensureRuntimeColumns();
     const currentUser = await getCurrentUser();
     // ★ صلاحية مالية حساسة: admin/superadmin فقط (تتحقق في الخادم لا في الواجهة)
     if (!currentUser || (currentUser.role !== "admin" && currentUser.role !== "superadmin")) {

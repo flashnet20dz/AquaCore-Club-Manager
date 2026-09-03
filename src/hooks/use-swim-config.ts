@@ -32,6 +32,8 @@ export interface SwimSlotOption {
   maxCapacity: number;
   active: boolean;
   sortOrder: number;
+  // ★ يوم الأسبوع المرتبط بالحصة (sat|sun|mon|tue|wed|thu|fri) — null/undefined = عامة تظهر كل الأيام
+  dayOfWeek?: string | null;
 }
 
 // ─── Cache على مستوى الوحدة (يُشارك بين كل المكوّنات) ───

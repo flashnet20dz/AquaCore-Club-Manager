@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import {
   Clock, Plus, Search, Download, Printer, RefreshCw, Users, CheckCircle2,
   XCircle, Calendar, Wallet, TrendingUp, FileText, Loader2, ChevronLeft, ChevronRight,
-  User, Trash2, Check, X, Settings2, DollarSign, Save,
+  User, Trash2, Check, X, Settings2, DollarSign, Save, Waves, CalendarClock, Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { formatWallTime, formatWallDate, toLocalYMD } from "@/lib/wall-clock";
 import { WagesSection } from "@/components/wages/wages-section";
+import { useSwimConfig, invalidateSwimConfig, type SwimSlotOption } from "@/hooks/use-swim-config";
 
 interface WorkHour {
   id: string;
@@ -79,6 +80,32 @@ const APPROVAL_LABELS: Record<string, string> = {
   rejected: "مرفوض",
 };
 
+// ═════════ ★ أيام وساعات استغلال المسبح ═════════
+// أيام الأسبوع بمفاتيح ثابتة (الترتيب يبدأ بالسبت — أسبوع جزائري)
+const POOL_DAYS: Array<{ key: string; label: string }> = [
+  { key: "sat", label: "السبت" },
+  { key: "sun", label: "الأحد" },
+  { key: "mon", label: "الإثنين" },
+  { key: "tue", label: "الثلاثاء" },
+  { key: "wed", label: "الأربعاء" },
+  { key: "thu", label: "الخميس" },
+  { key: "fri", label: "الجمعة" },
+];
+const POOL_DAY_LABELS: Record<string, string> = Object.fromEntries(POOL_DAYS.map((d) => [d.key, d.label]));
+const ALL_DAY_KEYS: string[] = POOL_DAYS.map((d) => d.key);
+
+/**
+ * مفتاح يوم الأسبوع من تاريخ "YYYY-MM-DD".
+ * JS getDay(): 0=الأحد … 6=السبت → نحوّله لمفاتيحنا sun..sat.
+ * نُفسّر التاريخ عند الظهر ("T12:00:00") لتفادي قفزات التوقيت حول منتصف الليل.
+ */
+function dayKeyFromDate(date: string): string | null {
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const d = new Date(`${date}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  return ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][d.getDay()];
+}
+
 // 🔑 حساب ساعات العمل من startTime و endTime و breakMinutes
 function calcWorkHours(startTime: string, endTime: string, breakMinutes: number = 0): number {
   const start = new Date(startTime);
@@ -103,7 +130,9 @@ function formatTime(d: string | Date): string {
   return formatWallTime(d);
 }
 
-export function WorkHoursManagement() {
+export function WorkHoursManagement({ role }: { role?: string }) {
+  // ★ دور المستخدم يُمرَّر من page.tsx (sessionUser.role) — قسم المسبح للمدير فقط
+  const isAdmin = role === "admin" || role === "superadmin";
   const [workHours, setWorkHours] = useState<WorkHour[]>([]);
   const [staff, setStaff] = useState<StaffUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -121,6 +150,19 @@ export function WorkHoursManagement() {
   const [editingRate, setEditingRate] = useState<{ userId: string; name: string; hourlyRate: number; position: string } | null>(null);
   /** إشارة إعادة حساب أجور العمال بعد أي تغيير في ساعات النقاط */
   const [wagesRefresh, setWagesRefresh] = useState(0);
+
+  // ═══ ★ المسبح: حصص السباحة (مصدر موحّد عبر useSwimConfig) + أيام الاستغلال ═══
+  const { slots: swimSlots } = useSwimConfig();
+  const [operatingDays, setOperatingDays] = useState<string[]>([...ALL_DAY_KEYS]); // افتراضي عند غياب المفتاح: كل الأيام
+  const [operatingDaysLoaded, setOperatingDaysLoaded] = useState(false);
+  const [savingDayKey, setSavingDayKey] = useState<string | null>(null);
+  const [slotDialogOpen, setSlotDialogOpen] = useState(false);
+  const [slotEditing, setSlotEditing] = useState<SwimSlotOption | null>(null);
+  const [slotDay, setSlotDay] = useState<string>("general");
+  const [slotForm, setSlotForm] = useState({ name: "", startTime: "09:00", endTime: "10:00" });
+  const [slotSaving, setSlotSaving] = useState(false);
+  // منتقي الحصة في نموذج «إضافة سجل» — يملأ الأوقات تلقائياً
+  const [selectedSlotId, setSelectedSlotId] = useState<string>("none");
 
   // Form state
   const [form, setForm] = useState({
@@ -165,6 +207,34 @@ export function WorkHoursManagement() {
     fetchWorkHours();
     fetchStaff();
   }, [fetchWorkHours, fetchStaff]);
+
+  // ★ تحميل أيام استغلال المسبح من الإعدادات (للمدير) — غياب المفتاح = كل الأيام مفعّلة
+  useEffect(() => {
+    if (!isAdmin) return;
+    let cancelled = false;
+    fetch("/api/settings", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { settings?: Record<string, string> } | null) => {
+        if (cancelled) return;
+        const raw = data?.settings?.poolOperatingDays;
+        if (typeof raw === "string" && raw) {
+          try {
+            const arr: unknown = JSON.parse(raw);
+            if (Array.isArray(arr)) {
+              setOperatingDays(arr.filter((k): k is string => typeof k === "string" && ALL_DAY_KEYS.includes(k)));
+            }
+          } catch { /* إعداد تالف → يبقى الافتراضي */ }
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setOperatingDaysLoaded(true); });
+    return () => { cancelled = true; };
+  }, [isAdmin]);
+
+  // ★ إعادة ضبط منتقي الحصة عند تغيير التاريخ (حصص اليوم تتبدل)
+  useEffect(() => {
+    setSelectedSlotId("none");
+  }, [form.date]);
 
   // Stats
   const stats = useMemo(() => {
@@ -280,6 +350,108 @@ export function WorkHoursManagement() {
     }
   };
 
+  // ═══ ★ المسبح: حفظ الأيام + حصص السباحة ═══
+
+  /** تبديل يوم استغلال — حفظ فوري في Setting بمفتاح poolOperatingDays (JSON array) */
+  const toggleDay = async (key: string) => {
+    const prev = operatingDays;
+    const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
+    setOperatingDays(next); // تفاؤلي — رجوع عند الفشل
+    setSavingDayKey(key);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: { poolOperatingDays: JSON.stringify(next) } }),
+      });
+      if (!res.ok) throw new Error("فشل");
+      toast.success("تم حفظ أيام استغلال المسبح");
+    } catch {
+      setOperatingDays(prev);
+      toast.error("تعذر حفظ الأيام");
+    } finally {
+      setSavingDayKey(null);
+    }
+  };
+
+  const openSlotAdd = (dayKey: string) => {
+    setSlotEditing(null);
+    setSlotDay(dayKey);
+    setSlotForm({ name: "", startTime: "09:00", endTime: "10:00" });
+    setSlotDialogOpen(true);
+  };
+
+  const openSlotEdit = (s: SwimSlotOption) => {
+    setSlotEditing(s);
+    setSlotDay(s.dayOfWeek || "general");
+    setSlotForm({ name: s.name, startTime: s.startTime, endTime: s.endTime });
+    setSlotDialogOpen(true);
+  };
+
+  /** إضافة/تعديل حصة — الأوقات نصوص "HH:mm" حرفية (بلا أي تحويل توقيت) */
+  const handleSlotSave = async () => {
+    if (!slotForm.startTime || !slotForm.endTime) {
+      toast.error("حدد وقت البداية والنهاية");
+      return;
+    }
+    setSlotSaving(true);
+    try {
+      const name = slotForm.name.trim();
+      const payload: Record<string, unknown> = {
+        startTime: slotForm.startTime,
+        endTime: slotForm.endTime,
+        dayOfWeek: slotDay === "general" ? null : slotDay,
+      };
+      if (name) payload.name = name; // فارغ → الخادم يستخدم الافتراضي «حصة سباحة»
+      const res = slotEditing
+        ? await fetch(`/api/swimming-slots/${slotEditing.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          })
+        : await fetch("/api/swimming-slots", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as { error?: string }).error || "فشل الحفظ");
+      toast.success(slotEditing ? "تم تحديث الحصة" : "تمت إضافة الحصة");
+      setSlotDialogOpen(false);
+      invalidateSwimConfig(); // إعادة جلب فورية هنا وفي كل المكوّنات (نموذج المنخرط، الانتظار…)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "فشل الحفظ");
+    } finally {
+      setSlotSaving(false);
+    }
+  };
+
+  const handleSlotDelete = async (id: string) => {
+    if (!confirm("حذف هذه الحصة؟ سيختفي أيضاً من منتقي الحصص في نموذج النقاط.")) return;
+    try {
+      const res = await fetch(`/api/swimming-slots/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("فشل");
+      toast.success("تم حذف الحصة");
+      invalidateSwimConfig();
+    } catch {
+      toast.error("فشل الحذف");
+    }
+  };
+
+  /** ★ اختيار حصة في نموذج النقاط → ملء الأوقات تلقائياً (والاسم في الملاحظات إن كانت فارغة) */
+  const handleSlotSelect = (id: string) => {
+    setSelectedSlotId(id);
+    if (id === "none") return;
+    const s = swimSlots.find((x) => x.id === id);
+    if (!s) return;
+    setForm((prev) => ({
+      ...prev,
+      startTime: s.startTime,
+      endTime: s.endTime,
+      note: prev.note.trim() === "" ? s.name : prev.note,
+    }));
+  };
+
   // 🔑 تحديد سعر الساعة لكل عامل
   const handleSaveRate = async () => {
     if (!editingRate) return;
@@ -347,6 +519,19 @@ export function WorkHoursManagement() {
 
   const isAbsence = form.workStatus === "absent" || form.workStatus === "leave" || form.workStatus === "sick" || form.workStatus === "vacation";
 
+  // ★ حصص اليوم المختار في نموذج النقاط (حصص dayOfWeek=المفتاح + العامة dayOfWeek=null)
+  const formDayKey = useMemo(() => dayKeyFromDate(form.date), [form.date]);
+  const pointageSlots = useMemo(() => {
+    if (!formDayKey) return [];
+    return swimSlots.filter((s) => s.active && (s.dayOfWeek === formDayKey || !s.dayOfWeek));
+  }, [swimSlots, formDayKey]);
+
+  // ★ مجموعات عرض حصص المسبح: مجموعة عامة + يوم لكل يوم من الأيام السبعة
+  const poolGroups: Array<{ key: string; label: string; general?: boolean }> = [
+    { key: "general", label: "حصص عامة — تظهر كل الأيام", general: true },
+    ...POOL_DAYS.map((d) => ({ key: d.key, label: d.label })),
+  ];
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -360,7 +545,7 @@ export function WorkHoursManagement() {
             </div>
           </div>
           <div className="flex gap-2 flex-wrap">
-            <Button size="sm" onClick={() => setDialogOpen(true)} className="bg-teal-600 hover:bg-teal-700 text-white">
+            <Button size="sm" onClick={() => { setSelectedSlotId("none"); setDialogOpen(true); }} className="bg-teal-600 hover:bg-teal-700 text-white">
               <Plus className="h-4 w-4 ml-1" /> إضافة سجل
             </Button>
             <Button size="sm" variant="outline" onClick={() => setRateDialogOpen(true)} className="border-amber-400 text-amber-700 hover:bg-amber-50">
@@ -577,20 +762,44 @@ export function WorkHoursManagement() {
 
             {/* أوقات الدوام — تظهر فقط للحضور */}
             {!isAbsence && (
-              <div className="grid grid-cols-3 gap-2">
+              <>
+                {/* ★ منتقي الحصة — يملأ الأوقات تلقائياً حسب يوم التاريخ المختار */}
                 <div>
-                  <Label className="text-xs font-semibold">الدخول</Label>
-                  <Input type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} className="h-9" />
+                  <Label className="text-xs font-semibold">الحصة (اختياري)</Label>
+                  <Select value={selectedSlotId} onValueChange={handleSlotSelect}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder={!formDayKey ? "اختر التاريخ أولاً" : pointageSlots.length ? "اختر حصة لملء الأوقات تلقائياً" : "لا توجد حصص لهذا اليوم"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">بدون حصة — إدخال يدوي</SelectItem>
+                      {pointageSlots.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.name} — {s.startTime}–{s.endTime}{!s.dayOfWeek ? " (عامة)" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {formDayKey && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      حصص يوم {POOL_DAY_LABELS[formDayKey] || formDayKey} حسب التاريخ — بدون حصة يبقى الإدخال يدوياً كما هو.
+                    </p>
+                  )}
                 </div>
-                <div>
-                  <Label className="text-xs font-semibold">الخروج</Label>
-                  <Input type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} className="h-9" />
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <Label className="text-xs font-semibold">الدخول</Label>
+                    <Input type="time" value={form.startTime} onChange={(e) => { setForm({ ...form, startTime: e.target.value }); setSelectedSlotId("none"); }} className="h-9" />
+                  </div>
+                  <div>
+                    <Label className="text-xs font-semibold">الخروج</Label>
+                    <Input type="time" value={form.endTime} onChange={(e) => { setForm({ ...form, endTime: e.target.value }); setSelectedSlotId("none"); }} className="h-9" />
+                  </div>
+                  <div>
+                    <Label className="text-xs font-semibold">استراحة (دقيقة)</Label>
+                    <Input type="number" min={0} max={240} value={form.breakMinutes} onChange={(e) => setForm({ ...form, breakMinutes: +e.target.value })} className="h-9" />
+                  </div>
                 </div>
-                <div>
-                  <Label className="text-xs font-semibold">استراحة (دقيقة)</Label>
-                  <Input type="number" min={0} max={240} value={form.breakMinutes} onChange={(e) => setForm({ ...form, breakMinutes: +e.target.value })} className="h-9" />
-                </div>
-              </div>
+              </>
             )}
 
             {/* سبب الغياب */}
@@ -702,6 +911,109 @@ export function WorkHoursManagement() {
         </div>
       </div>
 
+      {/* ═══ ★ أيام وساعات استغلال المسبح — للمدير فقط (admin/superadmin) ═══ */}
+      {isAdmin && (
+        <div className="rounded-2xl border border-teal-500/30 bg-card overflow-hidden">
+          <div className="p-4 border-b border-teal-500/20 flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <Waves className="h-4 w-4 text-teal-600" />
+              <h3 className="font-bold text-sm text-foreground">أيام وساعات استغلال المسبح</h3>
+            </div>
+            <Badge variant="outline" className="text-[10px] bg-teal-500/10 text-teal-700 border-teal-500/30">
+              {swimSlots.filter((s) => s.active).length} حصة
+            </Badge>
+          </div>
+          <div className="p-4 space-y-4">
+            <p className="text-[11px] text-muted-foreground">
+              حدّد أيام فتح المسبح وحصص السباحة لكل يوم — تُستخدم تلقائياً لملء أوقات النقاط عند اختيار التاريخ في نموذج «إضافة سجل».
+            </p>
+
+            {/* أ. أيام العمل الأسبوعية — تُحفظ في Setting: poolOperatingDays */}
+            <div>
+              <Label className="text-xs font-semibold">أيام العمل الأسبوعية</Label>
+              <div className="flex flex-wrap gap-1.5 mt-2" role="group" aria-label="أيام العمل الأسبوعية">
+                {POOL_DAYS.map((d) => {
+                  const on = operatingDays.includes(d.key);
+                  return (
+                    <button
+                      key={d.key}
+                      type="button"
+                      onClick={() => toggleDay(d.key)}
+                      disabled={!operatingDaysLoaded || savingDayKey !== null}
+                      aria-pressed={on}
+                      className={cn(
+                        "h-8 min-w-[44px] px-3 rounded-full border text-xs font-semibold transition-all",
+                        on
+                          ? "bg-teal-600 text-white border-teal-600 shadow-sm hover:bg-teal-700"
+                          : "bg-background text-muted-foreground border-border hover:border-teal-400 hover:text-teal-700"
+                      )}
+                    >
+                      {on && <Check className="inline h-3 w-3 ml-1 -mt-0.5" />}
+                      {d.label}
+                    </button>
+                  );
+                })}
+                {(!operatingDaysLoaded || savingDayKey) && (
+                  <Loader2 className="h-4 w-4 animate-spin text-teal-600 self-center" />
+                )}
+              </div>
+            </div>
+
+            {/* ب. حصص السباحة لكل يوم — إضافة/تعديل/حذف */}
+            <div className="space-y-2">
+              {poolGroups.map((g) => {
+                const groupSlots = swimSlots.filter((s) => (g.general ? !s.dayOfWeek : s.dayOfWeek === g.key));
+                const dayEnabled = g.general || operatingDays.includes(g.key);
+                return (
+                  <div key={g.key} className={cn("rounded-xl border p-3", dayEnabled ? "border-border/60" : "border-dashed border-border/40")}>
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {g.general ? (
+                          <CalendarClock className="h-3.5 w-3.5 text-teal-600 shrink-0" />
+                        ) : (
+                          <Clock className={cn("h-3.5 w-3.5 shrink-0", dayEnabled ? "text-teal-600" : "text-muted-foreground")} />
+                        )}
+                        <span className={cn("text-xs font-bold truncate", !dayEnabled && "text-muted-foreground")}>{g.label}</span>
+                        {!g.general && !dayEnabled && (
+                          <Badge variant="outline" className="text-[9px] h-4 px-1 shrink-0 text-muted-foreground">مغلق</Badge>
+                        )}
+                        <Badge variant="secondary" className="text-[9px] h-4 px-1.5 shrink-0">{groupSlots.length}</Badge>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-[11px] text-teal-700 hover:bg-teal-500/10 shrink-0"
+                        onClick={() => openSlotAdd(g.key)}
+                      >
+                        <Plus className="h-3 w-3 ml-0.5" /> إضافة حصة
+                      </Button>
+                    </div>
+                    {groupSlots.length === 0 ? (
+                      <p className="text-[11px] text-muted-foreground/80 py-0.5">لا توجد حصص بعد.</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {groupSlots.map((s) => (
+                          <div key={s.id} className="flex items-center gap-1 rounded-lg border bg-muted/30 pr-2 pl-1 py-1">
+                            <span className="text-[11px] font-semibold max-w-[150px] truncate">{s.name}</span>
+                            <span className="font-mono text-[10px] text-muted-foreground" dir="ltr">{s.startTime}–{s.endTime}</span>
+                            <button onClick={() => openSlotEdit(s)} aria-label={`تعديل ${s.name}`} title="تعديل" className="p-1 rounded hover:bg-accent text-teal-700">
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                            <button onClick={() => handleSlotDelete(s.id)} aria-label={`حذف ${s.name}`} title="حذف" className="p-1 rounded hover:bg-rose-500/10 text-rose-500">
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 🔑 نافذة تحديد سعر الساعة */}
       <Dialog open={rateDialogOpen} onOpenChange={setRateDialogOpen}>
         <DialogContent className="max-w-lg">
@@ -751,6 +1063,74 @@ export function WorkHoursManagement() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRateDialogOpen(false)}>إغلاق</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ★ حوار إضافة/تعديل حصة سباحة — الأوقات نصوص "HH:mm" حرفية */}
+      <Dialog open={slotDialogOpen} onOpenChange={setSlotDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Waves className="h-5 w-5 text-teal-600" />
+              {slotEditing ? "تعديل حصة سباحة" : "إضافة حصة سباحة"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs font-semibold">اسم الفئة/الفوج (اختياري)</Label>
+              <Input
+                value={slotForm.name}
+                onChange={(e) => setSlotForm({ ...slotForm, name: e.target.value })}
+                placeholder="حصة سباحة"
+                className="h-9"
+              />
+              <p className="text-[10px] text-muted-foreground mt-0.5">اتركه فارغاً لاستخدام الافتراضي «حصة سباحة».</p>
+            </div>
+            <div>
+              <Label className="text-xs font-semibold">اليوم</Label>
+              <Select value={slotDay} onValueChange={setSlotDay}>
+                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="general">كل الأيام (عامة)</SelectItem>
+                  {POOL_DAYS.map((d) => (
+                    <SelectItem key={d.key} value={d.key}>{d.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs font-semibold">وقت البداية</Label>
+                <Input
+                  type="time"
+                  dir="ltr"
+                  value={slotForm.startTime}
+                  onChange={(e) => setSlotForm({ ...slotForm, startTime: e.target.value })}
+                  className="h-9"
+                />
+              </div>
+              <div>
+                <Label className="text-xs font-semibold">وقت النهاية</Label>
+                <Input
+                  type="time"
+                  dir="ltr"
+                  value={slotForm.endTime}
+                  onChange={(e) => setSlotForm({ ...slotForm, endTime: e.target.value })}
+                  className="h-9"
+                />
+              </div>
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              تُحفظ الأوقات كما تُدخل (ساعة الحائط) — بدون تحويل توقيت — وتظهر لاحقاً في نموذج النقاط حسب اليوم.
+            </p>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setSlotDialogOpen(false)}>إلغاء</Button>
+            <Button onClick={handleSlotSave} disabled={slotSaving} className="bg-teal-600 hover:bg-teal-700 text-white">
+              {slotSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4 ml-1" />}
+              {slotEditing ? "حفظ" : "إضافة"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

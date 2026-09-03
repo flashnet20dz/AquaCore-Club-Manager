@@ -1,15 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser, hasPermission } from "@/lib/session";
+import { ensureRuntimeColumns } from "@/lib/runtime-schema";
 
 /**
  * GET /api/financial/transactions
  * Returns financial transactions with filters + period stats.
  *
  * Query params: type, category, dateFrom, dateTo, payeeName, paymentMethod, page, limit
+ *   status: "active" (افتراضي) | "cancelled" (سجل العمليات الملغاة) | "all"
+ * الإحصائيات (stats) تحسب النشطة دائماً — الملغاة لا تدخل في الرصيد.
  */
 export async function GET(req: NextRequest) {
   try {
+    await ensureRuntimeColumns();
     const currentUser = await getCurrentUser();
     if (!currentUser || !hasPermission(currentUser.role, "financialPayments")) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
@@ -28,6 +32,9 @@ export async function GET(req: NextRequest) {
 
     const clubFilter = currentUser.role === "superadmin" ? {} : { clubId: currentUser.clubId! };
     const where: Record<string, unknown> = { ...clubFilter };
+    // ★ فلتر الحالة: النشطة افتراضياً — «ملغاة» لعرض سجل الإلغاءات — «الكل» للسجل الكامل
+    const statusParam = url.searchParams.get("status") || "active";
+    if (statusParam === "active" || statusParam === "cancelled") where.status = statusParam;
     if (type) where.type = type;
     if (category) where.category = category;
     if (paymentMethod) where.paymentMethod = paymentMethod;
@@ -57,23 +64,50 @@ export async function GET(req: NextRequest) {
       db.financialTransaction.count({ where }),
     ]);
 
-    // Period stats
-    const incomeSum = await db.financialTransaction.aggregate({
-      where: { ...where, type: "income" },
-      _sum: { amount: true },
-    });
-    const expenseSum = await db.financialTransaction.aggregate({
-      where: { ...where, type: "expense" },
-      _sum: { amount: true },
-    });
+    // ★ اسم مُلغي العملية (لعرضه في سجل الإلغاءات)
+    const cancellerIds = Array.from(
+      new Set(transactions.map((t) => t.cancelledById).filter((v): v is string => Boolean(v)))
+    );
+    const cancellers = cancellerIds.length
+      ? await db.user.findMany({ where: { id: { in: cancellerIds } }, select: { id: true, name: true } })
+      : [];
+    const cancellerMap = new Map(cancellers.map((u) => [u.id, u.name]));
+    const rows = transactions.map((t) => ({
+      ...t,
+      cancelledByName: t.cancelledById ? cancellerMap.get(t.cancelledById) || null : null,
+    }));
+
+    // Period stats — النشطة فقط (الملغاة لا تدخل في الرصيد) + ملخص الملغاة لنفس الفلاتر
+    const activeBase = { ...where, status: "active" };
+    const [incomeSum, expenseSum, cancelledAgg] = await Promise.all([
+      db.financialTransaction.aggregate({
+        where: { ...activeBase, type: "income" },
+        _sum: { amount: true },
+        _count: true,
+      }),
+      db.financialTransaction.aggregate({
+        where: { ...activeBase, type: "expense" },
+        _sum: { amount: true },
+        _count: true,
+      }),
+      db.financialTransaction.aggregate({
+        where: { ...where, status: "cancelled" },
+        _sum: { amount: true },
+        _count: true,
+      }),
+    ]);
 
     return NextResponse.json({
-      transactions,
+      transactions: rows,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
       stats: {
         totalIncome: incomeSum._sum.amount || 0,
         totalExpense: expenseSum._sum.amount || 0,
         balance: (incomeSum._sum.amount || 0) - (expenseSum._sum.amount || 0),
+        incomeCount: incomeSum._count || 0,
+        expenseCount: expenseSum._count || 0,
+        cancelledTotal: cancelledAgg._sum.amount || 0,
+        cancelledCount: cancelledAgg._count || 0,
       },
     });
   } catch (error) {

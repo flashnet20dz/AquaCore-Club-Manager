@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser, hasPermission } from "@/lib/session";
+import { ensureRuntimeColumns } from "@/lib/runtime-schema";
 
 /**
  * GET /api/financial/dashboard
@@ -13,8 +14,9 @@ import { getCurrentUser, hasPermission } from "@/lib/session";
  * - today/week/month/year income
  * - 6-month income vs expense chart data
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    await ensureRuntimeColumns();
     const currentUser = await getCurrentUser();
     if (!currentUser || !hasPermission(currentUser.role, "financialDashboard")) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
@@ -49,7 +51,7 @@ export async function GET() {
 
     // 2) Last 10 transactions
     const lastTransactions = await db.financialTransaction.findMany({
-      where: { clubId: targetClubId },
+      where: { clubId: targetClubId, status: "active" },
       orderBy: { date: "desc" },
       take: 10,
       select: {
@@ -66,19 +68,19 @@ export async function GET() {
 
     const [thisMonthIncomeAgg, thisMonthExpenseAgg, lastMonthIncomeAgg, lastMonthExpenseAgg] = await Promise.all([
       db.financialTransaction.aggregate({
-        where: { clubId: targetClubId, type: "income", date: { gte: thisMonthStart } },
+        where: { clubId: targetClubId, status: "active", type: "income", date: { gte: thisMonthStart } },
         _sum: { amount: true },
       }),
       db.financialTransaction.aggregate({
-        where: { clubId: targetClubId, type: "expense", date: { gte: thisMonthStart } },
+        where: { clubId: targetClubId, status: "active", type: "expense", date: { gte: thisMonthStart } },
         _sum: { amount: true },
       }),
       db.financialTransaction.aggregate({
-        where: { clubId: targetClubId, type: "income", date: { gte: lastMonthStart, lte: lastMonthEnd } },
+        where: { clubId: targetClubId, status: "active", type: "income", date: { gte: lastMonthStart, lte: lastMonthEnd } },
         _sum: { amount: true },
       }),
       db.financialTransaction.aggregate({
-        where: { clubId: targetClubId, type: "expense", date: { gte: lastMonthStart, lte: lastMonthEnd } },
+        where: { clubId: targetClubId, status: "active", type: "expense", date: { gte: lastMonthStart, lte: lastMonthEnd } },
         _sum: { amount: true },
       }),
     ]);
@@ -93,7 +95,7 @@ export async function GET() {
 
     // 4) Top 5 largest expenses
     const topExpenses = await db.financialTransaction.findMany({
-      where: { clubId: targetClubId, type: "expense" },
+      where: { clubId: targetClubId, status: "active", type: "expense" },
       orderBy: { amount: "desc" },
       take: 5,
       select: { id: true, category: true, amount: true, date: true, payeeName: true, note: true },
@@ -106,19 +108,19 @@ export async function GET() {
 
     const [todayAgg, weekAgg, monthAgg, yearAgg] = await Promise.all([
       db.financialTransaction.aggregate({
-        where: { clubId: targetClubId, type: "income", date: { gte: todayStart } },
+        where: { clubId: targetClubId, status: "active", type: "income", date: { gte: todayStart } },
         _sum: { amount: true },
       }),
       db.financialTransaction.aggregate({
-        where: { clubId: targetClubId, type: "income", date: { gte: weekStart } },
+        where: { clubId: targetClubId, status: "active", type: "income", date: { gte: weekStart } },
         _sum: { amount: true },
       }),
       db.financialTransaction.aggregate({
-        where: { clubId: targetClubId, type: "income", date: { gte: thisMonthStart } },
+        where: { clubId: targetClubId, status: "active", type: "income", date: { gte: thisMonthStart } },
         _sum: { amount: true },
       }),
       db.financialTransaction.aggregate({
-        where: { clubId: targetClubId, type: "income", date: { gte: yearStart } },
+        where: { clubId: targetClubId, status: "active", type: "income", date: { gte: yearStart } },
         _sum: { amount: true },
       }),
     ]);
@@ -132,11 +134,11 @@ export async function GET() {
 
       const [incAgg, expAgg] = await Promise.all([
         db.financialTransaction.aggregate({
-          where: { clubId: targetClubId, type: "income", date: { gte: mStart, lte: mEnd } },
+          where: { clubId: targetClubId, status: "active", type: "income", date: { gte: mStart, lte: mEnd } },
           _sum: { amount: true },
         }),
         db.financialTransaction.aggregate({
-          where: { clubId: targetClubId, type: "expense", date: { gte: mStart, lte: mEnd } },
+          where: { clubId: targetClubId, status: "active", type: "expense", date: { gte: mStart, lte: mEnd } },
           _sum: { amount: true },
         }),
       ]);
@@ -153,22 +155,22 @@ export async function GET() {
     const [monthIncByCat, monthExpByCat, monthMethods, movementsThisMonth] = await Promise.all([
       db.financialTransaction.groupBy({
         by: ["category"],
-        where: { clubId: targetClubId, type: "income", date: { gte: thisMonthStart } },
+        where: { clubId: targetClubId, status: "active", type: "income", date: { gte: thisMonthStart } },
         _sum: { amount: true },
       }),
       db.financialTransaction.groupBy({
         by: ["category"],
-        where: { clubId: targetClubId, type: "expense", date: { gte: thisMonthStart } },
+        where: { clubId: targetClubId, status: "active", type: "expense", date: { gte: thisMonthStart } },
         _sum: { amount: true },
       }),
       db.financialTransaction.groupBy({
         by: ["paymentMethod"],
-        where: { clubId: targetClubId, date: { gte: thisMonthStart } },
+        where: { clubId: targetClubId, status: "active", date: { gte: thisMonthStart } },
         _sum: { amount: true },
         _count: true,
       }),
       db.financialTransaction.count({
-        where: { clubId: targetClubId, date: { gte: thisMonthStart } },
+        where: { clubId: targetClubId, status: "active", date: { gte: thisMonthStart } },
       }),
     ]);
 
@@ -248,6 +250,48 @@ export async function GET() {
     dues.wages.remaining = Math.max(0, wagesGross - dues.wages.paid);
     const duesTotalRemaining = dues.insurance.remaining + dues.compound.remaining + dues.wages.remaining;
 
+    // ═══ 9) ملخص العمليات الملغاة (لا تدخل في الرصيد — تبقى في سجل الإلغاءات) ═══
+    const cancelledAgg = await db.financialTransaction.aggregate({
+      where: { clubId: targetClubId, status: "cancelled" },
+      _sum: { amount: true },
+      _count: true,
+    });
+
+    // ═══ 10) كشف الحساب اليومي (?day=YYYY-MM-DD): رصيد أول اليوم / داخل / خارج / آخر اليوم ═══
+    const dayParam = new URL(req.url).searchParams.get("day");
+    let dayStatement: {
+      date: string; openingBalance: number; dayIncome: number; dayExpense: number;
+      closingBalance: number;
+      transactions: Array<{ id: string; type: string; category: string; amount: number; date: Date; payeeName: string | null; paymentMethod: string; reference: string | null; note: string | null }>;
+    } | null = null;
+    if (dayParam && /^\d{4}-\d{2}-\d{2}$/.test(dayParam)) {
+      const dStart = new Date(`${dayParam}T00:00:00`);
+      const dEnd = new Date(`${dayParam}T23:59:59.999`);
+      const [beforeIn, beforeOut, inAgg, outAgg, dayTx] = await Promise.all([
+        db.financialTransaction.aggregate({ where: { clubId: targetClubId, status: "active", type: "income", date: { lt: dStart } }, _sum: { amount: true } }),
+        db.financialTransaction.aggregate({ where: { clubId: targetClubId, status: "active", type: "expense", date: { lt: dStart } }, _sum: { amount: true } }),
+        db.financialTransaction.aggregate({ where: { clubId: targetClubId, status: "active", type: "income", date: { gte: dStart, lte: dEnd } }, _sum: { amount: true } }),
+        db.financialTransaction.aggregate({ where: { clubId: targetClubId, status: "active", type: "expense", date: { gte: dStart, lte: dEnd } }, _sum: { amount: true } }),
+        db.financialTransaction.findMany({
+          where: { clubId: targetClubId, status: "active", date: { gte: dStart, lte: dEnd } },
+          orderBy: { date: "asc" },
+          take: 200,
+          select: { id: true, type: true, category: true, amount: true, date: true, payeeName: true, paymentMethod: true, reference: true, note: true },
+        }),
+      ]);
+      const openingBalance = (beforeIn._sum.amount || 0) - (beforeOut._sum.amount || 0);
+      const dayIncome = inAgg._sum.amount || 0;
+      const dayExpense = outAgg._sum.amount || 0;
+      dayStatement = {
+        date: dayParam,
+        openingBalance,
+        dayIncome,
+        dayExpense,
+        closingBalance: openingBalance + dayIncome - dayExpense,
+        transactions: dayTx,
+      };
+    }
+
     return NextResponse.json({
       balance: {
         totalIncome: balance.totalIncome,
@@ -280,6 +324,11 @@ export async function GET() {
       movementsThisMonth,
       dues,
       duesTotalRemaining,
+      cancelled: {
+        total: cancelledAgg._sum.amount || 0,
+        count: cancelledAgg._count || 0,
+      },
+      dayStatement,
     });
   } catch (error) {
     console.error("GET /api/financial/dashboard error:", error);

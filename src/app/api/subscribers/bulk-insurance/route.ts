@@ -127,20 +127,29 @@ export async function POST(req: NextRequest) {
           await tx.payment.deleteMany({
             where: { id: { in: paymentsToDelete.map((p) => p.id) } },
           });
-          // ★ حذف القيود المرحّلة المرتبطة (فردي payment: أو جماعي bulk-ins:)
+          // ★ إلغاء القيود المرحّلة ناعماً (فردي payment: أو جماعي bulk-ins:)
+          // الملغاة تبقى في سجل الدفتر بوضع «ملغاة» ولا تدخل في الرصيد
           const refs = paymentsToDelete.flatMap((p) => {
             const r = [`payment:${p.id}`];
             if (p.subscriberId) r.push(`bulk-ins:${p.subscriberId}`);
             return r;
           });
-          const found = await tx.financialTransaction.findMany({
-            where: { reference: { in: refs }, category: "insurance", type: "income" },
-            select: { id: true, clubId: true },
+          const cancelled = await tx.financialTransaction.updateMany({
+            where: { reference: { in: refs }, category: "insurance", type: "income", status: "active" },
+            data: {
+              status: "cancelled",
+              cancelledAt: new Date(),
+              cancelledById: user.id,
+              cancellationReason: "إلغاء تأمين جماعي",
+            },
           });
-          if (found.length > 0) {
-            await tx.financialTransaction.deleteMany({ where: { id: { in: found.map((f) => f.id) } } });
-            const perClub = new Set(found.map((f) => f.clubId));
-            for (const clubId of perClub) {
+          if (cancelled.count > 0) {
+            const clubs = await tx.financialTransaction.findMany({
+              where: { reference: { in: refs }, category: "insurance" },
+              select: { clubId: true },
+              distinct: ["clubId"],
+            });
+            for (const { clubId } of clubs) {
               await recomputeBalanceTx(tx, clubId);
             }
           }

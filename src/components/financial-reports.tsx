@@ -5,8 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   FileText, Loader2, AlertTriangle, Printer, FileSpreadsheet,
-  FileType, Calendar, Wallet, TrendingUp, TrendingDown, Users, Receipt,
-  Clock, ScrollText,
+  FileType, Calendar, CalendarDays, Wallet, TrendingUp, TrendingDown, Users, Receipt,
+  Clock, ScrollText, XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,7 +26,7 @@ import { toast } from "sonner";
 // ─────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────
-type ReportType = "summary" | "wages" | "income";
+type ReportType = "summary" | "wages" | "income" | "daily" | "cancelled";
 
 interface TxForReport {
   id: string;
@@ -41,6 +41,11 @@ interface TxForReport {
   subscriberId?: string | null;
   reference?: string | null;
   note?: string | null;
+  // ★ الإلغاء الناعم (لتقرير العمليات الملغاة)
+  status?: string;
+  cancelledAt?: string | null;
+  cancellationReason?: string | null;
+  cancelledByName?: string | null;
 }
 
 interface EmployeeForReport {
@@ -88,10 +93,21 @@ const POSITION_LABELS: Record<string, string> = {
   other: "أخرى",
 };
 
+interface DailyStatementData {
+  date: string;
+  openingBalance: number;
+  dayIncome: number;
+  dayExpense: number;
+  closingBalance: number;
+  transactions: Array<{ id: string; type: string; category: string; amount: number; date: string; payeeName: string | null; paymentMethod: string; reference: string | null; note: string | null }>;
+}
+
 const REPORT_TYPES: { value: ReportType; label: string; icon: typeof FileText }[] = [
   { value: "summary", label: "الملخص الشهري", icon: FileText },
   { value: "wages", label: "تقرير الأجور", icon: Users },
   { value: "income", label: "تفصيل المداخيل", icon: TrendingUp },
+  { value: "daily", label: "كشف يومي", icon: CalendarDays },
+  { value: "cancelled", label: "العمليات الملغاة", icon: XCircle },
 ];
 
 // ─────────────────────────────────────────────────────────────
@@ -158,6 +174,7 @@ export function FinancialReports() {
   const [transactions, setTransactions] = useState<TxForReport[]>([]);
   const [employees, setEmployees] = useState<EmployeeForReport[]>([]);
   const [workHours, setWorkHours] = useState<WorkHourForReport[]>([]);
+  const [dailyData, setDailyData] = useState<DailyStatementData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -176,10 +193,23 @@ export function FinancialReports() {
         page: "1",
         limit: "10000",
       });
+      // ★ تقرير العمليات الملغاة يجلب الملغاة فقط — بقية التقارير النشطة فقط (افتراضي)
+      if (reportType === "cancelled") txQuery.set("status", "cancelled");
       const txRes = await fetch(`/api/financial/transactions?${txQuery.toString()}`, { cache: "no-store" });
       if (!txRes.ok) throw new Error("HTTP " + txRes.status);
       const txData = await txRes.json();
       setTransactions(txData.transactions || []);
+
+      // ★ كشف الحساب اليومي من الخادم (رصيد أول اليوم/داخل/خارج/آخر اليوم)
+      if (reportType === "daily") {
+        const dRes = await fetch(`/api/financial/dashboard?day=${dateFrom}`, { cache: "no-store" });
+        if (dRes.ok) {
+          const dJson = await dRes.json();
+          setDailyData(dJson.dayStatement || null);
+        } else {
+          setDailyData(null);
+        }
+      }
 
       // For wages report, also fetch employees + workhours
       if (reportType === "wages") {
@@ -611,6 +641,7 @@ export function FinancialReports() {
               { label: "هذا الأسبوع", from: toDateInputValue(new Date(Date.now() - 6 * 86400000)), to: toDateInputValue(new Date()) },
               { label: "هذا الشهر", from: firstDayOfMonth(), to: lastDayOfMonth() },
               { label: "الشهر الماضي", from: firstDayOfLastMonth(), to: lastDayOfLastMonth() },
+              { label: "هذه السنة", from: toDateInputValue(new Date(new Date().getFullYear(), 0, 1)), to: toDateInputValue(new Date()) },
             ] as const).map((p) => (
               <button
                 key={p.label}
@@ -653,7 +684,7 @@ export function FinancialReports() {
             </div>
             <div className="space-y-1 sm:col-span-2">
               <Label className="text-xs">نوع التقرير</Label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-3 lg:grid-cols-5 gap-2">
                 {REPORT_TYPES.map((r) => (
                   <button
                     key={r.value}
@@ -723,6 +754,12 @@ export function FinancialReports() {
                 total={summary.totalIncome}
                 periodLabel={periodLabel}
               />
+            )}
+            {reportType === "daily" && (
+              <DailyStatementReport data={dailyData} />
+            )}
+            {reportType === "cancelled" && (
+              <CancelledReport rows={periodTransactions} periodLabel={periodLabel} />
             )}
           </motion.div>
         </AnimatePresence>
@@ -1126,6 +1163,164 @@ function EmptyReport({ periodLabel, message }: { periodLabel: string; message: s
         <p className="text-xs text-muted-foreground max-w-md text-center">
           جرّب توسيع نطاق الفترة أو تغيير نوع التقرير. يمكنك أيضاً تسجيل عمليات جديدة من تبويب الدفعات.
         </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// كشف الحساب اليومي — رصيد أول اليوم / داخل / خارج / آخر اليوم + قائمة العمليات
+// ─────────────────────────────────────────────────────────────
+function DailyStatementReport({ data }: { data: DailyStatementData | null }) {
+  if (!data) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center text-sm text-muted-foreground">
+          لا توجد بيانات لهذا اليوم — اختر تاريخاً من «من تاريخ» أعلاه.
+        </CardContent>
+      </Card>
+    );
+  }
+  const fmtD = (s: string) => {
+    try { return new Date(s).toLocaleDateString("ar-DZ", { weekday: "long", day: "2-digit", month: "long", year: "numeric" }); }
+    catch { return s; }
+  };
+  const fmtT = (s: string) => {
+    try { return new Date(s).toLocaleTimeString("ar-DZ", { hour: "2-digit", minute: "2-digit" }); }
+    catch { return ""; }
+  };
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <CalendarDays className="h-4 w-4 text-primary" />
+          كشف الحساب اليومي — {fmtD(data.date)}
+        </CardTitle>
+        <CardDescription className="text-xs">
+          رصيد أول اليوم + حركات اليوم (النشيطة فقط — الملغاة مستثناة) = رصيد آخر اليوم
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="rounded-xl border border-border/60 bg-muted/30 p-3">
+            <p className="text-[11px] text-muted-foreground">رصيد أول اليوم</p>
+            <p className="text-lg font-extrabold tabular-nums">{formatDA(data.openingBalance)}</p>
+          </div>
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
+            <p className="text-[11px] text-muted-foreground">إجمالي الداخل</p>
+            <p className="text-lg font-extrabold tabular-nums text-emerald-600">+{formatDA(data.dayIncome)}</p>
+          </div>
+          <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 p-3">
+            <p className="text-[11px] text-muted-foreground">إجمالي الخارج</p>
+            <p className="text-lg font-extrabold tabular-nums text-rose-600">-{formatDA(data.dayExpense)}</p>
+          </div>
+          <div className="rounded-xl border border-primary/30 bg-primary/5 p-3">
+            <p className="text-[11px] text-muted-foreground">رصيد آخر اليوم</p>
+            <p className={cn("text-lg font-extrabold tabular-nums", data.closingBalance < 0 ? "text-rose-600" : "text-primary")}>
+              {formatDA(data.closingBalance)}
+            </p>
+          </div>
+        </div>
+
+        {data.transactions.length === 0 ? (
+          <p className="text-center text-xs text-muted-foreground py-6">لا توجد عمليات في هذا اليوم</p>
+        ) : (
+          <div className="rounded-xl border border-border/60 overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/60">
+                  <TableHead className="text-xs">الوقت</TableHead>
+                  <TableHead className="text-xs">النوع</TableHead>
+                  <TableHead className="text-xs">الفئة</TableHead>
+                  <TableHead className="text-xs">الجهة</TableHead>
+                  <TableHead className="text-xs text-left">المبلغ</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.transactions.map((t) => (
+                  <TableRow key={t.id}>
+                    <TableCell className="text-xs tabular-nums">{fmtT(t.date)}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className={cn("text-[9px]", t.type === "income" ? "bg-emerald-500/15 text-emerald-700 border-emerald-500/30" : "bg-rose-500/15 text-rose-700 border-rose-500/30")}>
+                        {t.type === "income" ? "داخل" : "خارج"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs">{CATEGORY_LABELS[t.category] || t.category}{t.note ? ` — ${t.note}` : ""}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{t.payeeName || "—"}</TableCell>
+                    <TableCell className={cn("text-xs font-bold tabular-nums text-left", t.type === "income" ? "text-emerald-600" : "text-rose-600")}>
+                      {t.type === "income" ? "+" : "-"}{formatDA(t.amount)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// تقرير العمليات الملغاة — سجل الإلغاءات الكامل (خارج الرصيد)
+// ─────────────────────────────────────────────────────────────
+function CancelledReport({ rows, periodLabel }: { rows: TxForReport[]; periodLabel: string }) {
+  const total = rows.reduce((s, t) => s + t.amount, 0);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <XCircle className="h-4 w-4 text-rose-600" />
+          تقرير العمليات الملغاة — {periodLabel}
+        </CardTitle>
+        <CardDescription className="text-xs">
+          {rows.length} عملية ملغاة بإجمالي {formatDA(total)} — لا تدخل في المداخيل ولا المصاريف ولا الرصيد (موثّقة للاسترجاع والتدقيق)
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {rows.length === 0 ? (
+          <p className="text-center text-xs text-muted-foreground py-6">لا توجد عمليات ملغاة في هذه الفترة ✓</p>
+        ) : (
+          <div className="rounded-xl border border-border/60 overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/60">
+                  <TableHead className="text-xs">التاريخ</TableHead>
+                  <TableHead className="text-xs">النوع</TableHead>
+                  <TableHead className="text-xs">الفئة</TableHead>
+                  <TableHead className="text-xs">الجهة</TableHead>
+                  <TableHead className="text-xs">سبب الإلغاء</TableHead>
+                  <TableHead className="text-xs">ألغاها / وقتها</TableHead>
+                  <TableHead className="text-xs text-left">المبلغ</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((t) => (
+                  <TableRow key={t.id} className="opacity-70">
+                    <TableCell className="text-xs whitespace-nowrap">{formatDate(t.date)}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className={cn("text-[9px]", t.type === "income" ? "bg-emerald-500/15 text-emerald-700 border-emerald-500/30" : "bg-rose-500/15 text-rose-700 border-rose-500/30")}>
+                        {t.type === "income" ? "مدخول" : "مصروف"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs">{CATEGORY_LABELS[t.category] || t.category}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{t.payeeName || "—"}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground max-w-48">
+                      <span className="line-clamp-2">{t.cancellationReason || "—"}</span>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                      {t.cancelledByName || "—"}
+                      {t.cancelledAt ? ` • ${formatDate(t.cancelledAt)}` : ""}
+                    </TableCell>
+                    <TableCell className="text-xs font-bold tabular-nums text-left line-through">
+                      {formatDA(t.amount)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
