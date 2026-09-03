@@ -1,6 +1,4 @@
-// Prisma schema for AquaCore Club Manager — SQLite (Desktop/Electron offline)
-// Auto-generated from schema.prisma by scripts/generate-sqlite-schema.js — DO NOT EDIT MANUALLY
-// For web (Vercel + Postgres), use schema.prisma
+// Prisma schema for RCS Club — Multi-Tenant Platform
 // النادي الهاوي متعدد الرياضات — الرائد سعيدة — فرع السباحة
 // Multi-Tenant: each club is an isolated tenant
 
@@ -9,8 +7,9 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1200,7 +1199,7 @@ model FinancialTransaction {
   user            User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
   // ★ الإلغاء الناعم — لا حذف فعلي للعمليات المالية:
-  // الملغاة تبقى في السجل بـ Badge «ملغاة» ولا تدخل في الرصيد/المداخيل/المصاريف/التقارير
+  // الملغاة تبقى في السجل بوضع «ملغاة» ولا تدخل في الرصيد/المداخيل/المصاريف/التقارير
   status             String    @default("active")   // active | cancelled
   cancelledAt        DateTime?
   cancelledById      String?
