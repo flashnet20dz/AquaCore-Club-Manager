@@ -131,6 +131,36 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "وقت البداية والنهاية مطلوبان" }, { status: 400 });
     }
 
+    // ★ منع التسجيل في يوم مغلق (إعداد poolOperatingDays — غيابه = كل الأيام مفتوحة)
+    const dayKeys = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+    const dayLabels: Record<string, string> = { sun: "الأحد", mon: "الإثنين", tue: "الثلاثاء", wed: "الأربعاء", thu: "الخميس", fri: "الجمعة", sat: "السبت" };
+    const recordDayKey = dayKeys[new Date(`${date}T12:00:00Z`).getUTCDay()];
+    const opDaysRaw = await db.setting.findFirst({ where: { clubId: currentUser.clubId!, key: "poolOperatingDays" } });
+    if (opDaysRaw?.value) {
+      try {
+        const opDays: unknown = JSON.parse(opDaysRaw.value);
+        if (Array.isArray(opDays) && opDays.length > 0 && !opDays.includes(recordDayKey)) {
+          return NextResponse.json({ error: `المسبح مغلق في يوم ${dayLabels[recordDayKey] || recordDayKey} حسب إعدادات أيام الاستغلال` }, { status: 400 });
+        }
+      } catch { /* إعداد تالف → نتجاهل */ }
+    }
+
+    // ★ منع التكرار: نفس العامل + نفس اليوم + نفس وقت البداية (سجل غير مرفوض)
+    const dupStart = parseWallDateTime(date, startTime);
+    const duplicate = await db.workHours.findFirst({
+      where: {
+        clubId: currentUser.clubId!,
+        userId: targetUserId || currentUser.id,
+        date: parseWallDateTime(date, "00:00"),
+        startTime: dupStart,
+        status: { not: "rejected" },
+      },
+      select: { id: true },
+    });
+    if (duplicate) {
+      return NextResponse.json({ error: "سجل مكرر — نفس العامل مسجّل في نفس اليوم ونفس وقت البداية" }, { status: 409 });
+    }
+
     // ★ تخزين wall-clock UTC: الوقت المُدخل يُحفظ كما هو حرفياً —
     // 09:00 تبقى 09:00 في أي خادم وأي متصفح (جذر إصلاح انحراف الساعة +1)
     const startDate = parseWallDateTime(date, startTime);

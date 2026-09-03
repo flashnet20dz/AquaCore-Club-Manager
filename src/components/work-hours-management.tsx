@@ -21,6 +21,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { formatWallTime, formatWallDate, toLocalYMD } from "@/lib/wall-clock";
+import { ExportButton } from "@/components/shared/export-button";
 import { WagesSection } from "@/components/wages/wages-section";
 import { useSwimConfig, invalidateSwimConfig, type SwimSlotOption } from "@/hooks/use-swim-config";
 
@@ -161,8 +162,8 @@ export function WorkHoursManagement({ role }: { role?: string }) {
   const [slotDay, setSlotDay] = useState<string>("general");
   const [slotForm, setSlotForm] = useState({ name: "", startTime: "09:00", endTime: "10:00" });
   const [slotSaving, setSlotSaving] = useState(false);
-  // منتقي الحصة في نموذج «إضافة سجل» — يملأ الأوقات تلقائياً
-  const [selectedSlotId, setSelectedSlotId] = useState<string>("none");
+  // ★ منتقي الحصص المتعدد في نموذج «إضافة سجل» — عدة حصص للعامل في نفس اليوم بسجل واحد
+  const [selectedSlotIds, setSelectedSlotIds] = useState<string[]>([]);
 
   // Form state
   const [form, setForm] = useState({
@@ -231,9 +232,9 @@ export function WorkHoursManagement({ role }: { role?: string }) {
     return () => { cancelled = true; };
   }, [isAdmin]);
 
-  // ★ إعادة ضبط منتقي الحصة عند تغيير التاريخ (حصص اليوم تتبدل)
+  // ★ إعادة ضبط منتقي الحصص عند تغيير التاريخ (حصص اليوم تتبدل)
   useEffect(() => {
-    setSelectedSlotId("none");
+    setSelectedSlotIds([]);
   }, [form.date]);
 
   // Stats
@@ -291,29 +292,74 @@ export function WorkHoursManagement({ role }: { role?: string }) {
       toast.error("التاريخ مطلوب");
       return;
     }
+    const withSessions = !isAbsence && selectedSlots.length > 0;
     setSaving(true);
     try {
-      const res = await fetch("/api/workhours", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      toast.success("تم تسجيل ساعات العمل");
-      setWagesRefresh((n) => n + 1);
-      setDialogOpen(false);
-      setForm({
-        targetUserId: "",
-        date: toLocalYMD(),
-        startTime: "08:00",
-        endTime: "17:00",
-        breakMinutes: 0,
-        workStatus: "present",
-        absenceReason: "",
-        note: "",
-      });
-      fetchWorkHours();
+      if (withSessions) {
+        // ★ تسجيل متعدد الحصص: سجل مستقل لكل حصة بأوقاتها — والخادم يمنع التكرار (409)
+        let created = 0;
+        let duplicated = 0;
+        let lastError = "";
+        for (const slot of selectedSlots) {
+          const res = await fetch("/api/workhours", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...form,
+              startTime: slot.startTime,
+              endTime: slot.endTime,
+              note: [form.note ? form.note.trim() : "", `حصة: ${slot.name}`].filter(Boolean).join(" • "),
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok) created++;
+          else if (res.status === 409) duplicated++;
+          else lastError = data.error || "فشل التسجيل";
+        }
+        if (created > 0) {
+          toast.success(
+            `تم تسجيل ${created} حصة${duplicated > 0 ? ` — تجاهل ${duplicated} مكررة` : ""} (${selectedSlotsTotalHours.toFixed(1).replace(/\.0$/, "")} ساعة)`
+          );
+          setWagesRefresh((n) => n + 1);
+          setDialogOpen(false);
+          setSelectedSlotIds([]);
+          setForm({
+            targetUserId: "",
+            date: toLocalYMD(),
+            startTime: "08:00",
+            endTime: "17:00",
+            breakMinutes: 0,
+            workStatus: "present",
+            absenceReason: "",
+            note: "",
+          });
+          fetchWorkHours();
+        } else {
+          toast.error(lastError || (duplicated > 0 ? "كل الحصص المختارة مسجّلة مسبقاً لنفس العامل في نفس اليوم" : "فشل التسجيل"));
+        }
+      } else {
+        const res = await fetch("/api/workhours", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(form),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        toast.success("تم تسجيل ساعات العمل");
+        setWagesRefresh((n) => n + 1);
+        setDialogOpen(false);
+        setForm({
+          targetUserId: "",
+          date: toLocalYMD(),
+          startTime: "08:00",
+          endTime: "17:00",
+          breakMinutes: 0,
+          workStatus: "present",
+          absenceReason: "",
+          note: "",
+        });
+        fetchWorkHours();
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "فشل");
     } finally {
@@ -438,20 +484,6 @@ export function WorkHoursManagement({ role }: { role?: string }) {
     }
   };
 
-  /** ★ اختيار حصة في نموذج النقاط → ملء الأوقات تلقائياً (والاسم في الملاحظات إن كانت فارغة) */
-  const handleSlotSelect = (id: string) => {
-    setSelectedSlotId(id);
-    if (id === "none") return;
-    const s = swimSlots.find((x) => x.id === id);
-    if (!s) return;
-    setForm((prev) => ({
-      ...prev,
-      startTime: s.startTime,
-      endTime: s.endTime,
-      note: prev.note.trim() === "" ? s.name : prev.note,
-    }));
-  };
-
   // 🔑 تحديد سعر الساعة لكل عامل
   const handleSaveRate = async () => {
     if (!editingRate) return;
@@ -521,10 +553,44 @@ export function WorkHoursManagement({ role }: { role?: string }) {
 
   // ★ حصص اليوم المختار في نموذج النقاط (حصص dayOfWeek=المفتاح + العامة dayOfWeek=null)
   const formDayKey = useMemo(() => dayKeyFromDate(form.date), [form.date]);
+  const formDayOpen = !operatingDaysLoaded || operatingDays.length === 0 || operatingDays.includes(formDayKey || "");
   const pointageSlots = useMemo(() => {
-    if (!formDayKey) return [];
-    return swimSlots.filter((s) => s.active && (s.dayOfWeek === formDayKey || !s.dayOfWeek));
-  }, [swimSlots, formDayKey]);
+    if (!formDayKey || !formDayOpen) return [];
+    return swimSlots
+      .filter((s) => s.active && (s.dayOfWeek === formDayKey || !s.dayOfWeek))
+      .sort((a, b) => a.startTime.localeCompare(b.startTime));
+  }, [swimSlots, formDayKey, formDayOpen]);
+
+  // ★ مدة حصة بالساعات من نصّي "HH:mm" — wall-clock لا تحويل توقيت
+  const slotDurationHours = (start: string, end: string): number => {
+    const [sh, sm] = start.split(":").map(Number);
+    const [eh, em] = end.split(":").map(Number);
+    let mins = eh * 60 + em - (sh * 60 + sm);
+    if (mins <= 0) mins += 24 * 60; // وردية ليلية تعبر منتصف الليل
+    return Math.max(0, mins / 60);
+  };
+
+  const toggleSlot = (id: string) => {
+    setSelectedSlotIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+  const selectAllSlots = () => setSelectedSlotIds(pointageSlots.map((s) => s.id));
+  const clearSelectedSlots = () => setSelectedSlotIds([]);
+
+  /** الحصص المختارة مرتبة زمنياً */
+  const selectedSlots = useMemo(
+    () =>
+      selectedSlotIds
+        .map((id) => pointageSlots.find((s) => s.id === id))
+        .filter((s): s is SwimSlotOption => Boolean(s))
+        .sort((a, b) => a.startTime.localeCompare(b.startTime)),
+    [selectedSlotIds, pointageSlots]
+  );
+
+  /** إجمالي ساعات الحصص المختارة (مع خصم الاستراحة لكل حصة) */
+  const selectedSlotsTotalHours = useMemo(
+    () => selectedSlots.reduce((sum, s) => sum + Math.max(0, slotDurationHours(s.startTime, s.endTime) - (form.breakMinutes || 0) / 60), 0),
+    [selectedSlots, form.breakMinutes]
+  );
 
   // ★ مجموعات عرض حصص المسبح: مجموعة عامة + يوم لكل يوم من الأيام السبعة
   const poolGroups: Array<{ key: string; label: string; general?: boolean }> = [
@@ -545,7 +611,7 @@ export function WorkHoursManagement({ role }: { role?: string }) {
             </div>
           </div>
           <div className="flex gap-2 flex-wrap">
-            <Button size="sm" onClick={() => { setSelectedSlotId("none"); setDialogOpen(true); }} className="bg-teal-600 hover:bg-teal-700 text-white">
+            <Button size="sm" onClick={() => { setSelectedSlotIds([]); setDialogOpen(true); }} className="bg-teal-600 hover:bg-teal-700 text-white">
               <Plus className="h-4 w-4 ml-1" /> إضافة سجل
             </Button>
             <Button size="sm" variant="outline" onClick={() => setRateDialogOpen(true)} className="border-amber-400 text-amber-700 hover:bg-amber-50">
@@ -554,6 +620,25 @@ export function WorkHoursManagement({ role }: { role?: string }) {
             <Button size="sm" variant="outline" onClick={fetchWorkHours}>
               <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
             </Button>
+            <ExportButton
+              rows={filtered}
+              filename={`ساعات-العمل-${currentMonth}`}
+              title="سجل ساعات عمل العمال"
+              formats={["excel", "csv", "pdf", "print"]}
+              disabled={loading}
+              columns={[
+                { key: "name", label: "العامل", format: (w) => w.user.name },
+                { key: "position", label: "الوظيفة", format: (w) => w.user.position || w.user.role },
+                { key: "date", label: "التاريخ", format: (w) => formatDate(w.date) },
+                { key: "in", label: "الدخول", format: (w) => (w.workStatus === "present" ? formatTime(w.startTime) : "—") },
+                { key: "out", label: "الخروج", format: (w) => (w.workStatus === "present" ? formatTime(w.endTime) : "—") },
+                { key: "brk", label: "استراحة (د)", format: (w) => (w.breakMinutes > 0 ? String(w.breakMinutes) : "—") },
+                { key: "hours", label: "الساعات", format: (w) => (w.workStatus === "present" ? calcWorkHours(w.startTime, w.endTime, w.breakMinutes).toFixed(1) : "—") },
+                { key: "state", label: "الحالة", format: (w) => (STATUS_LABELS[w.workStatus] || w.workStatus) },
+                { key: "approval", label: "الاعتماد", format: (w) => (w.status === "approved" ? "موافق" : w.status === "rejected" ? "مرفوض" : "معلّق") },
+                { key: "note", label: "ملاحظات", format: (w) => (w.note || "") },
+              ]}
+            />
           </div>
         </div>
       </div>
@@ -763,42 +848,112 @@ export function WorkHoursManagement({ role }: { role?: string }) {
             {/* أوقات الدوام — تظهر فقط للحضور */}
             {!isAbsence && (
               <>
-                {/* ★ منتقي الحصة — يملأ الأوقات تلقائياً حسب يوم التاريخ المختار */}
+                {/* ★ منتقي الحصص المتعدد — من المصدر الموحّد (إعدادات المسبح) حسب يوم التاريخ */}
                 <div>
-                  <Label className="text-xs font-semibold">الحصة (اختياري)</Label>
-                  <Select value={selectedSlotId} onValueChange={handleSlotSelect}>
-                    <SelectTrigger className="h-9">
-                      <SelectValue placeholder={!formDayKey ? "اختر التاريخ أولاً" : pointageSlots.length ? "اختر حصة لملء الأوقات تلقائياً" : "لا توجد حصص لهذا اليوم"} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">بدون حصة — إدخال يدوي</SelectItem>
-                      {pointageSlots.map((s) => (
-                        <SelectItem key={s.id} value={s.id}>
-                          {s.name} — {s.startTime}–{s.endTime}{!s.dayOfWeek ? " (عامة)" : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {formDayKey && (
-                    <p className="text-[10px] text-muted-foreground mt-0.5">
-                      حصص يوم {POOL_DAY_LABELS[formDayKey] || formDayKey} حسب التاريخ — بدون حصة يبقى الإدخال يدوياً كما هو.
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <Label className="text-xs font-semibold">الحصص — اختيار متعدد</Label>
+                    {pointageSlots.length > 0 && (
+                      <div className="flex items-center gap-1">
+                        <button type="button" onClick={selectAllSlots} className="text-[10px] font-bold px-2 py-1 rounded-md border border-teal-500/40 text-teal-700 hover:bg-teal-500/10 transition">
+                          تحديد الكل
+                        </button>
+                        <button type="button" onClick={clearSelectedSlots} disabled={selectedSlotIds.length === 0} className="text-[10px] font-bold px-2 py-1 rounded-md border border-border text-muted-foreground hover:bg-muted transition disabled:opacity-40">
+                          إلغاء التحديد
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {!formDayOpen ? (
+                    <div className="rounded-lg border border-rose-500/30 bg-rose-500/5 p-2.5 text-xs text-rose-600 font-semibold text-center">
+                      🔒 المسبح مغلق في يوم {POOL_DAY_LABELS[formDayKey || ""] || formDayKey} حسب إعدادات أيام الاستغلال — سجّل الحضور كإدخال يدوي أو غيّر الإعدادات.
+                    </div>
+                  ) : pointageSlots.length === 0 ? (
+                    <p className="text-[11px] text-muted-foreground bg-muted/40 rounded-lg p-2">
+                      لا توجد حصص مفعّلة ليوم {POOL_DAY_LABELS[formDayKey || ""] || formDayKey} — استخدم الإدخال اليدوي بالأسفل أو أضف حصصاً من قسم إعدادات المسبح.
                     </p>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                        {pointageSlots.map((s) => {
+                          const picked = selectedSlotIds.includes(s.id);
+                          const dur = slotDurationHours(s.startTime, s.endTime);
+                          return (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onClick={() => toggleSlot(s.id)}
+                              aria-pressed={picked}
+                              className={cn(
+                                "text-right rounded-xl border-2 p-2 transition-all select-none min-h-[52px]",
+                                picked
+                                  ? "border-teal-500 bg-teal-500/10 shadow-sm"
+                                  : "border-border bg-background hover:border-teal-500/40 hover:bg-muted/30"
+                              )}
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <span className={cn(
+                                  "w-4 h-4 rounded-md border-2 flex items-center justify-center shrink-0",
+                                  picked ? "bg-teal-600 border-teal-600" : "border-muted-foreground/40"
+                                )}>
+                                  {picked && <Check className="h-3 w-3 text-white" />}
+                                </span>
+                                <span className={cn("text-[11px] font-bold truncate", picked ? "text-teal-800" : "text-foreground")}>
+                                  {s.name}{!s.dayOfWeek ? " (عامة)" : ""}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-muted-foreground mt-0.5 pr-5 tabular-nums">
+                                {s.startTime} - {s.endTime} • {dur % 1 === 0 ? dur : dur.toFixed(1)} سا
+                              </p>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* إجماليات الحصص المختارة */}
+                      {selectedSlots.length > 0 && (
+                        <div className="mt-2 rounded-lg bg-teal-500/5 border border-teal-500/25 p-2 flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground">
+                            عدد الحصص: <span className="font-extrabold text-teal-700">{selectedSlots.length}</span>
+                          </span>
+                          <span className="text-muted-foreground">
+                            إجمالي ساعات العمل:{" "}
+                            <span className="font-extrabold text-teal-700">
+                              {selectedSlotsTotalHours % 1 === 0 ? selectedSlotsTotalHours : selectedSlotsTotalHours.toFixed(1)} ساعة
+                            </span>
+                          </span>
+                          {(() => {
+                            const st = staff.find((x) => x.id === form.targetUserId);
+                            if (!st || !st.hourlyRate) return null;
+                            return (
+                              <span className="text-muted-foreground">
+                                الأجر: <span className="font-extrabold text-amber-600">{Math.round(selectedSlotsTotalHours * st.hourlyRate).toLocaleString()} دج</span>
+                              </span>
+                            );
+                          })()}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <Label className="text-xs font-semibold">الدخول</Label>
-                    <Input type="time" value={form.startTime} onChange={(e) => { setForm({ ...form, startTime: e.target.value }); setSelectedSlotId("none"); }} className="h-9" />
+
+                {/* الإدخال اليدوي — يظهر فقط بلا حصص مختارة */}
+                {selectedSlots.length === 0 && (
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <Label className="text-xs font-semibold">الدخول</Label>
+                      <Input type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} className="h-9" />
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">الخروج</Label>
+                      <Input type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} className="h-9" />
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">استراحة (دقيقة)</Label>
+                      <Input type="number" min={0} max={240} value={form.breakMinutes} onChange={(e) => setForm({ ...form, breakMinutes: +e.target.value })} className="h-9" />
+                    </div>
                   </div>
-                  <div>
-                    <Label className="text-xs font-semibold">الخروج</Label>
-                    <Input type="time" value={form.endTime} onChange={(e) => { setForm({ ...form, endTime: e.target.value }); setSelectedSlotId("none"); }} className="h-9" />
-                  </div>
-                  <div>
-                    <Label className="text-xs font-semibold">استراحة (دقيقة)</Label>
-                    <Input type="number" min={0} max={240} value={form.breakMinutes} onChange={(e) => setForm({ ...form, breakMinutes: +e.target.value })} className="h-9" />
-                  </div>
-                </div>
+                )}
               </>
             )}
 
@@ -810,8 +965,8 @@ export function WorkHoursManagement({ role }: { role?: string }) {
               </div>
             )}
 
-            {/* معاينة الساعات */}
-            {!isAbsence && (
+            {/* معاينة الساعات — للإدخال اليدوي فقط (للحصص تظهر الإجماليات أعلاه) */}
+            {!isAbsence && selectedSlots.length === 0 && (
               <div className="rounded-lg bg-teal-500/5 border border-teal-500/20 p-2 text-xs">
                 <span className="text-muted-foreground">ساعات العمل: </span>
                 <span className="font-bold text-teal-700">
@@ -845,7 +1000,7 @@ export function WorkHoursManagement({ role }: { role?: string }) {
             <Button variant="outline" onClick={() => setDialogOpen(false)}>إلغاء</Button>
             <Button onClick={handleSave} disabled={saving} className="bg-teal-600 hover:bg-teal-700 text-white">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4 ml-1" />}
-              تسجيل
+              {selectedSlots.length > 0 ? `تسجيل ${selectedSlots.length} حصة` : "تسجيل"}
             </Button>
           </DialogFooter>
         </DialogContent>

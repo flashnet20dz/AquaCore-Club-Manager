@@ -43,6 +43,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { toLocalYMD } from "@/lib/wall-clock";
+import { ExportButton } from "@/components/shared/export-button";
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -301,8 +302,27 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
               </p>
             </div>
           </div>
-          {/* اختيار الفترة */}
+          {/* اختيار الفترة + تصدير */}
           <div className="flex items-center gap-1.5 flex-wrap">
+            <ExportButton
+              rows={activeWorkers}
+              filename={`أجور-العمال-${periodLabel.replace(/\s/g, "-")}`}
+              title={`أجور العمال — ${periodLabel}`}
+              formats={["excel", "csv", "pdf", "print"]}
+              disabled={loading}
+              columns={[
+                { key: "name", label: "العامل", format: (w) => w.name },
+                { key: "position", label: "الوظيفة", format: (w) => w.position || ROLE_LABELS[w.role] || w.role },
+                { key: "days", label: "أيام العمل", format: (w) => String(w.daysWorked) },
+                { key: "sessions", label: "الحصص", format: (w) => String(w.sessions) },
+                { key: "hours", label: "الساعات", format: (w) => String(w.totalHours) },
+                { key: "rate", label: "سعر الساعة", format: (w) => String(w.hourRate) },
+                { key: "gross", label: "الإجمالي", format: (w) => formatDA(w.gross) },
+                { key: "paid", label: "المدفوع", format: (w) => formatDA(w.paid) },
+                { key: "remaining", label: "المتبقي", format: (w) => formatDA(w.remaining) },
+                { key: "status", label: "حالة الدفع", format: (w) => (STATUS_UI[w.status]?.label || w.status) },
+              ]}
+            />
             <div className="flex rounded-xl border border-border overflow-hidden">
               <button
                 onClick={() => setMode("month")}
