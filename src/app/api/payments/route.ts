@@ -141,22 +141,40 @@ export async function DELETE(req: NextRequest) {
     const id = url.searchParams.get("id");
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-    const existing = await db.payment.findUnique({ where: { id } });
+    // سبب الإلغاء (يُرسل من نافذة الإلغاء — إلزامي للتوثيق المحاسبي)
+    const body = await req.json().catch(() => ({}));
+    const reason = (body?.reason || "").trim();
+    if (reason.length < 3) {
+      return NextResponse.json({ error: "سبب الإلغاء إلزامي (3 أحرف على الأقل)" }, { status: 400 });
+    }
+
+    const existing = await db.payment.findUnique({ where: { id }, include: { user: { select: { name: true } } } });
     if (!existing) return NextResponse.json({ error: "غير موجود" }, { status: 404 });
     // Verify the payment belongs to the user's club (superadmin bypasses)
     if (user.role !== "superadmin" && existing.clubId !== user.clubId) {
       return NextResponse.json({ error: "غير موجود" }, { status: 404 });
     }
 
-    // ★ ذرّية: حذف الدفعة + القيد المرحّل المرتبط بها في الدفتر المالي
+    // ★ ذرّية: حذف الدفعة + القيد المرحّل المرتبط بها في الدفتر المالي + سجل التدقيق
     await db.$transaction(async (tx) => {
       await tx.payment.delete({ where: { id } });
       const refs = [`payment:${id}`];
       if (existing.subscriberId) refs.push(`bulk-ins:${existing.subscriberId}`, `bulk-comp:${existing.subscriberId}`);
       await deleteLedgerByReferencesTx(tx, existing.clubId, refs);
+      await tx.auditLog.create({
+        data: {
+          clubId: existing.clubId,
+          userId: user.id,
+          action: "payment_void",
+          entityType: "Payment",
+          entityId: existing.id,
+          description: `إلغاء دفعة ${existing.amount} دج (${existing.category})${existing.user?.name ? ` للعامل ${existing.user.name}` : ""} — السبب: ${reason}`,
+          metadata: JSON.stringify({ amount: existing.amount, category: existing.category, method: existing.method, reason }),
+        },
+      }).catch(() => undefined);
     });
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, message: "تم إلغاء الدفعة وحذف قيدها المالي إن وجد" });
   } catch (e) {
     console.error("DELETE payment:", e);
     return NextResponse.json({ error: "Internal" }, { status: 500 });

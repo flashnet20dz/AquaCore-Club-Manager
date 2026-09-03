@@ -237,10 +237,41 @@ export async function GET(req: NextRequest) {
     if (!currentUser.clubId) return NextResponse.json({ error: "النادي غير محدد" }, { status: 400 });
 
     const { workers, totals } = await computeWages(currentUser.clubId, from, to);
+
+    // ★ سجل عالمي بكل تسديدات الأجور (كل الفترات — الجديدة والقديمة)
+    // حتى يستطيع المدير إيجاد وإلغاء أي تسديد خاطئ مهما كانت الفترة المعروضة
+    const [recentWp, recentLegacy] = await Promise.all([
+      db.wagePayment.findMany({
+        where: { clubId: currentUser.clubId },
+        orderBy: { paidAt: "desc" },
+        take: 40,
+        include: { user: { select: { name: true } } },
+      }),
+      db.payment.findMany({
+        where: { clubId: currentUser.clubId, category: "salary" },
+        orderBy: { date: "desc" },
+        take: 40,
+        include: { user: { select: { name: true } } },
+      }),
+    ]);
+    const recentPayments = [
+      ...recentWp.map((p) => ({
+        id: p.id, workerName: p.user.name, amount: p.amount, method: p.method,
+        paidAt: p.paidAt.toISOString(), note: p.note, periodLabel: p.periodLabel,
+        transactionId: p.transactionId, legacy: false,
+      })),
+      ...recentLegacy.map((p) => ({
+        id: p.id, workerName: p.user?.name || "—", amount: p.amount, method: "cash",
+        paidAt: p.date.toISOString(), note: p.note, periodLabel: "سجل قديم",
+        transactionId: null as string | null, legacy: true,
+      })),
+    ].sort((a, b) => (a.paidAt < b.paidAt ? 1 : -1)).slice(0, 60);
+
     return NextResponse.json({
       period: { from, to, label: wagePeriodLabel(from, to) },
       workers,
       totals,
+      recentPayments,
       // ★ الصلاحية تُصدَر من الخادم — زر «إلغاء التسديد» يظهر فقط لمن يملك حق الإلغاء فعلاً
       viewer: { canVoid: currentUser.role === "admin" || currentUser.role === "superadmin" },
     });

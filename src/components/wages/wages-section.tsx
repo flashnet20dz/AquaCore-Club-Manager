@@ -80,6 +80,8 @@ interface WagesResponse {
   totals: { gross: number; paid: number; remaining: number };
   /** صلاحية الإلغاء تُصدَر من الخادم (admin/superadmin فقط) */
   viewer?: { canVoid: boolean };
+  /** ★ كل التسديدات — كل الفترات (الجديدة والقديمة) — للعثور على أي تسديد خاطئ وإلغائه */
+  recentPayments?: Array<WagePaymentRow & { workerName: string }>;
 }
 
 interface WagesSectionProps {
@@ -238,21 +240,22 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
 
   const handleVoid = async () => {
     if (!voidTarget) return;
-    if (voidTarget.legacy) {
-      toast.error("السجلات القديمة تُدار من الدفتر المالي");
-      return;
-    }
     if (voidReason.trim().length < 3) {
       toast.error("سبب الإلغاء إلزامي (3 أحرف على الأقل)");
       return;
     }
     setVoiding(true);
     try {
-      const res = await fetch(`/api/wages/${voidTarget.id}`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: voidReason.trim() }),
-      });
+      // الجديدة: DELETE /api/wages/[id] — القديمة (Payment salary سابقة): DELETE /api/payments?id=
+      // كلاهما ذرّي ويحذف القيد المرتبط ويعيد حساب الرصيد ويوثّق في سجل التدقيق
+      const res = await fetch(
+        voidTarget.legacy ? `/api/payments?id=${voidTarget.id}` : `/api/wages/${voidTarget.id}`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: voidReason.trim() }),
+        }
+      );
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "فشل الإلغاء");
       toast.success("تم إلغاء التسديد وحذف قيده المالي من المركز");
@@ -276,6 +279,7 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
     const rows = activeWorkers.flatMap((w) => w.payments.map((p) => ({ ...p, workerName: w.name })));
     return rows.sort((a, b) => (a.paidAt < b.paidAt ? 1 : -1));
   }, [activeWorkers]);
+  const recentAll = data?.recentPayments ?? [];
 
   return (
     <div className={cn("space-y-3", compact && "space-y-2")} id="wages-section">
@@ -526,7 +530,7 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
                   <Badge variant="outline" className="bg-emerald-500/15 text-emerald-700 border-emerald-500/30 tabular-nums shrink-0">
                     {formatDA(p.amount)}
                   </Badge>
-                  {canVoid && !p.legacy && (
+                  {canVoid && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -542,6 +546,55 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ═══ كل التسديدات — كل الفترات (للعثور على أي تسديد خاطئ وإلغائه مهما كانت الفترة) ═══ */}
+      {recentAll.length > 0 && (
+        <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
+          <div className="p-3 border-b flex items-center justify-between gap-2">
+            <h4 className="font-bold text-sm flex items-center gap-1.5">
+              <History className="h-4 w-4 text-muted-foreground" /> كل التسديدات — كل الفترات
+            </h4>
+            <Badge variant="secondary" className="text-[10px]">{recentAll.length} عملية</Badge>
+          </div>
+          {canVoid && (
+            <p className="px-3 pt-2 text-[11px] text-muted-foreground flex items-center gap-1">
+              <XCircle className="h-3 w-3 text-rose-500" />
+              تسديد قديم أو خاطئ؟ ابحث عنه هنا (بغضّ النظر عن الفترة المعروضة) واضغط «إلغاء».
+            </p>
+          )}
+          <div className="divide-y divide-border/40 max-h-72 overflow-y-auto mt-1.5">
+            {recentAll.map((p) => (
+              <div key={p.id} className="flex items-center gap-2 px-3 py-2 text-sm">
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold truncate">
+                    {p.workerName}
+                    {p.legacy && <span className="text-[9px] text-muted-foreground"> (سجل قديم)</span>}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground truncate">
+                    {fmtDateTime(p.paidAt)} • {METHOD_LABELS[p.method] || p.method} • الفترة: {p.periodLabel}
+                    {p.note ? ` • ${p.note}` : ""}
+                  </p>
+                </div>
+                <Badge variant="outline" className="bg-emerald-500/15 text-emerald-700 border-emerald-500/30 tabular-nums shrink-0">
+                  {formatDA(p.amount)}
+                </Badge>
+                {canVoid && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { setVoidTarget(p); setVoidReason(""); }}
+                    className="h-7 px-2.5 text-xs gap-1 shrink-0 text-rose-600 border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-700"
+                    title="إلغاء هذا التسديد"
+                    aria-label={`إلغاء تسديد ${formatDA(p.amount)} للعامل ${p.workerName}`}
+                  >
+                    <XCircle className="h-3.5 w-3.5" /> إلغاء
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -630,9 +683,17 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
               <XCircle className="h-5 w-5 text-rose-600" /> إلغاء تسديد الأجر
             </AlertDialogTitle>
             <AlertDialogDescription className="text-sm leading-relaxed">
-              سيُحذف سجل التسديد <strong>{voidTarget ? formatDA(voidTarget.amount) : ""}</strong>
-              {voidTarget?.workerName ? ` للعامل ${voidTarget.workerName}` : ""} مع قيده المالي من المركز المالي معاً (عملية واحدة).
-              هذا الإجراء موثّق في سجل التدقيق.
+              {voidTarget?.legacy ? (
+                <>
+                  هذا <strong>سجل تسديد قديم</strong> — سيُحذف من سجل الدفعات مع قيده المالي المرحَّل إن وجد (عملية واحدة موثّقة في سجل التدقيق).
+                </>
+              ) : (
+                <>
+                  سيُحذف سجل التسديد <strong>{voidTarget ? formatDA(voidTarget.amount) : ""}</strong>
+                  {voidTarget?.workerName ? ` للعامل ${voidTarget.workerName}` : ""} مع قيده المالي من المركز المالي معاً (عملية واحدة).
+                  هذا الإجراء موثّق في سجل التدقيق.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-1.5">
