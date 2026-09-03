@@ -14,6 +14,8 @@
  *    المتبقي، المبلغ، تاريخ الدفع، الطريقة، ملاحظات)
  *  • التسديد ينشئ قيداً مالياً واحداً (POST /api/wages) يظهر فوراً في
  *    المركز المالي — والإلغاء من أي صفحة يحذف نفس القيد (Single Source of Truth)
+ *  • «إلغاء التسديد» في حالة الخطأ: زر واضح في سجل التسديدات (للمدير فقط —
+ *    الصلاحية تُصدَر من الخادم viewer.canVoid) → DELETE /api/wages/[id] بسبب إلزامي
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -76,6 +78,8 @@ interface WagesResponse {
   period: { from: string; to: string; label: string };
   workers: WorkerWage[];
   totals: { gross: number; paid: number; remaining: number };
+  /** صلاحية الإلغاء تُصدَر من الخادم (admin/superadmin فقط) */
+  viewer?: { canVoid: boolean };
 }
 
 interface WagesSectionProps {
@@ -265,6 +269,8 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
 
   const periodLabel = data?.period.label ?? (mode === "month" ? monthName(currentMonth) : `${rangeFrom} → ${rangeTo}`);
   const totals = data?.totals ?? { gross: 0, paid: 0, remaining: 0 };
+  // ★ إلغاء التسديد في حالة الخطأ — للمدير فقط (الصلاحية من الخادم لا من الواجهة)
+  const canVoid = data?.viewer?.canVoid ?? false;
   const activeWorkers = useMemo(() => data?.workers.filter((w) => w.totalHours > 0 || w.paid > 0) ?? [], [data]);
   const allPayments = useMemo(() => {
     const rows = activeWorkers.flatMap((w) => w.payments.map((p) => ({ ...p, workerName: w.name })));
@@ -485,41 +491,57 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
         )}
       </div>
 
-      {/* ═══ سجل تسديدات الفترة ═══ */}
-      {allPayments.length > 0 && (
+      {/* ═══ سجل تسديدات الفترة + إلغاء الخطأ ═══ */}
+      {activeWorkers.length > 0 && (
         <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
-          <div className="p-3 border-b flex items-center justify-between">
-            <h4 className="font-bold text-sm flex items-center gap-1.5">
-              <History className="h-4 w-4 text-muted-foreground" /> سجل تسديدات الفترة
-            </h4>
-            <Badge variant="secondary" className="text-[10px]">{allPayments.length} تسديد</Badge>
+          <div className="p-3 border-b space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <h4 className="font-bold text-sm flex items-center gap-1.5">
+                <History className="h-4 w-4 text-muted-foreground" /> سجل تسديدات الفترة
+              </h4>
+              <Badge variant="secondary" className="text-[10px]">{allPayments.length} تسديد</Badge>
+            </div>
+            {canVoid && allPayments.length > 0 && (
+              <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                <XCircle className="h-3 w-3 text-rose-500" />
+                أخطأت في تسديد؟ اضغط «إلغاء» بجانب العملية — يُحذف قيدها من المركز المالي فوراً وتُحدَّث كل الأرقام (موثّق في سجل التدقيق).
+              </p>
+            )}
           </div>
-          <div className="divide-y divide-border/40 max-h-56 overflow-y-auto">
-            {allPayments.map((p) => (
-              <div key={p.id} className="flex items-center gap-2 px-3 py-2 text-sm">
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold truncate">{p.workerName}{p.legacy && <span className="text-[9px] text-muted-foreground"> (سجل قديم)</span>}</p>
-                  <p className="text-[10px] text-muted-foreground">
-                    {fmtDateTime(p.paidAt)} • {METHOD_LABELS[p.method] || p.method} • القيد: {p.transactionId ? p.transactionId.slice(-8) : "—"}
-                    {p.note ? ` • ${p.note}` : ""}
-                  </p>
+          {allPayments.length === 0 ? (
+            <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+              لا توجد تسديدات في هذه الفترة بعد — بعد التسديد تجد كل العملية هنا ويمكن إلغاء أي خطأ منها.
+            </div>
+          ) : (
+            <div className="divide-y divide-border/40 max-h-56 overflow-y-auto">
+              {allPayments.map((p) => (
+                <div key={p.id} className="flex items-center gap-2 px-3 py-2 text-sm">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold truncate">{p.workerName}{p.legacy && <span className="text-[9px] text-muted-foreground"> (سجل قديم)</span>}</p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {fmtDateTime(p.paidAt)} • {METHOD_LABELS[p.method] || p.method} • القيد: {p.transactionId ? p.transactionId.slice(-8) : "—"}
+                      {p.note ? ` • ${p.note}` : ""}
+                    </p>
+                  </div>
+                  <Badge variant="outline" className="bg-emerald-500/15 text-emerald-700 border-emerald-500/30 tabular-nums shrink-0">
+                    {formatDA(p.amount)}
+                  </Badge>
+                  {canVoid && !p.legacy && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { setVoidTarget(p); setVoidReason(""); }}
+                      className="h-7 px-2.5 text-xs gap-1 shrink-0 text-rose-600 border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-700"
+                      title="إلغاء هذا التسديد (يحذف قيده من المركز المالي)"
+                      aria-label={`إلغاء تسديد ${formatDA(p.amount)} للعامل ${p.workerName}`}
+                    >
+                      <XCircle className="h-3.5 w-3.5" /> إلغاء
+                    </Button>
+                  )}
                 </div>
-                <Badge variant="outline" className="bg-emerald-500/15 text-emerald-700 border-emerald-500/30 tabular-nums shrink-0">
-                  {formatDA(p.amount)}
-                </Badge>
-                {!p.legacy && (
-                  <button
-                    onClick={() => { setVoidTarget(p); setVoidReason(""); }}
-                    className="p-1 text-muted-foreground hover:text-rose-500 transition shrink-0"
-                    title="إلغاء التسديد (يحذف قيده من المركز المالي)"
-                    aria-label={`إلغاء تسديد ${p.workerName}`}
-                  >
-                    <XCircle className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -532,6 +554,7 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
             </DialogTitle>
             <DialogDescription className="text-xs">
               ينشئ القيد المالي فوراً في المركز المالي — نفس العملية من أي صفحة، بلا ازدواج.
+              في حالة الخطأ يمكن إلغاء هذا التسديد من «سجل التسديدات» بالأسفل.
             </DialogDescription>
           </DialogHeader>
           {payTarget && (
@@ -614,7 +637,8 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
           </AlertDialogHeader>
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold">سبب الإلغاء *</Label>
-            <Input value={voidReason} onChange={(e) => setVoidReason(e.target.value)} placeholder="مثال: خطأ في المبلغ..." className="h-9" aria-label="سبب الإلغاء" />
+            <Input autoFocus value={voidReason} onChange={(e) => setVoidReason(e.target.value)} placeholder="مثال: خطأ في المبلغ..." className="h-9" aria-label="سبب الإلغاء" />
+            <p className="text-[11px] text-muted-foreground">سيُحذف القيد من دفتر المعاملات ويُعاد المبلغ إلى المتبقي للعامل تلقائياً.</p>
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>رجوع</AlertDialogCancel>

@@ -241,6 +241,8 @@ export async function GET(req: NextRequest) {
       period: { from, to, label: wagePeriodLabel(from, to) },
       workers,
       totals,
+      // ★ الصلاحية تُصدَر من الخادم — زر «إلغاء التسديد» يظهر فقط لمن يملك حق الإلغاء فعلاً
+      viewer: { canVoid: currentUser.role === "admin" || currentUser.role === "superadmin" },
     });
   } catch (e) {
     if (isMissingTableErr(e)) {
