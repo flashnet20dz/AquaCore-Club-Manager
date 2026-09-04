@@ -37,8 +37,8 @@ export async function POST(req: NextRequest) {
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
     const prevMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
     const [monthRev, prevRev] = await Promise.all([
-      db.payment.aggregate({ where: { ...(clubId ? { clubId } : {}), date: { gte: monthStart } }, _sum: { amount: true } }),
-      db.payment.aggregate({ where: { ...(clubId ? { clubId } : {}), date: { gte: prevMonthStart, lt: monthStart } }, _sum: { amount: true } }),
+      db.payment.aggregate({ where: { ...(clubId ? { clubId } : {}), status: { not: "cancelled" }, date: { gte: monthStart } }, _sum: { amount: true } }),
+      db.payment.aggregate({ where: { ...(clubId ? { clubId } : {}), status: { not: "cancelled" }, date: { gte: prevMonthStart, lt: monthStart } }, _sum: { amount: true } }),
     ]);
 
     const weekAgo = new Date(today.getTime() - 7 * dayMs);

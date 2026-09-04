@@ -18,8 +18,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { utcRange, parseWallDateTime } from "@/lib/wall-clock";
-import { applyBalanceDelta, recomputeBalanceTx } from "@/lib/financial-posting";
-import { ensureRuntimeColumns } from "@/lib/runtime-schema";
+import { postLedgerEntry, recomputeBalanceTx } from "@/lib/financial-posting";
+import { ensureRuntimeColumns, ensureFinancialIndexes } from "@/lib/runtime-schema";
 
 // ═══════════════════════════════════════════════════════════
 // ★ إصلاح ذاتي للإنتاج: Vercel build لا يُنفّذ db:push —
@@ -125,9 +125,10 @@ async function computeWages(clubId: string, from: string, to: string) {
   });
 
   // دفعات salary قديمة (قبل نظام WagePayment) المؤرخة داخل الفترة — تُحتسب مدفوعاً
+  // ★ الملغاة مستثناة من الحساب (تبقى في التاريخ فقط)
   const legacySalary = await db.payment.findMany({
-    where: { clubId, category: "salary", date: { gte: start, lte: end } },
-    select: { id: true, userId: true, amount: true, date: true, note: true },
+    where: { clubId, category: "salary", status: { not: "cancelled" }, date: { gte: start, lte: end } },
+    select: { id: true, userId: true, amount: true, date: true, note: true, status: true },
   });
 
   // تجميع الساعات لكل عامل
@@ -188,6 +189,7 @@ async function computeWages(clubId: string, from: string, to: string) {
         ...legacySalary.filter((p) => p.userId === u.id).map((p) => ({
           id: p.id, amount: p.amount, method: "cash", paidAt: p.date.toISOString(),
           note: p.note || "تسديد أجر (سجل قديم)", periodLabel: "—", transactionId: null, legacy: true,
+          status: p.status, cancelledAt: null as string | null, cancellationReason: null as string | null,
         })),
       ],
     };
@@ -273,6 +275,7 @@ export async function GET(req: NextRequest) {
         id: p.id, workerName: p.user?.name || "—", amount: p.amount, method: "cash",
         paidAt: p.date.toISOString(), note: p.note, periodLabel: "سجل قديم",
         transactionId: null as string | null, legacy: true,
+        status: p.status, cancelledAt: p.cancelledAt?.toISOString() ?? null, cancellationReason: p.cancellationReason,
       })),
     ].sort((a, b) => (a.paidAt < b.paidAt ? 1 : -1)).slice(0, 60);
 
@@ -299,6 +302,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     await ensureRuntimeColumns();
+    await ensureFinancialIndexes();
     const currentUser = await getCurrentUser();
     // ★ صلاحية مالية حساسة: admin/superadmin فقط (تتحقق في الخادم لا في الواجهة)
     if (!currentUser || (currentUser.role !== "admin" && currentUser.role !== "superadmin")) {
@@ -365,30 +369,30 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      // 2) القيد المالي الوحيد — مرجع wage:{id} يستحيل معه ازدواج
-      const ledger = await tx.financialTransaction.create({
-        data: {
-          clubId,
-          type: "expense",
-          category: "wages",
-          amount: amountNum,
-          date: paidAtDate,
-          paymentMethod: wageMethod,
-          payeeName: worker.name,
-          payeeId: userId,
-          reference: `wage:${wp.id}`,
-          note: `تسديد أجر — الفترة ${label}${note?.trim() ? ` • ${note.trim()}` : ""}`,
-          createdById: currentUser.id,
-        },
+      // 2) القيد المالي الوحيد عبر النواة الموحّدة (رقم FIN + idempotency + رصيد ذرّي)
+      // مرجع wage:{id} يستحيل معه ازدواج (فهرس فريد جزئي + تحقق استباقي)
+      const ledger = await postLedgerEntry(tx, {
+        clubId,
+        type: "expense",
+        category: "wages",
+        amount: amountNum,
+        date: paidAtDate,
+        paymentMethod: wageMethod,
+        payeeName: worker.name,
+        payeeId: userId,
+        employeeId: userId,
+        reference: `wage:${wp.id}`,
+        note: `تسديد أجر — الفترة ${label}${note?.trim() ? ` • ${note.trim()}` : ""}`,
+        createdById: currentUser.id,
       });
+      if (ledger.duplicate) {
+        throw new Error("DUPLICATE_WAGE_PAYMENT");
+      }
 
       // 3) الربط 1:1 (قيد UNIQUE على transactionId يمنع التكرار في قاعدة البيانات نفسها)
       await tx.wagePayment.update({ where: { id: wp.id }, data: { transactionId: ledger.id } });
 
-      // 4) الرصيد اللحظي
-      await applyBalanceDelta(tx, clubId, "expense", "wages", amountNum);
-
-      // 5) سجل التدقيق (لا يعطّل العملية المالية إذا فشل)
+      // 4) سجل التدقيق (الرصيد حُدّث ذرّياً داخل postLedgerEntry — لا تحديث مزدوج)
       await tx.auditLog.create({
         data: {
           clubId,
@@ -397,15 +401,18 @@ export async function POST(req: NextRequest) {
           entityType: "WagePayment",
           entityId: wp.id,
           description: `تسديد أجر ${amountNum} دج للعامل ${worker.name} — الفترة ${label} — من ${src}`,
-          metadata: JSON.stringify({ amount: amountNum, period: label, method: wageMethod, transactionId: ledger.id, source: src }),
+          metadata: JSON.stringify({ amount: amountNum, period: label, method: wageMethod, transactionId: ledger.id, financialNumber: ledger.number, source: src }),
         },
       }).catch(() => undefined);
 
-      return { wagePaymentId: wp.id, transactionId: ledger.id };
+      return { wagePaymentId: wp.id, transactionId: ledger.id, financialNumber: ledger.number };
     });
 
     return NextResponse.json({ success: true, ...result, message: "تم تسديد الأجر — القيد مرتبط 1:1 ولا يمكن تكراره" }, { status: 201 });
   } catch (e) {
+    if (e instanceof Error && e.message === "DUPLICATE_WAGE_PAYMENT") {
+      return NextResponse.json({ error: "هذا التسديد مقيّد مسبقاً في الدفتر — لا ازدواج" }, { status: 409 });
+    }
     if (isMissingTableErr(e)) {
       try { await ensureWageTable(); return NextResponse.json({ retry: true }, { status: 503 }); } catch { /* fallthrough */ }
     }

@@ -7,9 +7,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -329,6 +329,12 @@ model Payment {
   note            String?
   status          String   @default("paid")
   createdAt       DateTime @default(now())
+
+  // ★ الإلغاء الناعم — الدفعة لا تُحذف فعلياً (المرحلة 9/41):
+  // status="cancelled" + من ألغى/متى/لماذا — السجل التاريخي محفوظ دائماً
+  cancelledAt        DateTime?
+  cancelledById      String?
+  cancellationReason String?
 
   @@index([clubId])
   @@index([clubId, subscriberId])
@@ -1205,15 +1211,22 @@ model FinancialTransaction {
   cancelledById      String?
   cancellationReason String?
 
+  // ★ رقم العملية المالي للمستخدم (المرحلة 13): FIN-2026-000001 — فريد لكل نادي
+  // seq يتولد تلقائياً في postLedgerEntry داخل نفس الذرّية؛ القديمة تُرقّم بالـ backfill
+  seq Int?
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   // ★ تسديدات الأجور المرتبطة بهذا القيد (1:1 فعلياً — transactionId فريد في WagePayment)
   wagePayment     WagePayment?
 
+  @@unique([clubId, seq])
   @@index([clubId, type, category])
   @@index([clubId, date])
   @@index([clubId, payeeName])
+  @@index([clubId, status])
+  @@index([clubId, reference])
 }
 
 // ═══════════════════════════════════════════════════════════

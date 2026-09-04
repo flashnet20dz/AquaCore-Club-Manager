@@ -91,13 +91,6 @@ import { POSReceipt } from "@/components/pos-receipt";
 interface Stats {
   total: number;
   paid: number;
-  financial: {
-    totalSubscriptionFees: number;
-    totalInsuranceFees: number;
-    totalCompoundRights: number;
-    totalRevenue: number;
-    avgPayment: number;
-  };
   bySubscriptionType: { type: string; count: number }[];
   byPaymentStatus: { status: string; count: number }[];
   byRenewalStatus: { status: string; count: number }[];
@@ -110,12 +103,27 @@ interface Stats {
   byBloodType: { type: string; count: number }[];
   bySwimmingDays: { days: string; count: number }[];
   byTimeSlot: { slot: string; count: number }[];
-  financialDetail: {
-    count300: number; sum300: number;
-    count1300: number; sum1300: number;
-    count1500: number; sum1500: number;
-    totalInsurance: number; totalCompoundRights: number;
+}
+
+// ★ الأرقام المالية من الدفتر وحده (/api/financial/dashboard) — لا حساب موازٍ من المنخرطين
+interface FinSummary {
+  balance: {
+    totalIncome: number; totalExpense: number; balance: number;
+    incomeByCategory: Record<string, number>;
+    expenseByCategory: Record<string, number>;
   };
+  monthlyComparison: { thisMonthIncome: number; netThisMonth: number };
+  period: {
+    openingBalance: number; income: number; expense: number; net: number;
+    closingBalance: number; count: number; avgAmount: number;
+    incomeByCategory: Record<string, { amount: number; count: number }>;
+    expenseByCategory: Record<string, { amount: number; count: number }>;
+  };
+  receivables: { subscription: number; insurance: number; compound: number; total: number };
+  payables: { wages: number; total: number };
+  realAvailable: number;
+  integrity: { matches: boolean; cachedBalance: number; ledgerBalance: number; diff: number };
+  cancelled: { total: number; count: number };
 }
 
 interface Activity {
@@ -137,6 +145,8 @@ export default function Home() {
 
   const [subscribers, setSubscribers] = useState<SubscriberWithComputed[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
+  // ★ الملخص المالي من دفتر القيود — المصدر الوحيد لأرقام لوحة التحكم المالية
+  const [finSummary, setFinSummary] = useState<FinSummary | null>(null);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -301,22 +311,26 @@ export default function Home() {
       params.set("sortBy", sortBy);
       params.set("sortOrder", sortOrder);
 
-      const [allSubs, statsRes, actRes] = await Promise.all([
+      const canFin = sessionUser ? hasPermission(sessionUser.role, "financialDashboard") : false;
+      const [allSubs, statsRes, actRes, finRes] = await Promise.all([
         fetchAllSubscribers(params),
         fetch("/api/stats"),
         fetch("/api/activities"),
+        // ★ المال من الدفتر فقط — للصلاحيات المالية فقط (الكاشير لا يرى بطاقات المال)
+        canFin ? fetch("/api/financial/dashboard?period=month", { cache: "no-store" }) : Promise.resolve(null),
       ]);
       const statsData = await statsRes.json();
       const actData = await actRes.json();
       setSubscribers(allSubs);
       setStats(statsData);
       setActivities(actData.activities || []);
+      setFinSummary(finRes && finRes.ok ? await finRes.json() : null);
     } catch {
       toast.error("تعذر تحميل البيانات");
     } finally {
       setLoading(false);
     }
-  }, [filterPayment, filterType, filterGender, filterRenewal, sortBy, sortOrder, fetchAllSubscribers]);
+  }, [filterPayment, filterType, filterGender, filterRenewal, sortBy, sortOrder, fetchAllSubscribers, sessionUser]);
 
   useEffect(() => {
     if (!sessionUser) return;
@@ -334,15 +348,15 @@ export default function Home() {
       id: sub.id,
       lastName: sub.lastName,
       firstName: sub.firstName,
-      birthDate: sub.birthDate,
+      birthDate: sub.birthDate ? new Date(sub.birthDate).toISOString().slice(0, 10) : undefined,
       gender: sub.gender,
-      bloodType: sub.bloodType,
+      bloodType: sub.bloodType ?? undefined,
       subscriptionType: sub.subscriptionType,
-      lastPaymentDate: sub.lastPaymentDate,
+      lastPaymentDate: sub.lastPaymentDate ? new Date(sub.lastPaymentDate).toISOString().slice(0, 10) : undefined,
       paymentStatus: sub.paymentStatus,
       swimmingDays: sub.swimmingDays,
       timeSlot: sub.timeSlot,
-      phone: sub.phone,
+      phone: sub.phone ?? undefined,
     });
     setFormOpen(true);
   };
@@ -435,6 +449,8 @@ export default function Home() {
   // ★ المحاسب المالي يرى واجهة إدارة ساعات العمل الكاملة (لعرض الأجور) لكن لا يدير
   const canViewWorkHoursManagement = isAdmin || sessionUser.role === "accountant";
 
+  // ★ الصلاحية المالية — بطاقات المال في لوحة التحكم للصلاحيات المالية فقط
+  const canFin = sessionUser ? hasPermission(sessionUser.role, "financialDashboard") : false;
   return (
     <SubscriptionGate>
     <div
@@ -601,7 +617,7 @@ export default function Home() {
               {hasPermission(sessionUser.role, "renewals") && (
                 <TabsTrigger value="renewals" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
                   <RefreshCcw className="h-4 w-4" /> التجديد
-                  {stats && stats.byRenewalStatus.find(r => r.status === "منتهية")?.count > 0 && (
+                  {stats && (stats.byRenewalStatus.find(r => r.status === "منتهية")?.count ?? 0) > 0 && (
                     <span className="flex h-2 w-2 bg-rose-500 rounded-full" />
                   )}
                 </TabsTrigger>
@@ -733,24 +749,35 @@ export default function Home() {
                         <div className="text-3xl font-extrabold tabular-nums">{stats.total}</div>
                         <div className="text-xs text-white/80 mt-0.5">إجمالي المنخرطين</div>
                       </div>
-                      <div className="h-12 w-px bg-white/20" />
-                      <div className="text-center">
-                        <div className="text-3xl font-extrabold tabular-nums text-amber-300">
-                          {stats.financial.totalRevenue.toLocaleString("en-US")}
-                        </div>
-                        <div className="text-xs text-white/80 mt-0.5">الإيرادات (دج)</div>
-                      </div>
+                      {canFin && (
+                        <>
+                          <div className="h-12 w-px bg-white/20" />
+                          <div className="text-center">
+                            <div className="text-3xl font-extrabold tabular-nums text-amber-300">
+                              {finSummary ? Math.round(finSummary.balance.totalIncome).toLocaleString("en-US") : "…"}
+                            </div>
+                            <div className="text-xs text-white/80 mt-0.5">إجمالي المداخيل (دفتر)</div>
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
                 </motion.section>
 
-                {/* Stat cards — auto-fit grid (1 col mobile, 2 tablet, 4 desktop) */}
-                <ResponsiveGrid minCardWidth={140} gap={12}>
-                  <StatCard label="رسوم الاشتراكات" value={stats.financial.totalSubscriptionFees} suffix="دج" icon={Wallet} accent="ocean" delay={0} sublabel={`${stats.paid} منخرط نشط`} />
-                  <StatCard label="مصاريف التأمين" value={stats.financial.totalInsuranceFees} suffix="دج" icon={ShieldCheck} accent="emerald" delay={0.05} sublabel="500 دج لكل منخرط" />
-                  <StatCard label="حقوق المركب" value={stats.financial.totalCompoundRights} suffix="دج" icon={Waves} accent="teal" delay={0.1} sublabel="مستثناة من الإجمالي" />
-                  <StatCard label="متوسط الدفعة" value={stats.financial.avgPayment} suffix="دج" icon={TrendingUp} accent="amber" delay={0.15} sublabel="لكل منخرط مدفوع" />
-                </ResponsiveGrid>
+                {/* ★ بطاقات المال — من دفتر القيود حصراً (نفس أرقام المركز المالي) */}
+                {canFin && finSummary && (
+                  <ResponsiveGrid minCardWidth={140} gap={12}>
+                    <StatCard
+                      label="التسجيلات (اشتراك+تجديد)"
+                      value={Math.round((finSummary.balance.incomeByCategory.subscription || 0) + (finSummary.balance.incomeByCategory.renewal || 0))}
+                      suffix="دج" icon={Wallet} accent="ocean" delay={0}
+                      sublabel="المحصّل في الدفتر المالي"
+                    />
+                    <StatCard label="التأمين المحصّل" value={Math.round(finSummary.balance.incomeByCategory.insurance || 0)} suffix="دج" icon={ShieldCheck} accent="emerald" delay={0.05} sublabel="من الدفتر المالي" />
+                    <StatCard label="حقوق المركب المحصّلة" value={Math.round(finSummary.balance.incomeByCategory.compound || 0)} suffix="دج" icon={Waves} accent="teal" delay={0.1} sublabel="من الدفتر المالي" />
+                    <StatCard label="متوسط العملية" value={finSummary.period.avgAmount} suffix="دج" icon={TrendingUp} accent="amber" delay={0.15} sublabel="حركات هذا الشهر" />
+                  </ResponsiveGrid>
+                )}
 
                 {/* Renewal + Activity feed */}
                 <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -875,23 +902,36 @@ export default function Home() {
                     className="rounded-2xl border border-border/60 bg-gradient-to-br from-amber-500/5 to-transparent p-5"
                   >
                     <h3 className="font-bold text-sm mb-4 flex items-center gap-2">
-                      <TrendingUp className="h-4 w-4 text-amber-600" /> التفصيل المالي
+                      <TrendingUp className="h-4 w-4 text-amber-600" /> التفصيل المالي — من دفتر القيود
                     </h3>
+                    {canFin && finSummary ? (
                     <div className="space-y-3">
-                      <FinanceRow label="رسوم 300 دج × عدد" count={stats.financialDetail.count300} total={stats.financialDetail.sum300} color="bg-amber-500" />
-                      <FinanceRow label="رسوم 1300 دج × عدد" count={stats.financialDetail.count1300} total={stats.financialDetail.sum1300} color="bg-teal-500" />
-                      <FinanceRow label="رسوم 1500 دج × عدد" count={stats.financialDetail.count1500} total={stats.financialDetail.sum1500} color="bg-sky-500" />
+                      <FinanceRow
+                        label="التسجيلات (اشتراك + تجديد)"
+                        count={(finSummary.period.incomeByCategory.subscription?.count || 0) + (finSummary.period.incomeByCategory.renewal?.count || 0)}
+                        total={Math.round((finSummary.balance.incomeByCategory.subscription || 0) + (finSummary.balance.incomeByCategory.renewal || 0))}
+                        color="bg-amber-500"
+                      />
+                      <FinanceRow label="التأمين المحصّل" count={finSummary.period.incomeByCategory.insurance?.count || 0} total={Math.round(finSummary.balance.incomeByCategory.insurance || 0)} color="bg-teal-500" />
+                      <FinanceRow label="حقوق المركب المحصّلة" count={finSummary.period.incomeByCategory.compound?.count || 0} total={Math.round(finSummary.balance.incomeByCategory.compound || 0)} color="bg-sky-500" />
                       <div className="pt-3 mt-3 border-t border-border/60 space-y-2">
                         <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">تأمين مُحصَّل</span>
-                          <span className="font-bold tabular-nums">{stats.financialDetail.totalInsurance.toLocaleString("en-US")} دج</span>
+                          <span className="text-muted-foreground">مداخيل هذا الشهر</span>
+                          <span className="font-bold tabular-nums">{Math.round(finSummary.monthlyComparison.thisMonthIncome).toLocaleString("en-US")} دج</span>
                         </div>
                         <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">حقوق مركب مُحصَّلة</span>
-                          <span className="font-bold tabular-nums">{stats.financialDetail.totalCompoundRights.toLocaleString("en-US")} دج</span>
+                          <span className="text-muted-foreground">متاح حقيقي (بعد الالتزامات)</span>
+                          <span className="font-bold tabular-nums">{Math.round(finSummary.realAvailable).toLocaleString("en-US")} دج</span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">مستحقات غير محصّلة (منخرطون)</span>
+                          <span className="font-bold tabular-nums">{Math.round(finSummary.receivables.total).toLocaleString("en-US")} دج</span>
                         </div>
                       </div>
                     </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground py-6 text-center">الأرقام المالية متاحة للصلاحيات المالية — من دفتر القيود في المركز المالي</p>
+                    )}
                   </motion.div>
 
                   <motion.div

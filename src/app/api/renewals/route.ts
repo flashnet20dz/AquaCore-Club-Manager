@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { normalizePaymentStatus, isExemptStatus } from "@/lib/rcs";
 import { postLedgerEntry } from "@/lib/financial-posting";
+import { ensureFinancialIndexes } from "@/lib/runtime-schema";
 
 export async function GET(req: NextRequest) {
   try {
@@ -52,6 +53,7 @@ function parseManualDate(value: string): Date | null {
 
 export async function POST(req: NextRequest) {
   try {
+    await ensureFinancialIndexes();
     const currentUser = await getCurrentUser();
     if (!currentUser) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 401 });

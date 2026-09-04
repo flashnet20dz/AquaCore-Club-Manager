@@ -1,8 +1,86 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser, hasPermission } from "@/lib/session";
-import { cancelLedgerEntryTx } from "@/lib/financial-posting";
+import { cancelLedgerEntryTx, financialNumber } from "@/lib/financial-posting";
 import { ensureRuntimeColumns } from "@/lib/runtime-schema";
+
+/**
+ * GET /api/financial/transactions/[id]
+ * تفاصيل العملية الاحترافية (المرحلة 33) + سجل التدقيق Timeline (المرحلة 32):
+ * القيد + رقم FIN + المستخدم + مُلغي العملية + السجلات المرتبطة (أجر/منخرط)
+ * + كل AuditLog المتعلق بالقيد (إنشاء/تعديل/إلغاء).
+ */
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    await ensureRuntimeColumns();
+    const currentUser = await getCurrentUser();
+    if (!currentUser || !hasPermission(currentUser.role, "financialPayments")) {
+      return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
+    }
+
+    const { id } = await params;
+    const clubFilter = currentUser.role === "superadmin" ? {} : { clubId: currentUser.clubId! };
+    const tx = await db.financialTransaction.findFirst({
+      where: { id, ...clubFilter },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        wagePayment: { select: { id: true, periodLabel: true, hours: true, hourRate: true, amount: true, status: true } },
+      },
+    });
+    if (!tx) return NextResponse.json({ error: "غير موجودة" }, { status: 404 });
+
+    // subscriberId بلا relation في المخطط — جلب يدوي
+    const subscriber = tx.subscriberId
+      ? await db.subscriber.findUnique({
+          where: { id: tx.subscriberId },
+          select: { id: true, fileNumber: true, lastName: true, firstName: true, phone: true },
+        })
+      : null;
+
+    const [cancelledBy, auditLogs] = await Promise.all([
+      tx.cancelledById
+        ? db.user.findUnique({ where: { id: tx.cancelledById }, select: { id: true, name: true } })
+        : Promise.resolve(null),
+      // Timeline: سجلات التدقيق المرتبطة بالقيد (بالكيان أو بالمرجع أو بالعملية المصدر)
+      db.auditLog.findMany({
+        where: {
+          clubId: tx.clubId,
+          OR: [
+            { entityType: "FinancialTransaction", entityId: tx.id },
+            ...(tx.reference ? [{ metadata: { contains: tx.reference } }] : []),
+            ...(tx.reference?.startsWith("wage:") ? [{ entityType: "WagePayment", entityId: tx.reference.slice(5) }] : []),
+            ...(tx.reference?.startsWith("payment:") ? [{ entityType: "Payment", entityId: tx.reference.slice(8) }] : []),
+          ],
+        },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      }).catch(() => []),
+    ]);
+
+    // أسماء مستخدمي سجل التدقيق (AuditLog بلا relation user في المخطط)
+    const auditUserIds = Array.from(new Set(auditLogs.map((a) => a.userId).filter((v): v is string => Boolean(v))));
+    const auditUsers = auditUserIds.length
+      ? await db.user.findMany({ where: { id: { in: auditUserIds } }, select: { id: true, name: true } })
+      : [];
+    const auditUserMap = new Map(auditUsers.map((u) => [u.id, u.name]));
+
+    return NextResponse.json({
+      transaction: {
+        ...tx,
+        subscriber,
+        cancelledByName: cancelledBy?.name ?? null,
+        number: financialNumber(tx.seq, tx.date),
+      },
+      timeline: auditLogs.map((a) => ({
+        ...a,
+        userName: a.userId ? auditUserMap.get(a.userId) ?? null : null,
+      })),
+    });
+  } catch (error) {
+    console.error("GET /api/financial/transactions/[id] error:", error);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+  }
+}
 
 /**
  * PUT /api/financial/transactions/[id]

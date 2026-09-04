@@ -1,59 +1,44 @@
 "use client";
 
 /**
- * DashboardRevenueBlock — إيرادات المنخرطين كما تظهر في لوحة التحكم
+ * DashboardRevenueBlock — إيرادات المنخرطين من دفتر القيود حصراً
  * ═════════════════════════════════════════════════════════════
- * المطلوب: «المركز المالي يأخذ المعلومات من لوحة التحكم مثل رسوم
- * الاشتراكات والإيرادات — كل هذه المعلومات جاهزة في الصفحة».
+ * ★ المرحلة 5: أُزيل الاعتماد على /api/stats نهائياً.
+ * كل الأرقام هنا من /api/financial/dashboard (دفتر FinancialTransaction — النشط فقط)
+ * وتُمرَّر من النظرة العامة كـ props — لا جلب ثانٍ ولا حساب موازٍ:
  *
- * الضمانة الوحيدة لتطابق الأرقام 100%: نفس المصدر حرفياً.
- * هذا المكوّن يستدعي /api/stats — نفس الواجهة التي تغذّي لوحة التحكم —
- * فالأرقام متطابقة بالبناء (نفس الحساب، نفس اللحظة) بلا أي حساب مكرر:
- *   رسوم الاشتراكات • رسوم التأمين • حقوق المركب • إجمالي الإيرادات
- *   + المسددون / لم يسددوا / المعفون + متوسط الدفعة + إجمالي المنخرطين
+ *   المركز المالي  ←  نفس الدفتر  →  لوحة التحكم
  *
- * سطر المطابقة أسفل البطاقة يعرض نظيرها النقدي من دفتر القيود
- * (الذي يمرَّر من النظرة العامة) — لأن أرقام لوحة التحكم تُحسب من
- * حالات اشتراك المنخرطين بينما الدفتر يوثّق النقد المقيد فعلياً.
+ * يشمل: التسجيلات (اشتراك+تجديد) • التأمين • حقوق المركب • إجمالي المداخيل
+ * + رقائق: مدخول آخر / مستحقات غير محصّلة (من حالات الاشتراك — ليست إيراداً) / عدد الحركات
  */
 
-import { useCallback, useEffect, useState } from "react";
 import {
-  Wallet, ShieldCheck, Waves, Banknote, RefreshCw, Loader2,
-  AlertTriangle, Users, LineChart, UserCheck, UserX, UserRound, Gauge, Landmark,
+  Wallet, ShieldCheck, Waves, Banknote, Users, Landmark, UserRound, ArrowRightLeft,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 // ─────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────
-interface StatsFinancial {
-  totalSubscriptionFees: number;
-  totalInsuranceFees: number;
-  totalCompoundRights: number;
-  totalRevenue: number;
-  avgPayment: number;
-}
-
-interface StatsPayload {
-  total: number;
-  paid: number;
-  unpaid: number;
-  exempt: number;
-  financial: StatsFinancial;
-}
-
-/** نظير الأرقام في دفتر القيود (النقد المقيد فعلياً) — يُمرَّر من النظرة العامة */
-export interface LedgerMirror {
+export interface DashboardRevenueProps {
+  /** إجمالي المداخيل من الدفتر (كل الفئات النشطة) */
+  totalIncome: number;
   /** قيود subscription + renewal */
-  subscriptions: number;
+  subscription: number;
   /** قيود insurance */
   insurance: number;
   /** قيود compound */
   compound: number;
+  /** قيود other_income */
+  otherIncome: number;
+  /** عدد عمليات كل فئة في الفترة المعروضة (للعرض) */
+  counts?: { subscription: number; renewal: number; insurance: number; compound: number };
+  /** إجمالي حركات الفترة */
+  movementsCount?: number;
+  /** مستحقات غير محصّلة — من حالات اشتراك المنخرطين (ليست إيراداً) */
+  receivables?: { subscription: number; insurance: number; compound: number; total: number };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -66,149 +51,91 @@ function formatDA(n: number): string {
 // ─────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────
-export function DashboardRevenueBlock({ ledger }: { ledger?: LedgerMirror }) {
-  const [stats, setStats] = useState<StatsPayload | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchStats = useCallback(async (silent = false) => {
-    if (silent) setRefreshing(true); else setLoading(true);
-    setError(null);
-    try {
-      // ★ نفس مصدر لوحة التحكم حرفياً — التطابق مضمون بالبناء لا بالمصادفة
-      const res = await fetch("/api/stats", { cache: "no-store" });
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      const json = await res.json();
-      setStats({
-        total: json.total ?? 0,
-        paid: json.paid ?? 0,
-        unpaid: json.unpaid ?? 0,
-        exempt: json.exempt ?? 0,
-        financial: {
-          totalSubscriptionFees: json.financial?.totalSubscriptionFees ?? 0,
-          totalInsuranceFees: json.financial?.totalInsuranceFees ?? 0,
-          totalCompoundRights: json.financial?.totalCompoundRights ?? 0,
-          totalRevenue: json.financial?.totalRevenue ?? 0,
-          avgPayment: json.financial?.avgPayment ?? 0,
-        },
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل التحميل");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchStats();
-    // تحديث صامت عند رجوع التركيز — نفس نمط النظرة العامة
-    const onFocus = () => fetchStats(true);
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [fetchStats]);
-
+export function DashboardRevenueBlock({
+  totalIncome,
+  subscription,
+  insurance,
+  compound,
+  otherIncome,
+  counts,
+  movementsCount,
+  receivables,
+}: DashboardRevenueProps) {
   return (
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <CardTitle className="text-sm flex items-center gap-2 flex-wrap">
             <Users className="h-4 w-4 text-teal-600" />
-            إيرادات المنخرطين — كما في لوحة التحكم
+            إيرادات المنخرطين — من الدفتر المالي
             <span className="inline-flex items-center gap-1 rounded-full bg-teal-500/10 text-teal-700 dark:text-teal-300 px-2 py-0.5 text-[10px] font-bold">
-              <LineChart className="h-3 w-3" /> نفس المصدر
+              <Landmark className="h-3 w-3" /> مصدر واحد للحقيقة
             </span>
           </CardTitle>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-teal-700 dark:text-teal-300 h-7 px-2 text-[11px]"
-            onClick={() => fetchStats(true)}
-            disabled={refreshing}
-            aria-label="تحديث إيرادات المنخرطين"
-          >
-            {refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            تحديث
-          </Button>
         </div>
         <CardDescription className="text-[11px]">
-          رسوم الاشتراكات والتأمين وحقوق المركب — تُحسب من حالات اشتراك المنخرطين (نفس مصدر لوحة التحكم) وجاهزة هنا مباشرة
+          كل رقم يُقرأ من دفتر القيود (العمليات النشطة) — نفس مصدر المركز المالي ولوحة التحكم والتقارير بلا أي حساب موازٍ
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {error ? (
-          <div className="rounded-xl border border-rose-300/50 bg-rose-500/5 p-4 flex flex-col items-center gap-2 text-center">
-            <AlertTriangle className="h-6 w-6 text-rose-500" />
-            <p className="text-xs font-bold text-rose-700 dark:text-rose-300">تعذر تحميل إيرادات المنخرطين</p>
-            <Button size="sm" variant="outline" onClick={() => fetchStats()}>
-              <RefreshCw className="h-3.5 w-3.5" /> إعادة المحاولة
-            </Button>
-          </div>
-        ) : loading || !stats ? (
-          <div className="space-y-2">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-              {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}
-            </div>
-            <Skeleton className="h-7 w-2/3 rounded-lg" />
-          </div>
-        ) : (
-          <>
-            {/* بطاقات الإيرادات — نفس أرقام لوحة التحكم */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-              <RevenueTile
-                icon={Wallet}
-                label="رسوم الاشتراكات"
-                value={formatDA(stats.financial.totalSubscriptionFees)}
-                sublabel={`${stats.paid} منخرط مسدد`}
-                tone="teal"
-              />
-              <RevenueTile
-                icon={ShieldCheck}
-                label="رسوم التأمين"
-                value={formatDA(stats.financial.totalInsuranceFees)}
-                sublabel="لكل منخرط مسدد"
-                tone="emerald"
-              />
-              <RevenueTile
-                icon={Waves}
-                label="حقوق المركب"
-                value={formatDA(stats.financial.totalCompoundRights)}
-                sublabel="مستثناة من الإجمالي"
-                tone="amber"
-              />
-              <RevenueTile
-                icon={Banknote}
-                label="إجمالي الإيرادات"
-                value={formatDA(stats.financial.totalRevenue)}
-                sublabel="اشتراكات + تأمين"
-                tone="strong"
-              />
-            </div>
+        {/* بطاقات الإيرادات — من الدفتر */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          <RevenueTile
+            icon={Wallet}
+            label="التسجيلات (اشتراك+تجديد)"
+            value={formatDA(subscription)}
+            sublabel={counts ? `${counts.subscription + counts.renewal} عملية` : undefined}
+            tone="teal"
+          />
+          <RevenueTile
+            icon={ShieldCheck}
+            label="التأمين المحصّل"
+            value={formatDA(insurance)}
+            sublabel={counts ? `${counts.insurance} عملية` : undefined}
+            tone="emerald"
+          />
+          <RevenueTile
+            icon={Waves}
+            label="حقوق المركب المحصّلة"
+            value={formatDA(compound)}
+            sublabel={counts ? `${counts.compound} عملية` : undefined}
+            tone="amber"
+          />
+          <RevenueTile
+            icon={Banknote}
+            label="إجمالي المداخيل"
+            value={formatDA(totalIncome)}
+            sublabel="اشتراكات + تأمين + مركب + أخرى"
+            tone="strong"
+          />
+        </div>
 
-            {/* رقائق الحصيلة — المسددون / الديون / المعفون */}
-            <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
-              <CountChip icon={UserCheck} label="المسددون" value={stats.paid} tone="emerald" />
-              <CountChip icon={UserX} label="لم يسددوا" value={stats.unpaid} tone="amber" />
-              <CountChip icon={UserRound} label="المعفون" value={stats.exempt} tone="slate" />
-              <CountChip icon={Gauge} label="متوسط الدفعة" value={formatDA(stats.financial.avgPayment)} tone="teal" />
-              <CountChip icon={Users} label="إجمالي المنخرطين" value={stats.total} tone="slate" />
-            </div>
+        {/* رقائق الحصيلة */}
+        <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+          <CountChip icon={Wallet} label="مدخول آخر" value={formatDA(otherIncome)} tone="slate" />
+          {typeof movementsCount === "number" && (
+            <CountChip icon={ArrowRightLeft} label="حركات الفترة" value={movementsCount} tone="teal" />
+          )}
+          {receivables && (
+            <CountChip
+              icon={UserRound}
+              label="مستحقات غير محصّلة (منخرطون)"
+              value={formatDA(receivables.total)}
+              tone="amber"
+            />
+          )}
+        </div>
 
-            {/* مطابقة مع الدفتر — الشفافية المحاسبية */}
-            {ledger && (
-              <div className="rounded-xl border border-border/60 bg-muted/40 p-2.5 flex items-start gap-2">
-                <Landmark className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
-                <p className="text-[10px] leading-relaxed text-muted-foreground">
-                  <span className="font-extrabold text-foreground">مطابقة مع الدفتر — النقد المقيد فعلياً: </span>
-                  اشتراكات وتجديدات {formatDA(ledger.subscriptions)} • تأمين {formatDA(ledger.insurance)} • حقوق مركب {formatDA(ledger.compound)}.
-                  أرقام لوحة التحكم أعلاه تُحسب من حالات اشتراك المنخرطين، بينما الدفتر يوثّق النقد المتحصل فعلياً —
-                  وأي فرق بينهما يعني دفعات لم تُقيَّد بعد في الدفتر.
-                </p>
-              </div>
-            )}
-          </>
-        )}
+        {/* توضيح المحاسبي */}
+        <div className="rounded-xl border border-border/60 bg-muted/40 p-2.5 flex items-start gap-2">
+          <Landmark className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
+          <p className="text-[10px] leading-relaxed text-muted-foreground">
+            <span className="font-extrabold text-foreground">مصدر واحد للحقيقة: </span>
+            تسجيل منخرط جديد مدفوع، تجديد، تأمين، حقوق مركب، أجور عمال، ومصاريف — كلها تُرحَّل تلقائياً إلى نفس الدفتر،
+            وكل صفحة في النظام تقرأ من عندها. «مستحقات غير محصّلة» تُحسب من حالات اشتراك المنخرطين وتُعرض كالتزامات
+            عليهم — ليست إيراداً حتى تُقيد دفعتها فعلياً.
+          </p>
+        </div>
       </CardContent>
     </Card>
   );
@@ -248,7 +175,7 @@ function RevenueTile({
 function CountChip({
   icon: Icon, label, value, tone,
 }: {
-  icon: typeof UserCheck;
+  icon: typeof UserRound;
   label: string;
   value: string | number;
   tone: "emerald" | "amber" | "teal" | "slate";

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { recordSyncOutbox } from "@/lib/sync-outbox";
+import { postLedgerEntry } from "@/lib/financial-posting";
+import { ensureRuntimeColumns, ensureFinancialIndexes } from "@/lib/runtime-schema";
 import {
   computeSubscriberFields,
   computeSubscriberFieldsDynamic,
@@ -122,8 +124,11 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    await ensureRuntimeColumns();
+    await ensureFinancialIndexes();
     const currentUser = await getCurrentUser();
     if (!currentUser || !currentUser.clubId) return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
+    const clubId = currentUser.clubId;
 
     const body = await req.json();
 
@@ -181,34 +186,96 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const subscriber = await db.subscriber.create({
-      data: {
-        clubId: currentUser.clubId,
-        fileNumber,
-        lastName: body.lastName,
-        firstName: body.firstName,
-        birthDate: new Date(body.birthDate),
-        gender: body.gender as Gender,
-        bloodType: body.bloodType || null,
-        subscriptionType: body.subscriptionType as SubscriptionType,
-        // ★ EXEMPT subscribers may not have a payment date — that's fine
-        lastPaymentDate: body.lastPaymentDate ? new Date(body.lastPaymentDate) : null,
-        paymentStatus: normalizedStatus as PaymentStatus,
-        swimmingDays: body.swimmingDays || null,
-        timeSlot: body.timeSlot || null,
-        phone: body.phone || null,
-      },
-    });
+    // ★ ذرّية كاملة: المنخرط + القيود المالية للتسجيل المدفوع + النشاط (المرحلة 3)
+    const subscriber = await db.$transaction(async (tx) => {
+      const created = await tx.subscriber.create({
+        data: {
+          clubId,
+          fileNumber,
+          lastName: body.lastName,
+          firstName: body.firstName,
+          birthDate: new Date(body.birthDate),
+          gender: body.gender as Gender,
+          bloodType: body.bloodType || null,
+          subscriptionType: body.subscriptionType as SubscriptionType,
+          // ★ EXEMPT subscribers may not have a payment date — that's fine
+          lastPaymentDate: body.lastPaymentDate ? new Date(body.lastPaymentDate) : null,
+          paymentStatus: normalizedStatus as PaymentStatus,
+          swimmingDays: body.swimmingDays || null,
+          timeSlot: body.timeSlot || null,
+          phone: body.phone || null,
+        },
+      });
 
-    await db.activity.create({
-      data: {
-        clubId: currentUser.clubId,
-        subscriberId: subscriber.id,
-        type: "create",
-        description: isExemptStatus(normalizedStatus)
-          ? `تم تسجيل منخرط معفى: ${subscriber.lastName} ${subscriber.firstName} (${fileNumber})`
-          : `تم تسجيل منخرط جديد: ${subscriber.lastName} ${subscriber.firstName} (${fileNumber})`,
-      },
+      // ═══ الترحيل المالي التلقائي للتسجيل المدفوع — نفس مبالغ نوع الاشتراك حرفياً ═══
+      // الحساب من الحقول المحسوبة بنفس منطق لوحة التحكم (computeSubscriberFieldsDynamic)
+      // — لا مبالغ مُخترعة. المعفى/«لم يدفع»: لا قيد دخل إطلاقاً (السجل يبقى على المنخرط + AuditLog).
+      if (subType) {
+        const cfg = {
+          code: subType.code, name: subType.name,
+          subscriptionFee: subType.subscriptionFee, insuranceFee: subType.insuranceFee,
+          compoundRights: subType.compoundRights, durationDays: subType.durationDays,
+          givesMembershipNumber: subType.givesMembershipNumber, requiresInsurance: subType.requiresInsurance,
+          requiresCompoundFee: subType.requiresCompoundFee, renewableMonthly: subType.renewableMonthly,
+          freeSubscription: subType.freeSubscription,
+        } as SubscriptionTypeConfig;
+        const { computeSubscriberFieldsDynamic } = await import("@/lib/rcs");
+        const f = computeSubscriberFieldsDynamic(created as any, cfg);
+        const isExempt = isExemptStatus(normalizedStatus);
+        const regDate = created.lastPaymentDate ?? new Date();
+        const payee = `${created.lastName} ${created.firstName}`.trim();
+        const regMethod = ["cash", "bank", "cheque"].includes(body.method) ? body.method : "cash";
+
+        if (isExempt) {
+          // معفى: بلا دخلاً — توثيق فقط (المرحلة 3: سجل العملية محفوظ، ولا يدخل income/balance/reports)
+          await tx.auditLog.create({
+            data: {
+              clubId,
+              userId: currentUser.id,
+              action: "subscriber_registration_exempt",
+              entityType: "Subscriber",
+              entityId: created.id,
+              description: `تسجيل منخرط معفى: ${payee} (${fileNumber}) — بلا قيد مالي`,
+              metadata: JSON.stringify({ subscriptionType: subType.code, paymentStatus: normalizedStatus }),
+            },
+          }).catch(() => undefined);
+        } else if (normalizedStatus !== "لم يدفع") {
+          const components: Array<{ category: string; amount: number; label: string }> = [
+            { category: "subscription", amount: f.subscriptionFee ?? 0, label: "تسجيل اشتراك" },
+            { category: "insurance", amount: f.insuranceFee ?? 0, label: "تأمين منخرط" },
+            { category: "compound", amount: f.compoundRights ?? 0, label: "حقوق المركب" },
+          ];
+          for (const c of components) {
+            if (c.amount <= 0) continue;
+            await postLedgerEntry(tx, {
+              clubId,
+              type: "income",
+              category: c.category,
+              amount: c.amount,
+              date: regDate,
+              paymentMethod: regMethod,
+              payeeName: payee,
+              subscriberId: created.id,
+              reference: `subscriber:${created.id}:${c.category}`,
+              note: `${c.label} — ترحيل تلقائي من تسجيل منخرط جديد (${normalizedStatus})`,
+              createdById: currentUser.id,
+            });
+          }
+        }
+      }
+
+      await tx.activity.create({
+        data: {
+          clubId,
+          subscriberId: created.id,
+          type: "create",
+          description: isExemptStatus(normalizedStatus)
+            ? `تم تسجيل منخرط معفى: ${created.lastName} ${created.firstName} (${fileNumber})`
+            : `تم تسجيل منخرط جديد: ${created.lastName} ${created.firstName} (${fileNumber})`,
+        },
+      });
+
+      return created;
     });
 
     await recordSyncOutbox({

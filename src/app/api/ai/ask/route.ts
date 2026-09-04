@@ -84,10 +84,10 @@ export async function POST(req: NextRequest) {
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
     const prevMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
     const [revMonth, revPrev, revToday, payTodayCount] = await Promise.all([
-      db.payment.aggregate({ where: { ...(clubId ? { clubId } : {}), date: { gte: monthStart } }, _sum: { amount: true } }),
-      db.payment.aggregate({ where: { ...(clubId ? { clubId } : {}), date: { gte: prevMonthStart, lt: monthStart } }, _sum: { amount: true } }),
-      db.payment.aggregate({ where: { ...(clubId ? { clubId } : {}), date: { gte: today } }, _sum: { amount: true } }),
-      db.payment.count({ where: { ...(clubId ? { clubId } : {}), date: { gte: today } } }),
+      db.payment.aggregate({ where: { ...(clubId ? { clubId } : {}), status: { not: "cancelled" }, date: { gte: monthStart } }, _sum: { amount: true } }),
+      db.payment.aggregate({ where: { ...(clubId ? { clubId } : {}), status: { not: "cancelled" }, date: { gte: prevMonthStart, lt: monthStart } }, _sum: { amount: true } }),
+      db.payment.aggregate({ where: { ...(clubId ? { clubId } : {}), status: { not: "cancelled" }, date: { gte: today } }, _sum: { amount: true } }),
+      db.payment.count({ where: { ...(clubId ? { clubId } : {}), status: { not: "cancelled" }, date: { gte: today } } }),
     ]);
 
     const weekAgo = new Date(today.getTime() - 7 * dayMs);

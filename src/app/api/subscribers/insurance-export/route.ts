@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
 
     // ════ 2) معرّفات المؤمَّنين (دفعة تأمين — بلا حد، نفس مصدر insurance-status) ════
     const payRows = await db.payment.findMany({
-      where: { category: "insurance", subscriberId: { not: null }, ...clubFilter },
+      where: { category: "insurance", subscriberId: { not: null }, status: { not: "cancelled" }, ...clubFilter },
       select: { subscriberId: true },
     });
     const insuredSet = new Set(

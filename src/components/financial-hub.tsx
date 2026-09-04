@@ -278,7 +278,7 @@ export function FinancialHub({ role }: FinancialHubProps) {
       {/* ═══ محتوى الأقسام ═══ */}
       {section === "overview" && perms.overview && (
         <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} key="overview">
-          <FinancialOverview onNavigateSection={handleNavigateSection} />
+          <FinancialOverview role={role} onNavigateSection={handleNavigateSection} />
         </motion.section>
       )}
 

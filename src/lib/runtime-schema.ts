@@ -6,12 +6,27 @@
  * ورخيصة: بعد أول نجاح تُتجاوز من الذاكرة.
  *
  * الأعمدة المغطاة:
- *  - FinancialTransaction: status/cancelledAt/cancelledById/cancellationReason
+ *  - FinancialTransaction: status/cancelledAt/cancelledById/cancellationReason/seq
  *  - WagePayment:          status/cancelledAt/cancelledById/cancellationReason
+ *  - Payment:              cancelledAt/cancelledById/cancellationReason
  *  - SwimmingTimeSlot:     dayOfWeek
+ *
+ * + الفهارس المالية (ensureFinancialIndexes):
+ *  - فريد جزئي (clubId, reference) للقيود النشطة فقط — منع ازدواج القيد لنفس المرجع
+ *    (الملغاة مستثناة ليدعم نمط toggle: إلغاء ثم إعادة إنشاء مشروعة)
  */
 
 let runtimeDdlDone = false;
+
+/** مزوّد قاعدة البيانات الفعلي من DATABASE_URL — نتجنب استعلامات PG على SQLite */
+function isSqlite(): boolean {
+  try {
+    const url = process.env.DATABASE_URL || "";
+    return url.startsWith("file:") || url.includes(".db") || url.includes("sqlite");
+  } catch {
+    return false;
+  }
+}
 
 const COLUMN_SPECS: Array<{
   table: string;
@@ -28,6 +43,10 @@ const COLUMN_SPECS: Array<{
   { table: "WagePayment", column: "cancelledById", pg: `ALTER TABLE "WagePayment" ADD COLUMN IF NOT EXISTS "cancelledById" TEXT`, sqlite: `ALTER TABLE "WagePayment" ADD COLUMN "cancelledById" TEXT` },
   { table: "WagePayment", column: "cancellationReason", pg: `ALTER TABLE "WagePayment" ADD COLUMN IF NOT EXISTS "cancellationReason" TEXT`, sqlite: `ALTER TABLE "WagePayment" ADD COLUMN "cancellationReason" TEXT` },
   { table: "SwimmingTimeSlot", column: "dayOfWeek", pg: `ALTER TABLE "SwimmingTimeSlot" ADD COLUMN IF NOT EXISTS "dayOfWeek" TEXT`, sqlite: `ALTER TABLE "SwimmingTimeSlot" ADD COLUMN "dayOfWeek" TEXT` },
+  { table: "Payment", column: "cancelledAt", pg: `ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "cancelledAt" TIMESTAMP(3)`, sqlite: `ALTER TABLE "Payment" ADD COLUMN "cancelledAt" DATETIME` },
+  { table: "Payment", column: "cancelledById", pg: `ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "cancelledById" TEXT`, sqlite: `ALTER TABLE "Payment" ADD COLUMN "cancelledById" TEXT` },
+  { table: "Payment", column: "cancellationReason", pg: `ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "cancellationReason" TEXT`, sqlite: `ALTER TABLE "Payment" ADD COLUMN "cancellationReason" TEXT` },
+  { table: "FinancialTransaction", column: "seq", pg: `ALTER TABLE "FinancialTransaction" ADD COLUMN IF NOT EXISTS "seq" INTEGER`, sqlite: `ALTER TABLE "FinancialTransaction" ADD COLUMN "seq" INTEGER` },
 ];
 
 async function columnExists(
@@ -35,13 +54,15 @@ async function columnExists(
   table: string,
   column: string
 ): Promise<boolean> {
-  // PostgreSQL
-  try {
-    const rows = (await db.$queryRawUnsafe(
-      `SELECT column_name FROM information_schema.columns WHERE table_name = '${table}' AND column_name = '${column}'`
-    )) as unknown[];
-    if (Array.isArray(rows)) return rows.length > 0;
-  } catch { /* ليس PostgreSQL */ }
+  // PostgreSQL (يُتخطى على SQLite — لا information_schema هناك)
+  if (!isSqlite()) {
+    try {
+      const rows = (await db.$queryRawUnsafe(
+        `SELECT column_name FROM information_schema.columns WHERE table_name = '${table}' AND column_name = '${column}'`
+      )) as unknown[];
+      if (Array.isArray(rows)) return rows.length > 0;
+    } catch { /* ليس PostgreSQL */ }
+  }
   // SQLite
   try {
     const rows = (await db.$queryRawUnsafe(`PRAGMA table_info("${table}")`)) as Array<{ name?: string }>;
@@ -51,7 +72,7 @@ async function columnExists(
 }
 
 /**
- * يضمن وجود كل أعمدة الإلغاء الناعم + dayOfWeek — يستدعى من مسارات
+ * يضمن وجود كل أعمدة الإلغاء الناعم + dayOfWeek + seq — يستدعى من مسارات
  * المالية وساعات السباحة قبل أي استعلام يستخدم الأعمدة الجديدة.
  */
 export async function ensureRuntimeColumns(): Promise<void> {
@@ -65,4 +86,51 @@ export async function ensureRuntimeColumns(): Promise<void> {
     } catch { /* العمود موجود أو الجدول لم يُنشأ بعد */ }
   }
   runtimeDdlDone = true;
+}
+
+// ─────────────────────────────────────────────────────────────
+// الفهارس المالية — منع ازدواج القيد لنفس المرجع (idempotency على مستوى القاعدة)
+// ─────────────────────────────────────────────────────────────
+let financialIndexesDone = false;
+
+async function indexExists(
+  db: { $queryRawUnsafe: (q: string) => Promise<unknown> },
+  indexName: string
+): Promise<boolean> {
+  // PostgreSQL (يُتخطى على SQLite)
+  if (!isSqlite()) {
+    try {
+      const rows = (await db.$queryRawUnsafe(
+        `SELECT 1 FROM pg_indexes WHERE indexname = '${indexName}'`
+      )) as unknown[];
+      if (Array.isArray(rows)) return rows.length > 0;
+    } catch { /* ليس PostgreSQL */ }
+  }
+  // SQLite
+  try {
+    const rows = (await db.$queryRawUnsafe(
+      `SELECT name FROM sqlite_master WHERE type='index' AND name = '${indexName}'`
+    )) as unknown[];
+    if (Array.isArray(rows)) return rows.length > 0;
+  } catch { /* لا جدول بعد */ }
+  return true;
+}
+
+/**
+ * فريد جزئي (clubId, reference) للقيود النشطة فقط:
+ * نفس المرجع لا يُنشئ قيداً نشطاً ثانياً أبداً (ضغط مزدوج = عملية واحدة)،
+ * بينما إعادة الإنشاء بعد الإلغاء تبقى مشروعة (نمط toggle للتأمين/المركب).
+ */
+export async function ensureFinancialIndexes(): Promise<void> {
+  if (financialIndexesDone) return;
+  const { db } = await import("@/lib/db");
+  const NAME = "FinancialTransaction_active_reference_unique";
+  try {
+    if (!(await indexExists(db, NAME))) {
+      const pg = `CREATE UNIQUE INDEX IF NOT EXISTS "${NAME}" ON "FinancialTransaction"("clubId", "reference") WHERE "reference" IS NOT NULL AND "status" = 'active'`;
+      const lite = `CREATE UNIQUE INDEX IF NOT EXISTS "${NAME}" ON "FinancialTransaction"("clubId", "reference") WHERE "reference" IS NOT NULL AND "status" = 'active'`;
+      await db.$executeRawUnsafe(pg).catch(() => db.$executeRawUnsafe(lite));
+    }
+    financialIndexesDone = true;
+  } catch { /* الفهرس موجود أو تعذر — postLedgerEntry يتحقق احتياطياً */ }
 }

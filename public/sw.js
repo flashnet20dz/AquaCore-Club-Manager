@@ -10,7 +10,7 @@
 //   - Images/static: stale-while-revalidate
 //   - Added: API endpoints for new features (employees, contracts, templates)
 
-const CACHE_VERSION = "rcs-club-v7";
+const CACHE_VERSION = "rcs-club-v8";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const API_CACHE = `${CACHE_VERSION}-api`;
 

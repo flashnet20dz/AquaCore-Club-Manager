@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { postLedgerEntry, cancelLedgerByReferencesTx } from "@/lib/financial-posting";
-import { ensureRuntimeColumns } from "@/lib/runtime-schema";
+import { ensureRuntimeColumns, ensureFinancialIndexes } from "@/lib/runtime-schema";
 
 // PATCH /api/subscribers/[id]/toggle-insurance
 // Toggles isInsured status and records a payment if newly insured
 export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     await ensureRuntimeColumns();
+    await ensureFinancialIndexes();
     const user = await getCurrentUser();
     if (!user || !["admin", "assistant", "superadmin"].includes(user.role)) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
@@ -21,19 +22,31 @@ export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ i
       return NextResponse.json({ error: "المنخرط غير موجود" }, { status: 404 });
     }
 
-    // Check current insured status by looking for an insurance payment
+    // Check current insured status by looking for an ACTIVE insurance payment
+    // (الملغاة لا تعني تأميناً قائماً)
     const existingInsurance = await db.payment.findFirst({
-      where: { subscriberId: id, category: "insurance", ...clubFilter },
+      where: { subscriberId: id, category: "insurance", status: { not: "cancelled" }, ...clubFilter },
     });
 
     if (existingInsurance) {
-      // ★ إلغاء التأمين: حذف الدفعة التشغيلية + إلغاء القيد المرحّل ناعماً في الدفتر (ذرّياً)
+      // ★ إلغاء التأمين: إلغاء ناعم للدفعة التشغيلية (تبقى في التاريخ)
+      // + إلغاء القيد المرحّل ناعماً في الدفتر (ذرّياً)
       await db.$transaction(async (tx) => {
-        await tx.payment.delete({ where: { id: existingInsurance.id } });
+        await tx.payment.update({
+          where: { id: existingInsurance.id },
+          data: {
+            status: "cancelled",
+            cancelledAt: new Date(),
+            cancelledById: user.id,
+            cancellationReason: `إلغاء تأمين المنخرط ${sub.lastName} ${sub.firstName}`,
+          },
+        });
         // المرجع قد يكون من التأمين الفردي (payment:) أو الجماعي (bulk-ins:)
+        // أو من ترحيل التسجيل المدفوع (subscriber:{id}:insurance)
         await cancelLedgerByReferencesTx(tx, sub.clubId, [
           `payment:${existingInsurance.id}`,
           `bulk-ins:${id}`,
+          `subscriber:${id}:insurance`,
         ], {
           cancelledById: user.id,
           reason: `إلغاء تأمين المنخرط ${sub.lastName} ${sub.firstName}`,

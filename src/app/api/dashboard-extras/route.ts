@@ -117,6 +117,7 @@ export async function GET() {
     const monthPayments = await db.payment.aggregate({
       where: {
         ...(clubId ? { clubId } : {}),
+        status: { not: "cancelled" },
         date: { gte: monthStart },
       },
       _sum: { amount: true },
@@ -124,6 +125,7 @@ export async function GET() {
     const prevPayments = await db.payment.aggregate({
       where: {
         ...(clubId ? { clubId } : {}),
+        status: { not: "cancelled" },
         date: { gte: prevMonthStart, lt: monthStart },
       },
       _sum: { amount: true },
