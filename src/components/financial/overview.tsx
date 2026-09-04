@@ -39,11 +39,13 @@ import { toast } from "sonner";
 import { DashboardRevenueBlock } from "@/components/financial/dashboard-revenue";
 import { IntegrityWidget, type InlineIntegrity } from "@/components/financial/integrity-widget";
 import { DayStatementCard } from "@/components/financial/day-statement";
+import { TransactionDetailsDialog } from "@/components/financial/transaction-details-dialog";
+import { onFinancialUpdated } from "@/lib/financial-events";
 
 // ─────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────
-type PeriodKey = "today" | "week" | "month" | "lastmonth" | "year" | "custom";
+export type PeriodKey = "today" | "week" | "month" | "lastmonth" | "year" | "custom";
 
 interface CategoryStat { amount: number; count: number }
 
@@ -101,6 +103,10 @@ interface OverviewData {
   payables?: { wages: number; total: number };
   realAvailable?: number;
   integrity?: InlineIntegrity;
+  /** ★ مقارنة الفترة السابقة المكافئة (المرحلة 2/5) */
+  previous?: { label: string; income: number; expense: number; net: number; incomeChangePct: number; expenseChangePct: number; netChangePct: number };
+  /** ★ التدفق المالي المتوافق مع الفترة (المرحلة 2/7) */
+  flow?: { granularity: "hour" | "day" | "week" | "month"; buckets: Array<{ label: string; income: number; expense: number; net: number }> };
   period?: PeriodBlock;
   cancelled?: { total: number; count: number };
   periodRange?: { from: string; to: string };
@@ -116,6 +122,9 @@ interface FinancialOverviewProps {
   /** دور المستخدم الحالي — يُستخدم لإظهار «إعادة بناء الرصيد» للمدير فقط */
   role?: string;
   onNavigateSection?: (section: OverviewNavSection, ledgerType?: "income" | "expense") => void;
+  /** فترة مُدارة من رأس المركز (Hub) — عند تمريرها تُخفى رقائق الفترة من القسم */
+  controlledPeriod?: PeriodKey;
+  onControlledPeriodChange?: (p: PeriodKey) => void;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -129,6 +138,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   other_income: "مدخول آخر",
   wages: "أجور عمال",
   compound_rights: "حقوق المركب (مصروف)",
+  maintenance: "صيانة",
+  equipment: "معدات",
   office_supplies: "لوازم مكتبية",
   other_expense: "مصروف آخر",
 };
@@ -202,8 +213,9 @@ function FinBadge({ number }: { number?: string | null }) {
 // ─────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────
-export function FinancialOverview({ role, onNavigateSection }: FinancialOverviewProps) {
-  const [period, setPeriod] = useState<PeriodKey>("month");
+export function FinancialOverview({ role, onNavigateSection, controlledPeriod, onControlledPeriodChange }: FinancialOverviewProps) {
+  const [localPeriod, setLocalPeriod] = useState<PeriodKey>("month");
+  const period = controlledPeriod ?? localPeriod;
   const [customFrom, setCustomFrom] = useState<string>(() => daysAgoISO(6));
   const [customTo, setCustomTo] = useState<string>(todayISO);
   const [appliedCustom, setAppliedCustom] = useState<{ from: string; to: string } | null>(null);
@@ -213,6 +225,9 @@ export function FinancialOverview({ role, onNavigateSection }: FinancialOverview
   const [error, setError] = useState<string | null>(null);
   /** يُرفع بعد إعادة بناء الرصيد أو أي تغيير خارجي → إعادة جلب شاملة */
   const [reloadTick, setReloadTick] = useState(0);
+  // حوار تفاصيل العملية — من قائمة «آخر القيود»
+  const [detailsId, setDetailsId] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const fetchData = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true); else setLoading(true);
@@ -243,16 +258,20 @@ export function FinancialOverview({ role, onNavigateSection }: FinancialOverview
     return () => window.removeEventListener("focus", onFocus);
   }, [fetchData]);
 
+  // ★ مزامنة فورية: أي عملية مالية في أي صفحة تُحدّث هذه اللوحة بلا تحديث يدوي
+  useEffect(() => onFinancialUpdated(() => fetchData(true)), [fetchData]);
+
   const selectPeriod = (p: PeriodKey) => {
     if (p === "custom" && !appliedCustom) setAppliedCustom({ from: customFrom, to: customTo });
-    setPeriod(p);
+    if (controlledPeriod) onControlledPeriodChange?.(p);
+    else setLocalPeriod(p);
   };
 
   const applyCustom = () => {
     if (!customFrom || !customTo) { toast.error("اختر تاريخي البداية والنهاية"); return; }
     if (customFrom > customTo) { toast.error("تاريخ البداية يجب أن يسبق تاريخ النهاية"); return; }
     setAppliedCustom({ from: customFrom, to: customTo });
-    setPeriod("custom");
+    selectPeriod("custom");
   };
 
   /** النقر على فئة دخل/مصروف → فلترة الدفتر (يقرأ الوكيل المفتاح ويطبّق الفلتر) */
@@ -268,7 +287,6 @@ export function FinancialOverview({ role, onNavigateSection }: FinancialOverview
     openingBalance: 0, income: 0, expense: 0, net: 0, closingBalance: 0, count: 0, avgAmount: 0,
     largestExpense: null, largestIncome: null, incomeByCategory: {}, expenseByCategory: {},
   };
-  const mc = data?.monthlyComparison;
   const payablesTotal = data?.payables?.total ?? 0;
   const realAvailable = data?.realAvailable ?? ((data?.balance.balance ?? 0) - payablesTotal);
   const periodLabel = PERIOD_LABELS[period];
@@ -288,14 +306,21 @@ export function FinancialOverview({ role, onNavigateSection }: FinancialOverview
   const incomeDonutTotal = incomeCats.reduce((s, c) => s + c.amount, 0);
   const expenseDonutTotal = expenseCats.reduce((s, c) => s + c.amount, 0);
 
-  const chartData = (data?.chartData ?? []).map((c) => ({ ...c, net: c.income - c.expense }));
+  // ★ التدفق المالي المتوافق مع الفترة (بالساعة/يومياً/أسبوعياً/شهرياً — من الـAPI)
+  const FLOW_GRAN_LABELS: Record<string, string> = { hour: "بالساعة", day: "يومياً", week: "أسبوعياً", month: "شهرياً" };
+  const flowData = (data?.flow?.buckets ?? (data?.chartData ?? []).map((c) => ({ label: c.month, income: c.income, expense: c.expense })))
+    .map((b) => ({ ...b, net: b.income - b.expense }));
+  const flowGranLabel = FLOW_GRAN_LABELS[data?.flow?.granularity ?? "day"] ?? "";
 
   const switcher = (
     <div className="rounded-2xl border border-border/60 bg-card p-2 shadow-sm space-y-2">
       <div className="flex flex-wrap items-center gap-1.5">
+        {!controlledPeriod && (
         <span className="text-[11px] font-extrabold text-muted-foreground px-1 flex items-center gap-1 shrink-0">
           <CalendarClock className="h-3.5 w-3.5" /> الفترة:
         </span>
+        )}
+        {!controlledPeriod && (
         <div className="flex flex-wrap items-center gap-1 flex-1" role="tablist" aria-label="اختيار فترة التحليل المالي">
           {PERIODS.map(({ key, label, icon: Icon }) => (
             <button
@@ -315,6 +340,7 @@ export function FinancialOverview({ role, onNavigateSection }: FinancialOverview
             </button>
           ))}
         </div>
+        )}
         <Button
           size="sm"
           variant="ghost"
@@ -540,8 +566,35 @@ export function FinancialOverview({ role, onNavigateSection }: FinancialOverview
       {/* ═══ 7) حركة اليوم — كشف يومي (المرحلة 20) ═══ */}
       <DayStatementCard refreshSignal={reloadTick} />
 
-      {/* ═══ 8) المقارنة الشهرية بقيم الشهرين (المرحلة 21) ═══ */}
+      {/* ═══ 8) مقارنة الفترة بالفترة السابقة (المرحلة 2/5) ═══ */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <KpiCard
+          icon={ArrowDownCircle}
+          label={`مداخيل ${periodLabel}`}
+          value={formatDA(p.income)}
+          tone="emerald"
+          delta={data.previous?.incomeChangePct}
+          deltaGoodWhenPositive
+          hint={data.previous ? `الفترة السابقة (${data.previous.label}): ${formatDA(data.previous.income)}` : undefined}
+        />
+        <KpiCard
+          icon={ArrowUpCircle}
+          label={`مصاريف ${periodLabel}`}
+          value={formatDA(p.expense)}
+          tone="rose"
+          delta={data.previous?.expenseChangePct}
+          deltaGoodWhenPositive={false}
+          hint={data.previous ? `الفترة السابقة (${data.previous.label}): ${formatDA(data.previous.expense)}` : undefined}
+        />
+        <KpiCard
+          icon={Activity}
+          label={`صافي ${periodLabel}`}
+          value={formatDA(p.net)}
+          tone={p.net >= 0 ? "emerald" : "rose"}
+          delta={data.previous?.netChangePct}
+          deltaGoodWhenPositive
+          hint={data.previous ? `الفترة السابقة (${data.previous.label}): ${formatDA(data.previous.net)}` : undefined}
+        />
         <KpiCard
           icon={Wallet}
           label="قبض اليوم"
@@ -549,37 +602,6 @@ export function FinancialOverview({ role, onNavigateSection }: FinancialOverview
           tone="teal"
           hint={`هذا الأسبوع: ${formatShort(data.periodIncome.week)} دج • هذه السنة: ${formatShort(data.periodIncome.year)} دج`}
         />
-        {mc && (
-          <KpiCard
-            icon={TrendingUp}
-            label="مداخيل الشهر"
-            value={formatDA(mc.thisMonthIncome)}
-            tone="emerald"
-            delta={mc.incomeChangePct}
-            deltaGoodWhenPositive
-            hint={`الشهر الماضي: ${formatDA(mc.lastMonthIncome)}`}
-          />
-        )}
-        {mc && (
-          <KpiCard
-            icon={TrendingDown}
-            label="أعباء الشهر"
-            value={formatDA(mc.thisMonthExpense)}
-            tone="rose"
-            delta={mc.expenseChangePct}
-            deltaGoodWhenPositive={false}
-            hint={`الشهر الماضي: ${formatDA(mc.lastMonthExpense)}`}
-          />
-        )}
-        {mc && (
-          <KpiCard
-            icon={Activity}
-            label="صافي الشهر"
-            value={formatDA(mc.netThisMonth)}
-            tone={mc.netThisMonth >= 0 ? "emerald" : "rose"}
-            hint={mc.netThisMonth >= 0 ? "فائض يُعاد استثماره ✓" : "عجز — راقب الأعباء"}
-          />
-        )}
       </div>
 
       {/* ═══ 9) التدفق النقدي 6 أشهر + دونات الفئات (من بيانات الفترة) ═══ */}
@@ -587,15 +609,16 @@ export function FinancialOverview({ role, onNavigateSection }: FinancialOverview
         <Card className="lg:col-span-3">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-teal-600" /> التدفق النقدي — آخر 6 أشهر
+              <TrendingUp className="h-4 w-4 text-teal-600" /> التدفق المالي — {periodLabel}
+              <span className="text-[9px] font-bold rounded-full bg-teal-500/10 text-teal-600 px-1.5 py-0.5">{flowGranLabel}</span>
             </CardTitle>
-            <CardDescription className="text-[11px]">مداخيل مقابل مصاريف + خط الصافي (بالدينار)</CardDescription>
+            <CardDescription className="text-[11px]">مداخيل مقابل مصاريف + خط الصافي (بالدينار) — يتغير مع الفترة المختارة</CardDescription>
           </CardHeader>
           <CardContent className="h-64 pr-2">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
+              <ComposedChart data={flowData} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#94a3b833" vertical={false} />
-                <XAxis dataKey="month" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} interval={0} />
+                <XAxis dataKey="label" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} interval={0} />
                 <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v) => formatShort(Number(v))} width={52} />
                 <Tooltip
                   formatter={(value, name) => [
@@ -720,7 +743,13 @@ export function FinancialOverview({ role, onNavigateSection }: FinancialOverview
           ) : (
             <div className="divide-y divide-border/60">
               {data.lastTransactions.map((t) => (
-                <div key={t.id} className="flex items-center gap-2 py-2">
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => { setDetailsId(t.id); setDetailsOpen(true); }}
+                  title="عرض تفاصيل العملية"
+                  className="w-full text-right flex items-center gap-2 py-2 rounded-lg hover:bg-muted/50 px-1 -mx-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
                   <span className={cn(
                     "h-1.5 w-1.5 rounded-full shrink-0",
                     t.type === "income" ? "bg-emerald-500" : "bg-rose-500"
@@ -742,12 +771,20 @@ export function FinancialOverview({ role, onNavigateSection }: FinancialOverview
                   )}>
                     {t.type === "income" ? "+" : "−"}{formatDA(t.amount)}
                   </span>
-                </div>
+                </button>
               ))}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* حوار تفاصيل العملية (من آخر القيود) */}
+      <TransactionDetailsDialog
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
+        transactionId={detailsId}
+        onChanged={() => fetchData(true)}
+      />
 
       {/* قراءة ختامية ذكية — حسب الفترة المختارة */}
       <SmartFooterNote
