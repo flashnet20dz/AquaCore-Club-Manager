@@ -24,6 +24,9 @@ import { formatWallTime, formatWallDate, toLocalYMD } from "@/lib/wall-clock";
 import { ExportButton } from "@/components/shared/export-button";
 import { WagesSection } from "@/components/wages/wages-section";
 import { useSwimConfig, invalidateSwimConfig, type SwimSlotOption } from "@/hooks/use-swim-config";
+import {
+  POOL_DAYS, POOL_DAY_LABELS, ALL_DAY_KEYS, dayKeyFromDate, slotDurationHours,
+} from "@/lib/pool-schedule";
 
 interface WorkHour {
   id: string;
@@ -82,30 +85,8 @@ const APPROVAL_LABELS: Record<string, string> = {
 };
 
 // ═════════ ★ أيام وساعات استغلال المسبح ═════════
-// أيام الأسبوع بمفاتيح ثابتة (الترتيب يبدأ بالسبت — أسبوع جزائري)
-const POOL_DAYS: Array<{ key: string; label: string }> = [
-  { key: "sat", label: "السبت" },
-  { key: "sun", label: "الأحد" },
-  { key: "mon", label: "الإثنين" },
-  { key: "tue", label: "الثلاثاء" },
-  { key: "wed", label: "الأربعاء" },
-  { key: "thu", label: "الخميس" },
-  { key: "fri", label: "الجمعة" },
-];
-const POOL_DAY_LABELS: Record<string, string> = Object.fromEntries(POOL_DAYS.map((d) => [d.key, d.label]));
-const ALL_DAY_KEYS: string[] = POOL_DAYS.map((d) => d.key);
-
-/**
- * مفتاح يوم الأسبوع من تاريخ "YYYY-MM-DD".
- * JS getDay(): 0=الأحد … 6=السبت → نحوّله لمفاتيحنا sun..sat.
- * نُفسّر التاريخ عند الظهر ("T12:00:00") لتفادي قفزات التوقيت حول منتصف الليل.
- */
-function dayKeyFromDate(date: string): string | null {
-  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
-  const d = new Date(`${date}T12:00:00`);
-  if (Number.isNaN(d.getTime())) return null;
-  return ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][d.getDay()];
-}
+// ★ المصدر الموحّد: POOL_DAYS / dayKeyFromDate / slotDurationHours من
+//   src/lib/pool-schedule.ts — نفس المصدر المستخدم في جدول المسبح والنقاط.
 
 // 🔑 حساب ساعات العمل من startTime و endTime و breakMinutes
 function calcWorkHours(startTime: string, endTime: string, breakMinutes: number = 0): number {
@@ -296,46 +277,46 @@ export function WorkHoursManagement({ role }: { role?: string }) {
     setSaving(true);
     try {
       if (withSessions) {
-        // ★ تسجيل متعدد الحصص: سجل مستقل لكل حصة بأوقاتها — والخادم يمنع التكرار (409)
-        let created = 0;
-        let duplicated = 0;
-        let lastError = "";
-        for (const slot of selectedSlots) {
-          const res = await fetch("/api/workhours", {
+        // ★ تسجيل متعدد الحصص بطلب واحد ذرّي — /api/workhours/bulk
+        // الحصص من إعدادات المسبح (المصدر الموحّد)؛ الخادم يمنع التكرار ويسجّل لقطة كل حصة
+        try {
+          const res = await fetch("/api/workhours/bulk", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              ...form,
-              startTime: slot.startTime,
-              endTime: slot.endTime,
-              note: [form.note ? form.note.trim() : "", `حصة: ${slot.name}`].filter(Boolean).join(" • "),
+              userId: form.targetUserId,
+              date: form.date,
+              slotIds: selectedSlots.map((s) => s.id),
+              breakMinutes: form.breakMinutes,
+              note: form.note ? form.note.trim() : undefined,
             }),
           });
           const data = await res.json().catch(() => ({}));
-          if (res.ok) created++;
-          else if (res.status === 409) duplicated++;
-          else lastError = data.error || "فشل التسجيل";
-        }
-        if (created > 0) {
-          toast.success(
-            `تم تسجيل ${created} حصة${duplicated > 0 ? ` — تجاهل ${duplicated} مكررة` : ""} (${selectedSlotsTotalHours.toFixed(1).replace(/\.0$/, "")} ساعة)`
-          );
-          setWagesRefresh((n) => n + 1);
-          setDialogOpen(false);
-          setSelectedSlotIds([]);
-          setForm({
-            targetUserId: "",
-            date: toLocalYMD(),
-            startTime: "08:00",
-            endTime: "17:00",
-            breakMinutes: 0,
-            workStatus: "present",
-            absenceReason: "",
-            note: "",
-          });
-          fetchWorkHours();
-        } else {
-          toast.error(lastError || (duplicated > 0 ? "كل الحصص المختارة مسجّلة مسبقاً لنفس العامل في نفس اليوم" : "فشل التسجيل"));
+          if (!res.ok) throw new Error(data.error || "فشل التسجيل");
+          const skippedCount = Array.isArray(data.skipped) ? data.skipped.length : 0;
+          if (data.created > 0) {
+            toast.success(
+              `تم تسجيل ${data.created} حصة${skippedCount > 0 ? ` — تجاهل ${skippedCount} مكررة` : ""} (${Number(data.totalHours || selectedSlotsTotalHours).toFixed(1).replace(/\.0$/, "")} ساعة)`
+            );
+            setWagesRefresh((n) => n + 1);
+            setDialogOpen(false);
+            setSelectedSlotIds([]);
+            setForm({
+              targetUserId: "",
+              date: toLocalYMD(),
+              startTime: "08:00",
+              endTime: "17:00",
+              breakMinutes: 0,
+              workStatus: "present",
+              absenceReason: "",
+              note: "",
+            });
+            fetchWorkHours();
+          } else {
+            toast.error(data.message || "كل الحصص المختارة مسجّلة مسبقاً لنفس العامل في نفس اليوم");
+          }
+        } catch (e) {
+          toast.error(e instanceof Error ? e.message : "فشل التسجيل");
         }
       } else {
         const res = await fetch("/api/workhours", {
@@ -560,15 +541,6 @@ export function WorkHoursManagement({ role }: { role?: string }) {
       .filter((s) => s.active && (s.dayOfWeek === formDayKey || !s.dayOfWeek))
       .sort((a, b) => a.startTime.localeCompare(b.startTime));
   }, [swimSlots, formDayKey, formDayOpen]);
-
-  // ★ مدة حصة بالساعات من نصّي "HH:mm" — wall-clock لا تحويل توقيت
-  const slotDurationHours = (start: string, end: string): number => {
-    const [sh, sm] = start.split(":").map(Number);
-    const [eh, em] = end.split(":").map(Number);
-    let mins = eh * 60 + em - (sh * 60 + sm);
-    if (mins <= 0) mins += 24 * 60; // وردية ليلية تعبر منتصف الليل
-    return Math.max(0, mins / 60);
-  };
 
   const toggleSlot = (id: string) => {
     setSelectedSlotIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));

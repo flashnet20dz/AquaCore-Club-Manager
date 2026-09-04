@@ -47,6 +47,8 @@ const COLUMN_SPECS: Array<{
   { table: "Payment", column: "cancelledById", pg: `ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "cancelledById" TEXT`, sqlite: `ALTER TABLE "Payment" ADD COLUMN "cancelledById" TEXT` },
   { table: "Payment", column: "cancellationReason", pg: `ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "cancellationReason" TEXT`, sqlite: `ALTER TABLE "Payment" ADD COLUMN "cancellationReason" TEXT` },
   { table: "FinancialTransaction", column: "seq", pg: `ALTER TABLE "FinancialTransaction" ADD COLUMN IF NOT EXISTS "seq" INTEGER`, sqlite: `ALTER TABLE "FinancialTransaction" ADD COLUMN "seq" INTEGER` },
+  // ★ المرحلة 4: ربط تعيين الحراس بالحصة الموحّدة من جدول المسبح
+  { table: "GuardAssignment", column: "slotId", pg: `ALTER TABLE "GuardAssignment" ADD COLUMN IF NOT EXISTS "slotId" TEXT`, sqlite: `ALTER TABLE "GuardAssignment" ADD COLUMN "slotId" TEXT` },
 ];
 
 async function columnExists(
@@ -85,6 +87,13 @@ export async function ensureRuntimeColumns(): Promise<void> {
       await db.$executeRawUnsafe(spec.pg).catch(() => db.$executeRawUnsafe(spec.sqlite));
     } catch { /* العمود موجود أو الجدول لم يُنشأ بعد */ }
   }
+  // ★ المرحلة 4: فهرس تعيينات الحصة (استعلام «عمال هذه الحصة»)
+  try {
+    if (!(await indexExists(db, "GuardAssignment_clubId_slotId_idx"))) {
+      const idx = `CREATE INDEX IF NOT EXISTS "GuardAssignment_clubId_slotId_idx" ON "GuardAssignment"("clubId","slotId")`;
+      await db.$executeRawUnsafe(idx).catch(() => undefined);
+    }
+  } catch { /* الفهرس اختياري — الاستعلام يعمل بدونه */ }
   runtimeDdlDone = true;
 }
 

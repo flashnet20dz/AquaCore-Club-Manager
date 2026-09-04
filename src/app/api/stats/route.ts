@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { computeSubscriberFields, computeSubscriberFieldsDynamic, isExemptStatus, type SubscriptionTypeConfig } from "@/lib/rcs";
 import { getCurrentUser } from "@/lib/session";
+import { computeWages } from "@/lib/wage-core";
+import { dayKeyFromDate, sessionsForDay, todayYMD, isOperatingDay } from "@/lib/pool-schedule";
 
 /**
  * GET /api/stats
@@ -171,6 +173,81 @@ export async function GET() {
     const malesOver13 = computed.filter((s) => s.gender === "ذكر" && s.age >= 13).length;
     const femalesOver13 = computed.filter((s) => s.gender === "أنثى" && s.age >= 13).length;
 
+    // ════ المرحلة 4: إحصائيات المسبح (لا مالية هنا — الأجور المعلّقة من wage-core) ════
+    let pool: {
+      todayKey: string | null;
+      operatingToday: boolean;
+      todaySessions: number;
+      activeLifeguardsToday: number;
+      todayWorkHours: number;
+      pendingWagesMonth: number;
+    } | null = null;
+    try {
+      if (!isSuperadmin && currentUser.clubId) {
+        const clubId = currentUser.clubId;
+        const today = todayYMD();
+        const todayKey = dayKeyFromDate(today);
+        const opRaw = await db.setting.findFirst({ where: { clubId, key: "poolOperatingDays" } });
+        let opDays: string[] = [];
+        if (opRaw?.value) {
+          try {
+            const parsed: unknown = JSON.parse(opRaw.value);
+            if (Array.isArray(parsed)) opDays = parsed.filter((k): k is string => typeof k === "string");
+          } catch { /* إعداد تالف */ }
+        }
+        const operatingToday = isOperatingDay(opDays, todayKey);
+        const slots = await db.swimmingTimeSlot.findMany({ where: { clubId } });
+        const todaySessionsList = operatingToday ? sessionsForDay(slots as never, todayKey) : [];
+        const todaySessionIds = todaySessionsList.map((s) => s.id);
+        // العمال المعيّنون على جلسات اليوم (عبر slotId) — عدد فريد
+        let activeLifeguardsToday = 0;
+        if (todaySessionIds.length > 0) {
+          const assigned = await db.guardAssignment.findMany({
+            where: { clubId, isActive: true, slotId: { in: todaySessionIds } },
+            select: { userId: true },
+            distinct: ["userId"],
+          });
+          activeLifeguardsToday = assigned.length;
+        }
+        // ساعات العمل المعتمدة اليوم (wall-clock UTC)
+        const dayStart = new Date(`${today}T00:00:00.000Z`);
+        const dayEnd = new Date(`${today}T23:59:59.999Z`);
+        const todayWh = await db.workHours.findMany({
+          where: { clubId, date: { gte: dayStart, lte: dayEnd }, status: "approved" },
+          select: { startTime: true, endTime: true, note: true },
+        });
+        let todayWorkHours = 0;
+        for (const r of todayWh) {
+          let breakMinutes = 0;
+          let workStatus = "present";
+          try {
+            if (r.note && r.note.startsWith("{")) {
+              const meta = JSON.parse(r.note);
+              breakMinutes = meta.breakMinutes || 0;
+              workStatus = meta.workStatus || "present";
+            }
+          } catch {}
+          if (workStatus !== "present" && workStatus !== "half-day") continue;
+          todayWorkHours += Math.max(0, (new Date(r.endTime).getTime() - new Date(r.startTime).getTime()) / 3600000 - breakMinutes / 60);
+        }
+        // الأجور المعلّقة (المتبقي) للشهر الحالي — من نفس مصدر صفحة الأجور
+        const nowD = new Date();
+        const ym = `${nowD.getUTCFullYear()}-${String(nowD.getUTCMonth() + 1).padStart(2, "0")}`;
+        const last = new Date(Date.UTC(nowD.getUTCFullYear(), nowD.getUTCMonth() + 1, 0)).getUTCDate();
+        const { totals } = await computeWages(clubId, `${ym}-01`, `${ym}-${String(last).padStart(2, "0")}`);
+        pool = {
+          todayKey,
+          operatingToday,
+          todaySessions: todaySessionsList.length,
+          activeLifeguardsToday,
+          todayWorkHours: Math.round(todayWorkHours * 10) / 10,
+          pendingWagesMonth: totals.remaining,
+        };
+      }
+    } catch (e) {
+      console.warn("stats pool block failed:", e);
+    }
+
     return NextResponse.json({
       total,
       paid: paid.length,
@@ -193,6 +270,7 @@ export async function GET() {
       byBloodType,
       bySwimmingDays,
       byTimeSlot,
+      pool,
     });
   } catch (error) {
     console.error("GET /api/stats error:", error);

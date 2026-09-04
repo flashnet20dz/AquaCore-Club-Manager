@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { formatWallTime, formatWallDate } from "@/lib/wall-clock";
 
 interface WorkHour {
   id: string;
@@ -224,13 +225,13 @@ export function WorkHoursPanel({ userRole, currentUserId }: WorkHoursPanelProps)
                     </div>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
                       <Calendar className="h-3 w-3" />
-                      <span>{new Date(w.date).toISOString().split("T")[0].replace(/-/g,"/")}</span>
+                      <span>{formatWallDate(w.date)}</span>
                       <span>•</span>
                       <Clock className="h-3 w-3" />
                       <span dir="ltr">
-                        {new Date(w.startTime).toLocaleTimeString("ar-DZ", { hour: "2-digit", minute: "2-digit" })}
+                        {formatWallTime(w.startTime)}
                         {" - "}
-                        {new Date(w.endTime).toLocaleTimeString("ar-DZ", { hour: "2-digit", minute: "2-digit" })}
+                        {formatWallTime(w.endTime)}
                       </span>
                       <span>•</span>
                       <Badge variant="outline" className="text-[9px] h-4 px-1 bg-teal-500/10 text-teal-700 border-teal-500/30">

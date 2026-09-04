@@ -7,9 +7,9 @@ generator client {
 }
 
 datasource db {
-  provider   = "postgresql"
-  url        = env("DATABASE_URL")
-  directUrl  = env("DIRECT_URL")
+  provider      = "sqlite"
+  url           = env("DATABASE_URL")
+  // ⚠️ محلي SQLite. عند النشر: أعد postgresql + directUrl (درس b8f4e5d — استبدال جراحي فقط)
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -492,6 +492,9 @@ model SwimmingTimeSlot {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  // ★ المرحلة 4: تعيينات العمال/الحراس على هذه الحصة (PoolSessionEmployee عبر GuardAssignment)
+  guardAssignments GuardAssignment[]
+
   @@unique([clubId, name])
   @@index([clubId])
 }
@@ -549,6 +552,12 @@ model GuardAssignment {
   timeSlot        String   // "09:00-10:00" | etc.
   groupName       String?  // اسم الفوج (اختياري)
 
+  // ★ المرحلة 4: التعيين على حصة محددة من جدول المسبح (SwimmingTimeSlot) —
+  // المصدر الموحّد للجلسات هو الإعدادات؛ slotId يربط التعيين بالحصة نفسها،
+  // بينما يبقى dayOfWeek/timeSlot كنص لقطة تاريخية للتوافق مع السجلات القديمة.
+  slotId          String?
+  slot            SwimmingTimeSlot? @relation(fields: [slotId], references: [id], onDelete: SetNull)
+
   // نوع التعيين
   assignmentType  String   @default("primary") // primary | assistant | substitute
   isActive        Boolean  @default(true)
@@ -567,6 +576,7 @@ model GuardAssignment {
   @@index([clubId, userId])
   @@index([clubId, dayOfWeek, timeSlot])
   @@index([clubId, attendanceStatus])
+  @@index([clubId, slotId])
 }
 
 // ═══════════════════════════════════════════════════════════
