@@ -250,10 +250,19 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
 
 export async function setSessionCookie(token: string) {
   const cookieStore = await cookies();
+  // 🔑 SameSite=None + Secure + Partitioned (CHIPS):
+  // - SameSite=Lax كان يمنع المتصفح من إرسال كوكي الجلسة داخل لوحة المعاينة
+  //   (iframe عبر نطاق مختلف) → الدخول ينجح (200) ثم كل الطلبات التالية 401
+  //   والمستخدم يُعاد إلى /login في حلقة لا نهائية.
+  // - Partitioned (CHIPS) يجعل الكوكي مقسّماً حسب الموقع الأعلى فيعمل حتى مع
+  //   حظر كوكيز الطرف الثالث (Chrome/Edge/Firefox).
+  // - Secure إلزامي مع SameSite=None (Chrome يرفض None بدون Secure)، و localhost
+  //   يُعامل كسياق آمن فيمكن العمل عليه محلياً أيضاً.
   cookieStore.set(SESSION_COOKIE, token, {
     httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    sameSite: "none",
+    secure: true,
+    partitioned: true,
     path: "/",
     maxAge: SESSION_MAX_AGE,
   });
@@ -275,10 +284,13 @@ const CLUB_HINT_COOKIE = "rcs-club-hint";
 
 export async function setClubHintCookie(clubId: string) {
   const cookieStore = await cookies();
+  // نفس منطق كوكي الجلسة: None + Secure + Partitioned ليعمل داخل iframe
+  // لوحة المعاينة (تلميح النادي لكود الكاشير PIN).
   cookieStore.set(CLUB_HINT_COOKIE, clubId, {
     httpOnly: false,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    sameSite: "none",
+    secure: true,
+    partitioned: true,
     path: "/",
     maxAge: 365 * 24 * 60 * 60,
   });

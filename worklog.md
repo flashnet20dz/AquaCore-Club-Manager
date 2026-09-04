@@ -614,3 +614,25 @@ Stage Summary:
 - المركز المالي الآن مركز تحكم حقيقي: رأس واحد (هوية+رصيد حي+فترة+تحميل+المزيد+تحديث)، فترة واحدة تحكم كل الأقسام، أرقام الفترة مقابل السابقة في كل KPI، تدفق مالي يتغير شكلُه مع الفترة، وأي عملية من أي صفحة تنعكس فوراً في كل الواجهات بلا تحديث يدوي
 - فئتا الصيانة والمعدات متاحتان في التسجيل اليدوي والتقارير والتصدير
 - آلية المزامنة: أحداث داخل التبويبة + storage events بين التبويبات — التغيّرات من خادم آخر (جهاز آخر) تُلتقط عند عودة تركيز النافذة (سلوك مقصود بلا WebSocket)
+
+---
+Task ID: fix-preview-login
+Agent: Z.ai Code (main)
+Task: إصلاح «معلومات الدخول إلى الحساب في لوحة المعاينة لا تعمل» + رفع إلى GitHub
+
+Work Log:
+- تشخيص من dev.log: مستخدم وصل /login ونجح POST /api/auth/login (200) لكن /api/auth/me يعيد 401 بعدها دائماً → الجلسة لا تُحفظ
+- تحقق من DB المحلي: admin@rcs.dz نشط و bcrypt.compare('admin123') ✓ → البيانات صحيحة والمشكلة في الكوكي
+- الجذر: setSessionCookie/setClubHintCookie كانا sameSite:"lax" — داخل iframe لوحة المعاينة (نطاق طرف ثالث) يرفض Chrome/المتصفحات كوكي Lax → حلقة /login لا نهائية
+- الإصلاح في src/lib/session.ts: SameSite="none" + secure:true + partitioned:true (CHIPS) للكوكيز معاً، مع تعليق سببي كامل
+- tsc: ملفاتنا صفر أخطاء (electron/ و124 قديمة كما هي)؛ eslint على session.ts+financial-events.ts: صفر
+- تحقق متصفح (agent-browser): login → /dashboard يعرض المركز المالي 98033 دج والجلسة ثابتة بلا ارتداد
+- مزامنة مع مستودع الإنتاج: ملفات المرحلة 2 الـ17 متطابقة SAME، الفارق الوحيد session.ts → نسخ + إيداع 0c4d5de
+- دفع HEAD:main → 095fdf5..0c4d5de (المرحلة 2 كانت مرفوعة سابقاً؛ الجديد إصلاح الكوكي)
+- Vercel: pending×4 ثم success (~75 ث) عبر commit status API
+- دخان إنتاجي: / → 200 (0.75s)؛ POST login → 200 + set-cookie يحمل Secure; SameSite=none; Partitioned؛ /api/auth/me بالكوكي → 200 (super-admin)
+
+Stage Summary:
+- تسجيل الدخول يعمل الآن داخل لوحة المعاينة (iframe) وفي الإنتاج معاً بنفس آلية الكوكي
+- السبب الجذري معمّم: أي كوكي Lax في iframe cross-site يُحجب — أي كوكي مستقبلي يجب أن يتبع نمط None+Secure+Partitioned
+- قيود معروفة: Safari بلا دعم CHIPS قد يبقى محظوراً داخل iframe (استخدم Chrome/Edge في لوحة المعاينة)؛ فتح «تبويب جديد» يطلب دخولاً منفصلاً لاختلاف قسمة الكوكي المقسّم — سلوك متوقع
