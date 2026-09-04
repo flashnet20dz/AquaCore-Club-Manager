@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { computeSubscriberFields, computeSubscriberFieldsDynamic, isExemptStatus, type SubscriptionTypeConfig } from "@/lib/rcs";
 import { getCurrentUser } from "@/lib/session";
 import { computeWages } from "@/lib/wage-core";
+import { ensureRuntimeColumns } from "@/lib/runtime-schema";
 import { dayKeyFromDate, sessionsForDay, todayYMD, isOperatingDay } from "@/lib/pool-schedule";
 
 /**
@@ -185,6 +186,8 @@ export async function GET() {
     try {
       if (!isSuperadmin && currentUser.clubId) {
         const clubId = currentUser.clubId;
+        // ★ ضمان عمود slotId على الإنتاج قبل أي استعلام يستخدمه (نمط الشفاء الذاتي)
+        await ensureRuntimeColumns();
         const today = todayYMD();
         const todayKey = dayKeyFromDate(today);
         const opRaw = await db.setting.findFirst({ where: { clubId, key: "poolOperatingDays" } });
