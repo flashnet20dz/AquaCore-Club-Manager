@@ -782,3 +782,34 @@ Files modified:
 - src/components/contracts-panel.tsx
 - src/components/work-hours-management.tsx
 - src/components/wages/wages-section.tsx
+
+---
+Task ID: fin-total-income-audit
+Agent: main
+Task: URGENT FIX — FINANCIAL TOTAL INCOME AUDIT: بطاقة «إجمالي المداخيل» تعرض مداخيل الفترة + التقرير المالي من Subscriber + خرائط الفئات من الكاش
+
+Work Log:
+- فحص شامل قبل التعديل (مطابق لتشخيص المستخدم): overview.tsx:432 كانت «إجمالي المداخيل» تقرأ p.income (الفترة) — والـAPI يرسل balance.totalIncome الصحيح أصلاً (ledgerTotalIncome من aggregate على الدفتر النشط) — المشكلة عرض فقط في البطاقة + مشاكل مزامنة مؤكدة: balance.incomeByCategory/expenseByCategory من كاش FinancialBalance (route.ts:533-534) وFinancialReport يحسب من Subscriber مع مصاريف مختلقة 60% (reports/index.tsx:972)
+- overview.tsx: استبدال البطاقتين بأربع بطاقات بتسمية صريحة — إجمالي المداخيل = data.balance.totalIncome (تاريخي، strong) / إجمالي المصاريف = data.balance.totalExpense (تاريخي) / مداخيل الفترة = p.income / مصاريف الفترة = p.expense (بتلميح الفترة المختارة) — بطاقة KPI «مداخيل {periodLabel}» (سطر 574) بقيت كما هي لأن تسميتها صحيحة
+- api/financial/dashboard: إضافة groupBy تاريخيين (income/expense by category، نشط فقط) + بناء ledgerIncomeByCategory/ledgerExpenseByCategory من الدفتر مباشرة + إرجاعهما في balance بدل الكاش + إصلاح ذاتي: عند انحراف الكاش (إجماليات أو خرائط عبر mapsEqual) يُعاد بناء FinancialBalance بـ recomputeBalanceTx داخل معاملة (idempotent) مع متابعة نجاحه في integrity — قسم dues كله حُوّل من الكاش إلى الدفتر (wages/insurance/compound/office_supplies/other)
+- reports/index.tsx: FinancialReport كُتب من جديد — يقرأ /api/financial/dashboard?period=year فقط: بنود إيراد من balance.incomeByCategory (تسجيل/تجديد/تأمين/مركب/أخرى) + بنود مصروف من balance.expenseByCategory (أجور/تأمين/مركب/صيانة/معدات/لوازم/أخرى + فئات إضافية غير قياسية) + إجماليات الدفتر والرصيد الصافي — حُذف حساب Subscriber وحُذف «مصاريف تقديرية (60%)» نهائياً + بطاقة القيود الملغاة (خارج الأرقام) + رسالة صلاحيات عند الفشل — وتقرير التجديدات: تسمية «إجمالي الإيرادات» → «مجموع مبالغ الملفات (عرضي)» كي لا يُستتبع محاسبياً
+- scripts/financial-audit-test.mjs: 31 فحصاً — الأساس متسق (مجموع الخرائط = الإجماليات) + دخل 1500+500+1500 → Δ=+3500 بالضبط + منع تكرار المرجع (duplicate=true بلا قيد جديد) + فترة 2030 فارغة (period=0 والإجمالي ثابت) + إلغاء 1500 → Δ=+2000 والقيد الملغى محفوظ status=cancelled + تخريب الكاش (999999+فئة stale) → الاستجابة من الدفتر + FinancialBalance أُصلح فعلياً + integrity.matches=true + تنظيف ناعم → Δ=0 و3 آثار ملغاة قابلة للتدقيق — **31/31 نجحت** (ملاحظة أول تشغيل: 23/29 — الإخفاقات كلها من أن منع التكرار بالمرجع عمل صحيحاً وأعاد القيد الأول لأن قيدي 1500 استخدما نفس المرجع؛ صُحح السكربت بمراجع فريدة وأضيف فحص idempotency صريح)
+- lint: الملفات الثلاثة معدلة بلا أي خطأ/تحذير (الأخطاء الـ15 القديمة في ملفات لم تُلمس) — tsc: 122 أخطاء legacy ثابتة (نفس رقم المرحلة 5، صفر أخطاء جديدة) — build: ✓ Compiled successfully 104/104 (أعاد تشغيل dev server بعده لأن الـbuild استبدل .next)
+- تحقق متصفح (agent-browser): المركز المالي يعرض إجمالي المداخيل 103 033 دج «جميع المداخيل النشطة منذ بداية سجل النادي» + إجمالي المصاريف 5 000 + مداخيل الفترة 3 033 «هذا الشهر» + مصاريف الفترة 5 000 — DashboardRevenueBlock 103 033 — لوحة التحكم الرئيسية 103,033 (دفتر) — التقرير المالي: إجمالي المداخيل (دفتر) 103 033 / المصاريف 5 000 / الرصيد الصافي 98 033 = الفرق بالضبط بلا مصاريف تقديرية — موبايل 390px بلا overflow — كونسول نظيف
+- نشر: نسخ 4 ملفات → commit 4bfaeed → push main → Vercel status:success → دخان: home 200/login 200/financial-dashboard يعمل (400 «النادي غير محدد» لsuperadmin بلا نادي — سلوك مثبت) + مسح 16 chunk إنتاج: سلسلة البطاقة الجديدة موجودة وكود 60% القديم اختفى
+
+Stage Summary:
+- ✅ البطاقة الرئيسية «إجمالي المداخيل» = التاريخي من الدفتر (كانت تعرض الفترة) — و«مداخيل الفترة» منفصلة بتسمية واضحة
+- ✅ خرائط الفئات التاريخية من الدفتر مباشرة (groupBy) لا من كاش FinancialBalance + إصلاح ذاتي idempotent عند أي انحراف — نفس آلية زر إعادة البناء لكن تلقائية
+- ✅ التقرير المالي = FinancialTransaction حصراً (لا Subscriber ولا تقدير 60%) — نفس أرقام المركز المالي ولوحة التحكم
+- ✅ dues تقرأ من الدفتر — آخر مصدر كاش في الـAPI أُزيل
+- ✅ 31/31 اختبار + build ناجح + تحقق متصفح + نشر 4bfaeed (Vercel success)
+- ⚠️ ملاحظة تصميم مقصودة: بطاقات الفترة والرصيد «الرصيد الحالي» بلا تغيير وظيفي — الرصيد التاريخي كان صحيحاً أصلاً
+
+Files created:
+- scripts/financial-audit-test.mjs
+
+Files modified:
+- src/components/financial/overview.tsx
+- src/app/api/financial/dashboard/route.ts
+- src/components/reports/index.tsx

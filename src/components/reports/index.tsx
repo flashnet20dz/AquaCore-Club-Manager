@@ -821,7 +821,8 @@ export function RenewalsReport() {
       stats={
         <div className="grid grid-cols-3 gap-2">
           <ReportStatCard label="عدد التجديدات" value={stats.total} icon={RefreshCw} color="from-fuchsia-500/15 to-fuchsia-500/5 border-fuchsia-500/30" />
-          <ReportStatCard label="إجمالي الإيرادات" value={formatMoney(stats.totalRevenue)} icon={Wallet} color="from-amber-500/15 to-amber-500/5 border-amber-500/30" />
+          {/* ★ تدقيق FIN: مجموع مبالغ ملفات المنخرطين — رقم عرضي إحصائي وليس من دفتر القيود */}
+          <ReportStatCard label="مجموع مبالغ الملفات (عرضي)" value={formatMoney(stats.totalRevenue)} icon={Wallet} color="from-amber-500/15 to-amber-500/5 border-amber-500/30" />
           <ReportStatCard label="أنواع الاشتراك" value={stats.uniqueTypes} icon={Tag} color="from-cyan-500/15 to-cyan-500/5 border-cyan-500/30" />
         </div>
       }
@@ -958,27 +959,85 @@ export function AttendanceReport() {
 // ════════════════════════════════════════════════════════════════════
 
 export function FinancialReport() {
-  const { subscribers, entete, settings, loading } = useReportData();
+  // ★ تدقيق FIN: التقرير المالي يقرأ من دفتر القيود حصراً عبر /api/financial/dashboard
+  // (نفس مصدر المركز المالي ولوحة التحكم — مصدر واحد للحقيقة).
+  // لا حساب من ملفات المنخرطين (totalAmount/subscriptionFee...) ولا مصاريف تقديرية إطلاقاً.
+  const [entete, setEntete] = useState<EnteteConfig | undefined>(undefined);
+  const [settings, setSettings] = useState<Record<string, string> | undefined>(undefined);
+  const [fin, setFin] = useState<{
+    totalIncome: number;
+    totalExpense: number;
+    balance: number;
+    incomeByCategory: Record<string, number>;
+    expenseByCategory: Record<string, number>;
+    cancelled: { total: number; count: number };
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const stats = {
-    totalSubs: subscribers.length,
-    // ★ Exclude exempt from paid count (they are a separate category)
-    paid: subscribers.filter((s) => !isExemptStatus(s.paymentStatus) && s.paymentStatus !== "لم يدفع").length,
-    totalSubscriptionFees: subscribers.reduce((sum, s) => sum + (s.subscriptionFee || 0), 0),
-    totalInsuranceFees: subscribers.reduce((sum, s) => sum + (s.insuranceFee || 0), 0),
-    totalCompoundRights: subscribers.reduce((sum, s) => sum + (s.compoundRights || 0), 0),
-    totalRevenue: subscribers.reduce((sum, s) => sum + (s.totalAmount || 0), 0),
-  };
-  const expenses = Math.round(stats.totalRevenue * 0.6);
-  const balance = stats.totalRevenue - expenses;
+  useEffect(() => {
+    Promise.all([
+      fetch("/api/financial/dashboard?period=year").then(async (r) => {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      }),
+      fetch("/api/entete").then((r) => r.json()).catch(() => ({ config: null })),
+      fetch("/api/settings").then((r) => r.json()).catch(() => ({ settings: {} })),
+    ])
+      .then(([finData, enteteData, settingsData]) => {
+        setFin({
+          totalIncome: finData.balance?.totalIncome ?? 0,
+          totalExpense: finData.balance?.totalExpense ?? 0,
+          balance: finData.balance?.balance ?? 0,
+          incomeByCategory: finData.balance?.incomeByCategory ?? {},
+          expenseByCategory: finData.balance?.expenseByCategory ?? {},
+          cancelled: finData.cancelled ?? { total: 0, count: 0 },
+        });
+        if (enteteData.config) setEntete(enteteData.config);
+        if (settingsData.settings) setSettings(settingsData.settings);
+        setLoading(false);
+      })
+      .catch(() => {
+        setError("تعذر تحميل الأرقام المالية من دفتر القيود — هذه الصفحة متاحة للصلاحيات المالية");
+        setLoading(false);
+      });
+  }, []);
+
+  const inc = fin?.incomeByCategory ?? {};
+  const exp = fin?.expenseByCategory ?? {};
+  const totalIncome = fin?.totalIncome ?? 0;
+  const totalExpense = fin?.totalExpense ?? 0;
+  const net = fin?.balance ?? 0;
+
+  // بنود الإيراد — من خرائط الدفتر التاريخية (النشط فقط)
+  const incomeRows = [
+    { item: "تسجيل الاشتراكات", type: "إيراد", amount: inc.subscription || 0 },
+    { item: "تجديد الاشتراكات", type: "إيراد", amount: inc.renewal || 0 },
+    { item: "التأمين المحصّل", type: "إيراد", amount: inc.insurance || 0 },
+    { item: "حقوق المركب المحصّلة", type: "إيراد", amount: inc.compound || 0 },
+    { item: "مدخول آخر", type: "إيراد", amount: inc.other_income || 0 },
+  ];
+  // بنود المصروف — من خرائط الدفتر التاريخية + أي فئة إضافية غير قياسية
+  const KNOWN_EXPENSE = new Set(["wages", "insurance", "compound_rights", "maintenance", "equipment", "office_supplies", "other_expense"]);
+  const expenseRows: Array<{ item: string; type: string; amount: number }> = [
+    { item: "أجور العمال", type: "مصروف", amount: exp.wages || 0 },
+    { item: "التأمين (مصروف)", type: "مصروف", amount: exp.insurance || 0 },
+    { item: "حقوق المركب (مصروف)", type: "مصروف", amount: exp.compound_rights || 0 },
+    { item: "الصيانة", type: "مصروف", amount: exp.maintenance || 0 },
+    { item: "المعدات", type: "مصروف", amount: exp.equipment || 0 },
+    { item: "لوازم مكتبية", type: "مصروف", amount: exp.office_supplies || 0 },
+    { item: "مصروف آخر", type: "مصروف", amount: exp.other_expense || 0 },
+  ];
+  for (const [cat, amt] of Object.entries(exp)) {
+    if (!KNOWN_EXPENSE.has(cat) && (amt || 0) !== 0) expenseRows.push({ item: cat, type: "مصروف", amount: amt || 0 });
+  }
 
   const rows = [
-    { item: "رسوم الاشتراكات", amount: stats.totalSubscriptionFees, type: "إيراد" },
-    { item: "رسوم التأمين", amount: stats.totalInsuranceFees, type: "إيراد" },
-    { item: "حقوق المركب", amount: stats.totalCompoundRights, type: "إيراد" },
-    { item: "إجمالي الإيرادات", amount: stats.totalRevenue, type: "إجمالي" },
-    { item: "مصاريف تقديرية (60%)", amount: expenses, type: "مصروف" },
-    { item: "الرصيد الصافي", amount: balance, type: "رصيد" },
+    ...incomeRows,
+    { item: "إجمالي المداخيل", type: "إجمالي", amount: totalIncome },
+    ...expenseRows,
+    { item: "إجمالي المصاريف", type: "إجمالي", amount: totalExpense },
+    { item: "الرصيد الصافي", type: "رصيد", amount: net },
   ];
 
   const columns = [
@@ -989,17 +1048,25 @@ export function FinancialReport() {
 
   if (loading) return <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
 
+  if (error || !fin) {
+    return (
+      <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-6 text-center">
+        <p className="text-sm font-bold text-amber-700 dark:text-amber-300">{error || "لا توجد بيانات"}</p>
+      </div>
+    );
+  }
+
   return (
     <ReportShell
       reportId="التقرير-المالي"
       title="التقرير المالي"
-      subtitle="ملخص الإيرادات والمصاريف والرصيد الصافي"
+      subtitle="من دفتر القيود المالي (العمليات النشطة) — إيرادات ومصاريف ورصيد صافي فعلي"
       stats={
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <ReportStatCard label="إجمالي الاشتراكات" value={formatMoney(stats.totalSubscriptionFees)} icon={Wallet} color="from-teal-500/15 to-teal-500/5 border-teal-500/30" />
-          <ReportStatCard label="إجمالي التأمين" value={formatMoney(stats.totalInsuranceFees)} icon={ShieldCheck} color="from-emerald-500/15 to-emerald-500/5 border-emerald-500/30" />
-          <ReportStatCard label="إجمالي الإيرادات" value={formatMoney(stats.totalRevenue)} icon={TrendingUp} color="from-blue-500/15 to-blue-500/5 border-blue-500/30" />
-          <ReportStatCard label="الرصيد الصافي" value={formatMoney(balance)} icon={Wallet} color={balance >= 0 ? "from-green-500/15 to-green-500/5 border-green-500/30" : "from-red-500/15 to-red-500/5 border-red-500/30"} />
+          <ReportStatCard label="إجمالي المداخيل (دفتر)" value={formatMoney(totalIncome)} icon={Wallet} color="from-teal-500/15 to-teal-500/5 border-teal-500/30" />
+          <ReportStatCard label="إجمالي المصاريف (دفتر)" value={formatMoney(totalExpense)} icon={TrendingUp} color="from-rose-500/15 to-rose-500/5 border-rose-500/30" />
+          <ReportStatCard label="الرصيد الصافي" value={formatMoney(net)} icon={Wallet} color={net >= 0 ? "from-emerald-500/15 to-emerald-500/5 border-emerald-500/30" : "from-rose-500/15 to-rose-500/5 border-rose-500/30"} />
+          <ReportStatCard label="قيود ملغاة (خارج الأرقام)" value={`${fin.cancelled.count} قيد / ${formatMoney(fin.cancelled.total)}`} icon={ShieldCheck} color="from-amber-500/15 to-amber-500/5 border-amber-500/30" />
         </div>
       }
       table={<ReportTable data={rows} columns={columns} pageSize={50} />}

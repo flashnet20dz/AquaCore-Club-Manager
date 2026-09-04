@@ -429,8 +429,41 @@ export function FinancialOverview({ role, onNavigateSection, controlledPeriod, o
           title={payablesTotal > 0 ? `الرصيد ${formatDA(data.balance.balance)} ناقص الالتزامات ${formatDA(payablesTotal)}` : "لا التزامات مستحقة حالياً"}
           strong
         />
-        <MainCard icon={ArrowDownCircle} label="إجمالي المداخيل" value={formatDA(p.income)} tone="emerald" hint={periodLabel} />
-        <MainCard icon={ArrowUpCircle} label="إجمالي المصاريف" value={formatDA(p.expense)} tone="rose" hint={periodLabel} />
+        {/* ★ إجمالي المداخيل/المصاريف = التاريخي من الدفتر (كل العمليات النشطة منذ بداية السجل)
+            مداخيل/مصاريف الفترة = الفترة المختارة فقط — تسمية صريحة لكل بطاقة (تدقيق FIN) */}
+        <MainCard
+          icon={ArrowDownCircle}
+          label="إجمالي المداخيل"
+          value={formatDA(data.balance.totalIncome)}
+          tone="emerald"
+          hint="جميع المداخيل النشطة منذ بداية سجل النادي"
+          title="إجمالي المداخيل = مجموع كل قيود الدخل النشطة في دفتر القيود منذ البداية"
+          strong
+        />
+        <MainCard
+          icon={ArrowUpCircle}
+          label="إجمالي المصاريف"
+          value={formatDA(data.balance.totalExpense)}
+          tone="rose"
+          hint="جميع المصاريف النشطة منذ بداية سجل النادي"
+          title="إجمالي المصاريف = مجموع كل قيود المصروف النشطة في دفتر القيود منذ البداية"
+        />
+        <MainCard
+          icon={CalendarDays}
+          label="مداخيل الفترة"
+          value={formatDA(p.income)}
+          tone="emerald"
+          hint={periodLabel}
+          title={`مداخيل الفترة المختارة (${periodLabel}) فقط`}
+        />
+        <MainCard
+          icon={CalendarRange}
+          label="مصاريف الفترة"
+          value={formatDA(p.expense)}
+          tone="rose"
+          hint={periodLabel}
+          title={`مصاريف الفترة المختارة (${periodLabel}) فقط`}
+        />
         <MainCard icon={Activity} label="صافي الحركة" value={formatDA(p.net)} tone={p.net >= 0 ? "emerald" : "rose"} hint={`${p.count} عملية خلال ${periodLabel}`} />
         <MainCard
           icon={Hourglass}
