@@ -49,6 +49,27 @@ const COLUMN_SPECS: Array<{
   { table: "FinancialTransaction", column: "seq", pg: `ALTER TABLE "FinancialTransaction" ADD COLUMN IF NOT EXISTS "seq" INTEGER`, sqlite: `ALTER TABLE "FinancialTransaction" ADD COLUMN "seq" INTEGER` },
   // ★ المرحلة 4: ربط تعيين الحراس بالحصة الموحّدة من جدول المسبح
   { table: "GuardAssignment", column: "slotId", pg: `ALTER TABLE "GuardAssignment" ADD COLUMN IF NOT EXISTS "slotId" TEXT`, sqlite: `ALTER TABLE "GuardAssignment" ADD COLUMN "slotId" TEXT` },
+  // ★ المرحلة 5: سجل العمل مرتبط بالحصة + لقطة السعر + سبب الرفض/الإلغاء
+  { table: "WorkHours", column: "slotId", pg: `ALTER TABLE "WorkHours" ADD COLUMN IF NOT EXISTS "slotId" TEXT`, sqlite: `ALTER TABLE "WorkHours" ADD COLUMN "slotId" TEXT` },
+  { table: "WorkHours", column: "rateSnapshot", pg: `ALTER TABLE "WorkHours" ADD COLUMN IF NOT EXISTS "rateSnapshot" INTEGER`, sqlite: `ALTER TABLE "WorkHours" ADD COLUMN "rateSnapshot" INTEGER` },
+  { table: "WorkHours", column: "rejectionReason", pg: `ALTER TABLE "WorkHours" ADD COLUMN IF NOT EXISTS "rejectionReason" TEXT`, sqlite: `ALTER TABLE "WorkHours" ADD COLUMN "rejectionReason" TEXT` },
+  { table: "WorkHours", column: "cancelledById", pg: `ALTER TABLE "WorkHours" ADD COLUMN IF NOT EXISTS "cancelledById" TEXT`, sqlite: `ALTER TABLE "WorkHours" ADD COLUMN "cancelledById" TEXT` },
+  { table: "WorkHours", column: "cancelledAt", pg: `ALTER TABLE "WorkHours" ADD COLUMN IF NOT EXISTS "cancelledAt" TIMESTAMP(3)`, sqlite: `ALTER TABLE "WorkHours" ADD COLUMN "cancelledAt" DATETIME` },
+  // ★ المرحلة 5: حالة الموظف + تواصل + الاسم بالفرنسية
+  { table: "Employee", column: "status", pg: `ALTER TABLE "Employee" ADD COLUMN IF NOT EXISTS "status" TEXT NOT NULL DEFAULT 'ACTIVE'`, sqlite: `ALTER TABLE "Employee" ADD COLUMN "status" TEXT NOT NULL DEFAULT 'ACTIVE'` },
+  { table: "Employee", column: "email", pg: `ALTER TABLE "Employee" ADD COLUMN IF NOT EXISTS "email" TEXT`, sqlite: `ALTER TABLE "Employee" ADD COLUMN "email" TEXT` },
+  { table: "Employee", column: "firstNameFr", pg: `ALTER TABLE "Employee" ADD COLUMN IF NOT EXISTS "firstNameFr" TEXT`, sqlite: `ALTER TABLE "Employee" ADD COLUMN "firstNameFr" TEXT` },
+  { table: "Employee", column: "lastNameFr", pg: `ALTER TABLE "Employee" ADD COLUMN IF NOT EXISTS "lastNameFr" TEXT`, sqlite: `ALTER TABLE "Employee" ADD COLUMN "lastNameFr" TEXT` },
+  // ★ المرحلة 5: نوع العقد + عنوان + ساعات أسبوعية + إنهاء ناعم
+  { table: "EmploymentContract", column: "contractType", pg: `ALTER TABLE "EmploymentContract" ADD COLUMN IF NOT EXISTS "contractType" TEXT NOT NULL DEFAULT 'HOURLY'`, sqlite: `ALTER TABLE "EmploymentContract" ADD COLUMN "contractType" TEXT NOT NULL DEFAULT 'HOURLY'` },
+  { table: "EmploymentContract", column: "title", pg: `ALTER TABLE "EmploymentContract" ADD COLUMN IF NOT EXISTS "title" TEXT`, sqlite: `ALTER TABLE "EmploymentContract" ADD COLUMN "title" TEXT` },
+  { table: "EmploymentContract", column: "weeklyHours", pg: `ALTER TABLE "EmploymentContract" ADD COLUMN IF NOT EXISTS "weeklyHours" INTEGER`, sqlite: `ALTER TABLE "EmploymentContract" ADD COLUMN "weeklyHours" INTEGER` },
+  { table: "EmploymentContract", column: "terminatedAt", pg: `ALTER TABLE "EmploymentContract" ADD COLUMN IF NOT EXISTS "terminatedAt" TIMESTAMP(3)`, sqlite: `ALTER TABLE "EmploymentContract" ADD COLUMN "terminatedAt" DATETIME` },
+  { table: "EmploymentContract", column: "terminatedById", pg: `ALTER TABLE "EmploymentContract" ADD COLUMN IF NOT EXISTS "terminatedById" TEXT`, sqlite: `ALTER TABLE "EmploymentContract" ADD COLUMN "terminatedById" TEXT` },
+  { table: "EmploymentContract", column: "terminatedReason", pg: `ALTER TABLE "EmploymentContract" ADD COLUMN IF NOT EXISTS "terminatedReason" TEXT`, sqlite: `ALTER TABLE "EmploymentContract" ADD COLUMN "terminatedReason" TEXT` },
+  // ★ المرحلة 5: مفتاح Idempotency للتسديد + ربط بسجل الموظف
+  { table: "WagePayment", column: "idempotencyKey", pg: `ALTER TABLE "WagePayment" ADD COLUMN IF NOT EXISTS "idempotencyKey" TEXT`, sqlite: `ALTER TABLE "WagePayment" ADD COLUMN "idempotencyKey" TEXT` },
+  { table: "WagePayment", column: "employeeId", pg: `ALTER TABLE "WagePayment" ADD COLUMN IF NOT EXISTS "employeeId" TEXT`, sqlite: `ALTER TABLE "WagePayment" ADD COLUMN "employeeId" TEXT` },
 ];
 
 async function columnExists(
@@ -94,6 +115,27 @@ export async function ensureRuntimeColumns(): Promise<void> {
       await db.$executeRawUnsafe(idx).catch(() => undefined);
     }
   } catch { /* الفهرس اختياري — الاستعلام يعمل بدونه */ }
+  // ★ المرحلة 5: فهارس سجل العمل + الموظفين
+  for (const idxName of ["WorkHours_clubId_slotId_idx", "Employee_clubId_status_idx", "EmploymentContract_clubId_endDate_idx"]) {
+    try {
+      if (!(await indexExists(db, idxName))) {
+        const defs: Record<string, string> = {
+          WorkHours_clubId_slotId_idx: `CREATE INDEX IF NOT EXISTS "WorkHours_clubId_slotId_idx" ON "WorkHours"("clubId","slotId")`,
+          Employee_clubId_status_idx: `CREATE INDEX IF NOT EXISTS "Employee_clubId_status_idx" ON "Employee"("clubId","status")`,
+          EmploymentContract_clubId_endDate_idx: `CREATE INDEX IF NOT EXISTS "EmploymentContract_clubId_endDate_idx" ON "EmploymentContract"("clubId","endDate")`,
+        };
+        await db.$executeRawUnsafe(defs[idxName]).catch(() => undefined);
+      }
+    } catch { /* فهارس اختيارية */ }
+  }
+  // ★ المرحلة 5 (§37): فريد جزئي على مفتاح Idempotency للتسديد —
+  //   نفس المفتاح = نفس الدفعة (ضغط مزدوج/إعادة إرسال) — القيم الفارغة مستثناة
+  try {
+    if (!(await indexExists(db, "WagePayment_idempotencyKey_key"))) {
+      const idx = `CREATE UNIQUE INDEX IF NOT EXISTS "WagePayment_idempotencyKey_key" ON "WagePayment"("idempotencyKey") WHERE "idempotencyKey" IS NOT NULL`;
+      await db.$executeRawUnsafe(idx).catch(() => undefined);
+    }
+  } catch { /* الفهرس اختياري — التحقق الاستباقي داخل المعاملة يغطي */ }
   runtimeDdlDone = true;
 }
 

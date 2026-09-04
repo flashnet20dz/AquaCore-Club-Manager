@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser, hasPermission } from "@/lib/session";
 import { parseWallDateTime, utcMonthStart, utcMonthEnd } from "@/lib/wall-clock";
+import { checkContractAllowsWork } from "@/lib/work-contract-guard";
+import { ensureRuntimeColumns } from "@/lib/runtime-schema";
 
 export async function GET(req: NextRequest) {
   try {
@@ -85,16 +87,32 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    await ensureRuntimeColumns();
     const currentUser = await getCurrentUser();
     if (!currentUser || !hasPermission(currentUser.role, "workHours")) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
     }
 
     const body = await req.json();
-    const { date, startTime, endTime, note, breakMinutes, workStatus, absenceReason, targetUserId } = body;
+    const { date, startTime, endTime, note, breakMinutes, workStatus, absenceReason, targetUserId, allowAfterContractEnd } = body;
 
     if (!date) {
       return NextResponse.json({ error: "التاريخ مطلوب" }, { status: 400 });
+    }
+
+    const effectiveUserId = targetUserId || currentUser.id;
+    const isAdminRole = currentUser.role === "admin" || currentUser.role === "superadmin";
+
+    // ★ المرحلة 5 (§23): لقطة سعر الساعة وقت التسجيل — تغيير الأجر لاحقاً لا يعيد حساب التاريخ
+    const empForRate = await db.employee.findFirst({
+      where: { clubId: currentUser.clubId!, userId: effectiveUserId, status: { not: "ARCHIVED" } },
+      orderBy: { createdAt: "desc" },
+      select: { hourRate: true },
+    });
+    let rateSnapshot: number | null = empForRate?.hourRate ?? null;
+    if (rateSnapshot === null) {
+      const defRate = await db.setting.findFirst({ where: { clubId: currentUser.clubId!, key: "workHourRate" } });
+      rateSnapshot = parseInt(defRate?.value || "200") || 200;
     }
 
     const isAbsence = workStatus === "absent" || workStatus === "leave" || workStatus === "sick" || workStatus === "vacation";
@@ -119,11 +137,23 @@ export async function POST(req: NextRequest) {
           status: currentUser.role === "admin" || currentUser.role === "superadmin" ? "approved" : "pending",
           approvedById: (currentUser.role === "admin" || currentUser.role === "superadmin") ? currentUser.id : null,
           approvedAt: (currentUser.role === "admin" || currentUser.role === "superadmin") ? new Date() : null,
+          rateSnapshot,
         },
         include: {
           user: { select: { id: true, name: true, email: true, role: true } },
         },
       });
+      await db.auditLog.create({
+        data: {
+          clubId: currentUser.clubId,
+          userId: currentUser.id,
+          action: "work_hour_create",
+          entityType: "WorkHours",
+          entityId: workHour.id,
+          description: `تسجيل غياب/عطلة للعامل (${workStatus}) بتاريخ ${date}`,
+          metadata: JSON.stringify({ workStatus, date }),
+        },
+      }).catch(() => undefined);
       return NextResponse.json({ workHour }, { status: 201 });
     }
 
@@ -145,6 +175,19 @@ export async function POST(req: NextRequest) {
       } catch { /* إعداد تالف → نتجاهل */ }
     }
 
+    // ★ المرحلة 5 (§24): حماية العقد — لا تسجيل بعد انتهاء العقد إلا بتجاوز صريح.
+    // المدير يتلقّى 409 contractGuard فيتّم التحذير الواضح في الواجهة ثم يرسل
+    // allowAfterContractEnd=true للتأكيد؛ غير المدير يُرفض دائماً (403).
+    if (!allowAfterContractEnd) {
+      const guard = await checkContractAllowsWork(currentUser.clubId!, effectiveUserId, date);
+      if (!guard.ok) {
+        return NextResponse.json(
+          { error: guard.message, contractGuard: true },
+          { status: isAdminRole ? 409 : 403 }
+        );
+      }
+    }
+
     // ★ منع التكرار: نفس العامل + نفس اليوم + نفس وقت البداية (سجل غير مرفوض)
     const dupStart = parseWallDateTime(date, startTime);
     const duplicate = await db.workHours.findFirst({
@@ -153,7 +196,7 @@ export async function POST(req: NextRequest) {
         userId: targetUserId || currentUser.id,
         date: parseWallDateTime(date, "00:00"),
         startTime: dupStart,
-        status: { not: "rejected" },
+        status: { notIn: ["rejected", "cancelled"] },
       },
       select: { id: true },
     });
@@ -184,11 +227,24 @@ export async function POST(req: NextRequest) {
         status: currentUser.role === "admin" || currentUser.role === "superadmin" ? "approved" : "pending",
         approvedById: (currentUser.role === "admin" || currentUser.role === "superadmin") ? currentUser.id : null,
         approvedAt: (currentUser.role === "admin" || currentUser.role === "superadmin") ? new Date() : null,
+        rateSnapshot,
       },
       include: {
         user: { select: { id: true, name: true, email: true, role: true } },
       },
     });
+
+    await db.auditLog.create({
+      data: {
+        clubId: currentUser.clubId,
+        userId: currentUser.id,
+        action: "work_hour_create",
+        entityType: "WorkHours",
+        entityId: workHour.id,
+        description: `تسجيل ساعة عمل ${startTime}→${endTime} بتاريخ ${date}`,
+        metadata: JSON.stringify({ startTime, endTime, date, rateSnapshot }),
+      },
+    }).catch(() => undefined);
 
     return NextResponse.json({ workHour }, { status: 201 });
   } catch (e) {

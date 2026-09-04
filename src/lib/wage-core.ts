@@ -4,22 +4,38 @@
  * يُستهلك من: /api/wages (صفحة الأجور) و /api/stats (لوحة التحكم — الأجور المعلّقة)
  *
  * المعادلة الوحيدة في النظام:
- *   Total Hours (WorkHours المعتمدة داخل الفترة) × Hourly Rate = Gross Wage
+ *   Gross = Σ (ساعات كل سجل معتمد × لقطة سعره rateSnapshot)   (§11/§23)
  *   المدفوع = تسديدات WagePayment النشطة لنفس الفترة + دفعات salary قديمة
  *   المتبقي = Gross − المدفوع
+ *
+ * ★ المرحلة 5:
+ *  - لقطة سعر الساعة (rateSnapshot) تُخزَّن عند تسجيل السجل — تغيير أجر
+ *    العامل لاحقاً لا يعيد حساب السجلات القديمة (§23). السجلات القديمة بلا
+ *    لقطة تُحسب بسعر Employee الحالي (توافق خلفي).
+ *  - hourRate المعروض = متوسط مرجّح (gross/الساعات) إذا تغيّر السعر داخل
+ *    الفترة، حتى يبقى gross ≈ hours × hourRate صادقاً دائماً.
+ *  - computeWages يقبل عميل معاملة (tx) اختيارياً — يستدعى داخل
+ *    db.$transaction وقت التسديد ليعاد حساب المتبقي داخل نفس الذرّية (§38).
  *
  * تخزين الأوقات: wall-clock UTC (src/lib/wall-clock.ts) — بلا انحراف توقيت.
  */
 
 import { db } from "@/lib/db";
 import { utcRange } from "@/lib/wall-clock";
+import type { PrismaTx } from "@/lib/financial-posting";
+
+/** عميل Prisma: معاملة أو العميل المباشر */
+type DbClient = PrismaTx | typeof db;
 
 export interface WorkerWageRow {
   userId: string;
   name: string;
   role: string;
   position: string | null;
+  /** السعر المعروض: متوسط مرجّح من لقطات السجلات (أو السعر الحالي إن لم تتغير) */
   hourRate: number;
+  /** سعر العامل الحالي من Employee (مرجع فقط — لا يدخل في حساب التاريخ §23/§48) */
+  currentRate: number;
   daysWorked: number;
   sessions: number;
   totalHours: number;
@@ -34,46 +50,47 @@ export interface WorkerWageRow {
   }>;
 }
 
-export async function computeWages(clubId: string, from: string, to: string) {
+export async function computeWages(clubId: string, from: string, to: string, tx?: DbClient) {
+  const client: DbClient = tx ?? db;
   const { start, end } = utcRange(from, to);
 
   // العمال (كل مستخدمي النادي غير المعلّقين)
-  const staff = await db.user.findMany({
+  const staff = await client.user.findMany({
     where: { clubId, pending: false, active: true },
     select: { id: true, name: true, role: true },
     orderBy: { name: "asc" },
   });
 
   // أسعار الساعة من Employee (خاصة بكل عامل)
-  const employees = await db.employee.findMany({
-    where: { clubId, userId: { not: null } },
+  const employees = await client.employee.findMany({
+    where: { clubId, userId: { not: null }, status: { not: "ARCHIVED" } },
     select: { userId: true, position: true, hourRate: true },
   });
   const empMap = new Map(employees.map((e) => [e.userId as string, { position: e.position, hourRate: e.hourRate }]));
-  const settingsRow = await db.setting.findFirst({ where: { clubId, key: "workHourRate" } });
+  const settingsRow = await client.setting.findFirst({ where: { clubId, key: "workHourRate" } });
   const defaultRate = parseInt(settingsRow?.value || "200") || 200;
 
-  // ساعات العمل المعتمدة داخل الفترة (Pointage الفعلي)
-  const wh = await db.workHours.findMany({
+  // ساعات العمل المعتمدة داخل الفترة (Pointage الفعلي) + لقطة السعر
+  const wh = await client.workHours.findMany({
     where: { clubId, date: { gte: start, lte: end }, status: "approved" },
-    select: { userId: true, date: true, startTime: true, endTime: true, note: true },
+    select: { userId: true, date: true, startTime: true, endTime: true, note: true, rateSnapshot: true },
   });
 
   // تسديدات الأجور المرتبطة بنفس الفترة (الملغاة تُعرض في السجل ولا تُحسب مدفوعاً)
-  const wagePayments = await db.wagePayment.findMany({
+  const wagePayments = await client.wagePayment.findMany({
     where: { clubId, periodStart: start, periodEnd: end },
     orderBy: { paidAt: "desc" },
   });
 
   // دفعات salary قديمة (قبل نظام WagePayment) المؤرخة داخل الفترة — تُحتسب مدفوعاً
   // ★ الملغاة مستثناة من الحساب (تبقى في التاريخ فقط)
-  const legacySalary = await db.payment.findMany({
+  const legacySalary = await client.payment.findMany({
     where: { clubId, category: "salary", status: { not: "cancelled" }, date: { gte: start, lte: end } },
     select: { id: true, userId: true, amount: true, date: true, note: true, status: true },
   });
 
-  // تجميع الساعات لكل عامل
-  const hoursByUser = new Map<string, { hours: number; days: Set<string>; sessions: number }>();
+  // تجميع الساعات لكل عامل — الإجمالي من لقطة السعر لكل سجل (§23)
+  const hoursByUser = new Map<string, { hours: number; days: Set<string>; sessions: number; grossBySnapshot: number }>();
   for (const r of wh) {
     // ★ قراءة الحالة والاستراحة من note JSON (نفس منطق GET /api/workhours)
     let breakMinutes = 0;
@@ -88,19 +105,25 @@ export async function computeWages(clubId: string, from: string, to: string) {
     if (workStatus !== "present" && workStatus !== "half-day") continue; // الغياب لا يُحتسب
     const durH = Math.max(0, (new Date(r.endTime).getTime() - new Date(r.startTime).getTime()) / 3600000 - breakMinutes / 60);
     const dayKey = new Date(r.date).toISOString().slice(0, 10);
-    const acc = hoursByUser.get(r.userId) || { hours: 0, days: new Set<string>(), sessions: 0 };
+    const acc = hoursByUser.get(r.userId) || { hours: 0, days: new Set<string>(), sessions: 0, grossBySnapshot: 0 };
     acc.hours += durH;
     acc.days.add(dayKey);
     acc.sessions += 1;
+    // ★ لقطة السعر أسبق — إن غابت (سجل قديم) فسعر Employee الحالي (توافق خلفي)
+    const recRate = r.rateSnapshot ?? empMap.get(r.userId)?.hourRate ?? defaultRate;
+    acc.grossBySnapshot += durH * recRate;
     hoursByUser.set(r.userId, acc);
   }
 
   const workers: WorkerWageRow[] = staff.map((u) => {
     const emp = empMap.get(u.id);
-    const hourRate = emp?.hourRate || defaultRate;
+    const currentRate = emp?.hourRate || defaultRate;
     const agg = hoursByUser.get(u.id);
     const totalHours = Math.round((agg?.hours || 0) * 100) / 100;
-    const gross = Math.round(totalHours * hourRate);
+    // ★ الإجمالي من لقطات السجلات — لا إعادة حساب تاريخية بسعر اليوم (§23/§48)
+    const gross = Math.round(agg?.grossBySnapshot || 0);
+    // المتوسط المرجّح للعرض — يبقى gross ≈ hours × hourRate صادقاً حتى مع تغيّر السعر
+    const hourRate = totalHours > 0 ? Math.max(1, Math.round(gross / totalHours)) : currentRate;
     const wpRows = wagePayments.filter((p) => p.userId === u.id);
     // ★ المدفوع = التسديدات النشطة فقط — الملغى لا يُحتسب (يعود المبلغ للمتبقي)
     const wpPaid = wpRows.filter((p) => p.status !== "cancelled").reduce((s, p) => s + p.amount, 0);
@@ -114,6 +137,7 @@ export async function computeWages(clubId: string, from: string, to: string) {
       role: u.role,
       position: emp?.position || null,
       hourRate,
+      currentRate,
       daysWorked: agg?.days.size || 0,
       sessions: agg?.sessions || 0,
       totalHours,

@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { getCurrentUser, hasPermission } from "@/lib/session";
 import { parseWallDateTime } from "@/lib/wall-clock";
 import { dayKeyFromDate, slotDurationHours, type PoolSlot } from "@/lib/pool-schedule";
+import { checkContractAllowsWork } from "@/lib/work-contract-guard";
+import { ensureRuntimeColumns } from "@/lib/runtime-schema";
 
 /**
  * POST /api/workhours/bulk — تسجيل عدة حصص دفعة واحدة (المرحلة 4 — §11)
@@ -12,9 +14,11 @@ import { dayKeyFromDate, slotDurationHours, type PoolSlot } from "@/lib/pool-sch
  * - الحصص تُقرأ من إعدادات المسبح (SwimmingTimeSlot) — المصدر الموحّد.
  *   لا يُقبل slotId لا ينتمي للنادي أو معطّل.
  * - لكل حصة يُنشأ سجل WorkHours مستقل بأوقاتها الحرفية (wall-clock UTC)
- *   مع لقطة {slotId, name, startTime, endTime} في note JSON (§27 تاريخية).
+ *   مع لقطة {slotId, name, startTime, endTime} في note JSON (§27 تاريخية)
+ *   وربط slotId + لقطة سعر الساعة rateSnapshot (المرحلة 5: §6/§23).
  * - الحصص المكررة (نفس العامل+اليوم+نفس وقت البداية) تُتخطى ولا تفشل العملية (§13).
  * - المسبح المغلق في ذلك اليوم يرفض الطلب كله (نفس قاعدة /api/workhours).
+ * - ★ المرحلة 5 (§24): عقد منتهٍ يرفض الطلب (تجاوز المدير allowAfterContractEnd=true).
  * - كل شيء داخل معاملة واحدة: إما كل الحصص غير المكررة تُسجَّل أو لا شيء.
  *
  * Response: { created, skipped, totalHours, records: [...] }
@@ -22,6 +26,7 @@ import { dayKeyFromDate, slotDurationHours, type PoolSlot } from "@/lib/pool-sch
 
 export async function POST(req: NextRequest) {
   try {
+    await ensureRuntimeColumns();
     const currentUser = await getCurrentUser();
     if (!currentUser || !hasPermission(currentUser.role, "workHours")) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
@@ -54,6 +59,32 @@ export async function POST(req: NextRequest) {
     }
     if (slotIds.length > 30) {
       return NextResponse.json({ error: "عدد الحصص كبير جداً (الحد 30)" }, { status: 400 });
+    }
+
+    const allowAfterContractEnd = body?.allowAfterContractEnd === true;
+    const isAdminRole = currentUser.role === "admin" || currentUser.role === "superadmin";
+
+    // ★ المرحلة 5 (§24): حماية العقد — لا تسجيل بعد انتهاء العقد إلا بتجاوز صريح
+    if (!allowAfterContractEnd) {
+      const guard = await checkContractAllowsWork(clubId, userId, date);
+      if (!guard.ok) {
+        return NextResponse.json(
+          { error: guard.message, contractGuard: true },
+          { status: isAdminRole ? 409 : 403 }
+        );
+      }
+    }
+
+    // ★ المرحلة 5 (§23): لقطة سعر الساعة وقت التسجيل (لكل السجلات المُنشأة الآن)
+    const empForRate = await db.employee.findFirst({
+      where: { clubId, userId, status: { not: "ARCHIVED" } },
+      orderBy: { createdAt: "desc" },
+      select: { hourRate: true },
+    });
+    let rateSnapshot: number | null = empForRate?.hourRate ?? null;
+    if (rateSnapshot === null) {
+      const defRate = await db.setting.findFirst({ where: { clubId, key: "workHourRate" } });
+      rateSnapshot = parseInt(defRate?.value || "200") || 200;
     }
 
     const breakMinutes = Number.isFinite(+body.breakMinutes) ? Math.max(0, Math.floor(+body.breakMinutes)) : 0;
@@ -106,7 +137,7 @@ export async function POST(req: NextRequest) {
         clubId,
         userId,
         date: dayStart,
-        status: { not: "rejected" },
+        status: { notIn: ["rejected", "cancelled"] },
       },
       select: { startTime: true },
     });
@@ -116,6 +147,7 @@ export async function POST(req: NextRequest) {
     const toCreate: Array<{
       clubId: string; userId: string; date: Date; startTime: Date; endTime: Date;
       note: string; status: string; approvedById: string | null; approvedAt: Date | null;
+      slotId: string; rateSnapshot: number | null;
     }> = [];
     const skipped: Array<{ slotId: string; name: string; reason: "duplicate" }> = [];
     let totalHours = 0;
@@ -156,6 +188,8 @@ export async function POST(req: NextRequest) {
         status: isAdmin ? "approved" : "pending",
         approvedById: isAdmin ? currentUser.id : null,
         approvedAt: isAdmin ? new Date() : null,
+        slotId: s.id,
+        rateSnapshot,
       });
     }
 

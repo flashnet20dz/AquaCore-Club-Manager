@@ -6,10 +6,12 @@
  *     أيام العمل، الحصص، الساعات، سعر الساعة، الإجمالي، المدفوع، المتبقي، الحالة
  *   المدفوع = تسديدات WagePayment لنفس الفترة + دفعات salary قديمة المؤرخة داخل الفترة
  *
- * POST  { userId, from, to, amount, method, paidAt, note, source }
+ * POST  { userId, from, to, amount, method, paidAt, note, source, idempotencyKey? }
  *   → تسديد ذرّي: WagePayment + قيد مالي واحد FinancialTransaction (expense/wages)
  *     مرتبط 1:1 (transactionId فريد) + تحديث الرصيد + سجل تدقيق AuditLog
- *   الحمايات: صلاحية admin/superadmin • مبلغ > 0 • المبلغ ≤ المتبقي (منع الدفع الزائد)
+ *   الحمايات: صلاحية admin/superadmin/accountant • مبلغ > 0 • المبلغ ≤ المتبقي (منع الدفع الزائد)
+ *   ★ المرحلة 5: idempotencyKey (ضغط مزدوج/إعادة إرسال = دفعة واحدة §37) +
+ *     إعادة حساب المتبقي داخل نفس المعاملة + قفل صف الرصيد (تزامن مدير×محاسب §38)
  *
  * تخزين الأوقات: wall-clock UTC (انظر src/lib/wall-clock.ts) — بلا انحراف توقيت.
  */
@@ -77,6 +79,11 @@ function isMissingTableErr(e: unknown): boolean {
 // صلاحية الوصول للقراءة: من يدير/يراقب العمل والمال
 function hasWageAccess(role: string): boolean {
   return ["admin", "superadmin", "assistant", "accountant"].includes(role);
+}
+
+// ★ المرحلة 5 (§34): المحاسب يسلّم الأجور (تسجيل الدفع) — الإلغاء يبقى للمدير
+function hasWagePayAccess(role: string): boolean {
+  return ["admin", "superadmin", "accountant"].includes(role);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -150,7 +157,11 @@ export async function GET(req: NextRequest) {
       totals,
       recentPayments,
       // ★ الصلاحية تُصدَر من الخادم — زر «إلغاء التسديد» يظهر فقط لمن يملك حق الإلغاء فعلاً
-      viewer: { canVoid: currentUser.role === "admin" || currentUser.role === "superadmin" },
+      viewer: {
+        canVoid: currentUser.role === "admin" || currentUser.role === "superadmin",
+        // ★ المرحلة 5 (§34): المحاسب يسلّم أيضاً — نفس API/نفس الخدمة من الصفحتين
+        canPay: hasWagePayAccess(currentUser.role),
+      },
     });
   } catch (e) {
     if (isMissingTableErr(e)) {
@@ -169,15 +180,15 @@ export async function POST(req: NextRequest) {
     await ensureRuntimeColumns();
     await ensureFinancialIndexes();
     const currentUser = await getCurrentUser();
-    // ★ صلاحية مالية حساسة: admin/superadmin فقط (تتحقق في الخادم لا في الواجهة)
-    if (!currentUser || (currentUser.role !== "admin" && currentUser.role !== "superadmin")) {
-      return NextResponse.json({ error: "غير مصرح — تسديد الأجور للمدير فقط" }, { status: 403 });
+    // ★ صلاحية مالية حساسة: admin/superadmin/accountant (تتحقق في الخادم لا في الواجهة)
+    if (!currentUser || !hasWagePayAccess(currentUser.role)) {
+      return NextResponse.json({ error: "غير مصرح — تسديد الأجور للمدير أو المحاسب فقط" }, { status: 403 });
     }
     if (!currentUser.clubId) return NextResponse.json({ error: "النادي غير محدد" }, { status: 400 });
     const clubId = currentUser.clubId;
 
     const body = await req.json();
-    const { userId, from, to, amount, method, paidAt, note, source } = body;
+    const { userId, from, to, amount, method, paidAt, note, source, idempotencyKey } = body;
 
     if (!userId || !from || !to || !amount) {
       return NextResponse.json({ error: "بيانات ناقصة" }, { status: 400 });
@@ -188,6 +199,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "المبلغ يجب أن يكون رقماً موجباً" }, { status: 400 });
     }
 
+    // مفتاح Idempotency: نص صغير من العميل (ضغط مزدوج/إعادة إرسال/تحديث = دفعة واحدة §37)
+    const idemKey = typeof idempotencyKey === "string" && idempotencyKey.trim()
+      ? idempotencyKey.trim().slice(0, 100)
+      : null;
+
+    // ★ Idempotency استباقية: نفس المفتاح = نفس الدفعة السابقة (لا ازدواج إطلاقاً)
+    if (idemKey) {
+      const existing = await db.wagePayment.findFirst({
+        where: { clubId, idempotencyKey: idemKey },
+        select: { id: true, transactionId: true, status: true },
+      });
+      if (existing) {
+        return NextResponse.json(
+          { success: true, duplicate: true, wagePaymentId: existing.id, transactionId: existing.transactionId,
+            message: "هذا التسديد مسجّل مسبقاً بنفس المفتاح — لا ازدواج" },
+          { status: 200 }
+        );
+      }
+    }
+
     // العامل
     const worker = await db.user.findFirst({
       where: { id: userId, clubId },
@@ -195,46 +226,72 @@ export async function POST(req: NextRequest) {
     });
     if (!worker) return NextResponse.json({ error: "العامل غير موجود" }, { status: 404 });
 
-    // الحساب الفعلي من Pointage — الحماية من الدفع الزائد تُحسب من المصدر
-    const { workers } = await computeWages(clubId, from, to);
-    const row = workers.find((w) => w.userId === userId);
-    const remaining = row?.remaining ?? 0;
-    if (amountNum > remaining) {
-      return NextResponse.json(
-        { error: `المبلغ أكبر من المتبقي (${remaining} دج) — لا يمكن تسديد أكثر من المستحق` },
-        { status: 400 }
-      );
-    }
-
     const { start, end } = utcRange(from, to);
     const paidAtDate = paidAt ? parseWallDateTime(String(paidAt).slice(0, 10), "12:00") : new Date();
     const wageMethod = ["cash", "bank", "cheque"].includes(method) ? method : "cash";
     const src = source === "financial-hub" ? "المركز المالي" : "صفحة ساعات العمل";
     const label = wagePeriodLabel(from, to);
 
-    // ★ ذرّية كاملة: WagePayment + القيد المالي + الرصيد + التدقيق في معاملة واحدة
-    const result = await db.$transaction(async (tx) => {
-      // 1) سجل التسديد (transactionId اختياري — يُربط بعد إنشاء القيد)
-      const wp = await tx.wagePayment.create({
-        data: {
-          clubId,
-          userId,
-          periodStart: start,
-          periodEnd: end,
-          periodLabel: label,
-          hours: row?.totalHours ?? 0,
-          hourRate: row?.hourRate ?? 0,
-          grossAmount: row?.gross ?? 0,
-          prevPaid: row?.paid ?? 0,
-          amount: amountNum,
-          method: wageMethod,
-          paidAt: paidAtDate,
-          note: note?.trim() || null,
-          createdById: currentUser.id,
-        },
-      });
+    // ربط اختياري بسجل الموظف (تقارير ملف الموظف §29)
+    const employeeLink = await db.employee.findFirst({
+      where: { clubId, userId, status: { not: "ARCHIVED" } },
+      orderBy: { createdAt: "desc" },
+      select: { id: true },
+    });
 
-      // 2) القيد المالي الوحيد عبر النواة الموحّدة (رقم FIN + idempotency + رصيد ذرّي)
+    // ★ ذرّية كاملة (§16/§38): قفل صف الرصيد → إعادة حساب المتبقي داخل المعاملة
+    //   → WagePayment + القيد المالي + الرصيد + التدقيق في معاملة واحدة.
+    //   تزامن «مدير يدفع × محاسب يدفع نفس الأجر» يتسلسل على قفل صف الرصيد
+    //   (PostgreSQL) أو قفل كتابة القاعدة (SQLite) — لا دفعان أبداً.
+    const result = await db.$transaction(async (tx) => {
+      // 0) قفل صف الرصيد (PG فقط — SQLite يكتب تسلسلياً أصلاً)
+      if (!(process.env.DATABASE_URL || "").startsWith("file:")) {
+        try {
+          await tx.$queryRaw`SELECT "clubId" FROM "FinancialBalance" WHERE "clubId" = ${clubId} FOR UPDATE`;
+        } catch { /* الصف لم يُنشأ بعد — postLedgerEntry سينشئه */ }
+      }
+
+      // 1) إعادة حساب الأجر داخل المعاملة — الحماية من الدفع الزائد من المصدر مباشرة
+      const { workers } = await computeWages(clubId, from, to, tx);
+      const row = workers.find((w) => w.userId === userId);
+      const remaining = row?.remaining ?? 0;
+      if (amountNum > remaining) {
+        throw new Error(`OVERPAY:${remaining}`);
+      }
+
+      // 2) سجل التسديد (transactionId اختياري — يُربط بعد إنشاء القيد)
+      let wp;
+      try {
+        wp = await tx.wagePayment.create({
+          data: {
+            clubId,
+            userId,
+            periodStart: start,
+            periodEnd: end,
+            periodLabel: label,
+            hours: row?.totalHours ?? 0,
+            hourRate: row?.hourRate ?? 0,
+            grossAmount: row?.gross ?? 0,
+            prevPaid: row?.paid ?? 0,
+            amount: amountNum,
+            method: wageMethod,
+            paidAt: paidAtDate,
+            note: note?.trim() || null,
+            idempotencyKey: idemKey,
+            employeeId: employeeLink?.id ?? null,
+            createdById: currentUser.id,
+          },
+        });
+      } catch (e) {
+        // P2002 = سباق مفتاح Idempotency (طلب متزامن بنفس المفتاح سبقنا) → أعد الفحص
+        if ((e as { code?: string })?.code === "P2002" && idemKey) {
+          const existing = await tx.wagePayment.findFirst({ where: { clubId, idempotencyKey: idemKey } });
+          if (existing) return { wagePaymentId: existing.id, transactionId: existing.transactionId, financialNumber: null as string | null, duplicate: true };
+        }
+        throw e;
+      }
+
+      // 3) القيد المالي الوحيد عبر النواة الموحّدة (رقم FIN + idempotency + رصيد ذرّي)
       // مرجع wage:{id} يستحيل معه ازدواج (فهرس فريد جزئي + تحقق استباقي)
       const ledger = await postLedgerEntry(tx, {
         clubId,
@@ -254,10 +311,10 @@ export async function POST(req: NextRequest) {
         throw new Error("DUPLICATE_WAGE_PAYMENT");
       }
 
-      // 3) الربط 1:1 (قيد UNIQUE على transactionId يمنع التكرار في قاعدة البيانات نفسها)
+      // 4) الربط 1:1 (قيد UNIQUE على transactionId يمنع التكرار في قاعدة البيانات نفسها)
       await tx.wagePayment.update({ where: { id: wp.id }, data: { transactionId: ledger.id } });
 
-      // 4) سجل التدقيق (الرصيد حُدّث ذرّياً داخل postLedgerEntry — لا تحديث مزدوج)
+      // 5) سجل التدقيق (الرصيد حُدّث ذرّياً داخل postLedgerEntry — لا تحديث مزدوج)
       await tx.auditLog.create({
         data: {
           clubId,
@@ -275,6 +332,13 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, ...result, message: "تم تسديد الأجر — القيد مرتبط 1:1 ولا يمكن تكراره" }, { status: 201 });
   } catch (e) {
+    if (e instanceof Error && e.message.startsWith("OVERPAY:")) {
+      const remaining = e.message.split(":")[1] || "0";
+      return NextResponse.json(
+        { error: `المبلغ أكبر من المتبقي (${remaining} دج) — لا يمكن تسديد أكثر من المستحق` },
+        { status: 400 }
+      );
+    }
     if (e instanceof Error && e.message === "DUPLICATE_WAGE_PAYMENT") {
       return NextResponse.json({ error: "هذا التسديد مقيّد مسبقاً في الدفتر — لا ازدواج" }, { status: 409 });
     }

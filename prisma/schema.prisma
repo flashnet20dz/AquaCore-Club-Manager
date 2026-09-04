@@ -303,14 +303,29 @@ model WorkHours {
   date            DateTime
   startTime       DateTime
   endTime         DateTime
+  // ★ المرحلة 5 (§9): دورة حياة السجل — pending(مسودة)/approved/rejected/cancelled
+  //   فقط approved يدخل في حساب الأجور (wage-core)
   status          String   @default("pending")
   note            String?
   approvedById    String?
   approvedAt      DateTime?
+  // ★ المرحلة 5 (§23): لقطة سعر الساعة وقت التسجيل — تغيير الأجر لاحقاً
+  //   لا يعيد حساب السجلات القديمة (اللقطة أسبق من السعر الحالي)
+  rateSnapshot    Int?
+  // ★ المرحلة 5 (§9/10): سبب الرفض/الإلغاء + من وأين أُلغي (إلغاء ناعم بلا حذف)
+  rejectionReason String?
+  cancelledById   String?
+  cancelledAt     DateTime?
   createdAt       DateTime @default(now())
+
+  // ★ المرحلة 5 (§6): ربط السجل بالحصة الموحّدة من جدول المسبح —
+  //   اللقطة النصية تبقى في note JSON للتوافق مع السجلات القديمة (§27)
+  slotId          String?
+  slot            SwimmingTimeSlot? @relation(fields: [slotId], references: [id], onDelete: SetNull)
 
   @@index([clubId, userId, date])
   @@index([clubId, status])
+  @@index([clubId, slotId])
 }
 
 model Payment {
@@ -494,6 +509,8 @@ model SwimmingTimeSlot {
 
   // ★ المرحلة 4: تعيينات العمال/الحراس على هذه الحصة (PoolSessionEmployee عبر GuardAssignment)
   guardAssignments GuardAssignment[]
+  // ★ المرحلة 5: ساعات العمل المسجّلة على هذه الحصة (ربط اختياري — لقطة نصية في note)
+  workHours        WorkHours[]
 
   @@unique([clubId, name])
   @@index([clubId])
@@ -517,6 +534,10 @@ model Employee {
   address         String?
   phone           String?
   nationalId      String?
+  // ★ المرحلة 5 (§3): تواصل + الاسم بالفرنسية عند الحاجة
+  email           String?
+  firstNameFr     String?
+  lastNameFr      String?
 
   // Job data
   position        String   // guard/coach/admin/maintenance/cleaner/seasonal/other
@@ -526,6 +547,9 @@ model Employee {
   hourRate        Int      @default(200)
 
   active          Boolean  @default(true)
+  // ★ المرحلة 5 (§3): حالة الموظف ACTIVE/INACTIVE/SUSPENDED/ARCHIVED —
+  //   active يبقى مزامَناً معها (ACTIVE = true) للتوافق مع الكود القديم
+  status          String   @default("ACTIVE")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -535,6 +559,7 @@ model Employee {
   @@unique([clubId, nationalId])
   @@index([clubId])
   @@index([clubId, position])
+  @@index([clubId, status])
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -599,13 +624,25 @@ model EmploymentContract {
   monthlySalary   Int?
   workSchedule    String?  // e.g. "40 ساعة/أسبوع"
 
+  // ★ المرحلة 5 (§4): نوع العقد القابل للتوسعة + عنوان + مدة العمل الأسبوعية
+  contractType    String   @default("HOURLY") // HOURLY/MONTHLY/TEMPORARY/FIXED_TERM/OTHER
+  title           String?
+  weeklyHours     Int?
+
   // Snapshot of the rendered content (after variable substitution)
   content         String   // HTML content with substituted variables
 
   // Metadata
-  status          String   @default("active") // active/expired/terminated/renewed
+  // ★ المرحلة 5 (§4/26): draft/active/expired/terminated/renewed/cancelled —
+  //   الانتهاء التلقائي عند القراءة (endDate < اليوم → expired) بلا تغيير تاريخ العقد
+  status          String   @default("active")
   version         Int      @default(1)
   notes           String?
+
+  // ★ المرحلة 5 (§24): إنهاء العقد ناعم — السبب ومن أنهى ومتى (لا حذف)
+  terminatedAt     DateTime?
+  terminatedById   String?
+  terminatedReason String?
 
   createdBy        String?
   createdAt        DateTime @default(now())
@@ -614,6 +651,7 @@ model EmploymentContract {
   @@unique([clubId, contractNumber])
   @@index([clubId, employeeId])
   @@index([clubId, status])
+  @@index([clubId, endDate])
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1260,10 +1298,16 @@ model WagePayment {
 
   // لقطة الحساب وقت التسديد (توثيق محاسبي حتى لو تغيّرت الأسعار لاحقاً)
   hours         Float    @default(0)  // مجموع ساعات الفترة المحسوبة
-  hourRate      Int      @default(0)  // سعر الساعة المطبّق
+  hourRate      Int      @default(0)  // سعر الساعة المطبّق (متوسط مرجّح إذا تغيّر خلال الفترة)
   grossAmount   Int      @default(0)  // إجمالي مستحق الفترة وقت التسديد
   prevPaid      Int      @default(0)  // المدفوع سابقاً قبل هذه الدفعة
   amount        Int      // المبلغ المسدَّد في هذه الدفعة
+
+  // ★ المرحلة 5 (§37): مفتاح Idempotency من العميل — ضغط مزدوج/إعادة إرسال/تحديث
+  //   الصفحة = دفعة واحدة فقط (قيد UNIQUE على مستوى قاعدة البيانات)
+  idempotencyKey String?  @unique
+  // ★ المرحلة 5 (§29): ربط اختياري بسجل الموظف لتقارير ملف الموظف
+  employeeId    String?
 
   method        String   @default("cash")  // cash | bank | cheque
   paidAt        DateTime @default(now())   // تاريخ الدفع الفعلي

@@ -17,7 +17,7 @@ import {
   Briefcase, FileText, Plus, Edit2, Trash2, Printer, Download,
   Loader2, RefreshCw, Archive, Eye, X, FilePlus, UserPlus,
   Calendar, DollarSign, Layers, Search, Users, BadgeCheck,
-  AlertTriangle, FileSignature,
+  AlertTriangle, FileSignature, Ban, CheckCircle2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,6 +38,12 @@ import { unifiedReportHeaderHTML } from "@/components/unified-report-header";
 import type { EnteteConfig } from "@/components/unified-report-header";
 import { AVAILABLE_VARIABLES, substituteVariables } from "@/lib/contract-variables";
 import { ExportButton } from "@/components/shared/export-button";
+// ★ المرحلة 5: مساعدات مشتركة + ملف الموظف الكامل
+import {
+  POSITIONS, positionLabel, CONTRACT_TYPES, contractTypeLabel,
+  EMPLOYEE_STATUS_UI, employeeStatusInfo, formatDate,
+} from "@/components/contracts-shared";
+import { EmployeeProfileDialog } from "@/components/employees/employee-profile-dialog";
 
 // ──────────────── Types ────────────────
 interface Employee {
@@ -49,10 +55,15 @@ interface Employee {
   address: string | null;
   phone: string | null;
   nationalId: string | null;
+  // ★ المرحلة 5 (§3): تواصل + الاسم بالفرنسية + الحالة الرسمية
+  email?: string | null;
+  firstNameFr?: string | null;
+  lastNameFr?: string | null;
   position: string;
   hourRate: number;
   hireDate: string;
   active: boolean;
+  status?: string; // ACTIVE / INACTIVE / SUSPENDED / ARCHIVED (المرحلة 5)
   user?: { id: string; name: string; email: string } | null;
   contracts?: Contract[];
 }
@@ -66,10 +77,17 @@ interface Contract {
   hourRate: number;
   monthlySalary?: number | null;
   workSchedule: string | null;
+  // ★ المرحلة 5 (§4): نوع العقد + عنوان + ساعات أسبوعية
+  contractType?: string; // HOURLY/MONTHLY/TEMPORARY/FIXED_TERM/OTHER
+  title?: string | null;
+  weeklyHours?: number | null;
   content: string;
   status: string;
   version: number;
   notes: string | null;
+  // ★ المرحلة 5 (§24): إنهاء ناعم
+  terminatedAt?: string | null;
+  terminatedReason?: string | null;
   createdAt: string;
   employee?: Employee;
   template?: { id: string; name: string; code: string } | null;
@@ -86,29 +104,8 @@ interface Template {
 }
 
 // ──────────────── Constants & Helpers ────────────────
-const POSITIONS = [
-  { value: "guard", label: "حارس سباحة" },
-  { value: "coach", label: "مدرب" },
-  { value: "admin", label: "إداري" },
-  { value: "maintenance", label: "عامل صيانة" },
-  { value: "cleaner", label: "منظفة" },
-  { value: "seasonal", label: "موسمي" },
-  { value: "other", label: "أخرى" },
-];
-
-function positionLabel(code: string): string {
-  return POSITIONS.find((p) => p.value === code)?.label || code;
-}
-
-function formatDate(d: string | Date | null | undefined): string {
-  if (!d) return "—";
-  const date = new Date(d);
-  if (isNaN(date.getTime())) return "—";
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${y}/${m}/${day}`;
-}
+// ★ POSITIONS/positionLabel/formatDate/CONTRACT_TYPES/contractTypeLabel/
+//   EMPLOYEE_STATUS_UI/employeeStatusInfo مشتركة من @/components/contracts-shared
 
 function todayYMD(): string {
   return new Date().toISOString().split("T")[0];
@@ -140,7 +137,7 @@ function contractDurationDays(c: Contract): number | null {
   return Math.max(0, Math.round((e.getTime() - s.getTime()) / 86400000));
 }
 
-type ContractStatusKey = "active" | "expiring" | "expired" | "terminated" | "renewed";
+type ContractStatusKey = "active" | "expiring" | "expired" | "terminated" | "renewed" | "draft" | "cancelled";
 
 const STATUS_UI: Record<ContractStatusKey, { label: string; badge: string }> = {
   active: { label: "نشط", badge: "bg-emerald-500/10 text-emerald-700 border-emerald-500/30" },
@@ -148,6 +145,9 @@ const STATUS_UI: Record<ContractStatusKey, { label: string; badge: string }> = {
   expired: { label: "منتهٍ", badge: "bg-slate-500/10 text-slate-600 border-slate-500/30" },
   terminated: { label: "منهيّ", badge: "bg-rose-500/10 text-rose-700 border-rose-500/30" },
   renewed: { label: "مجدّد", badge: "bg-teal-500/10 text-teal-700 border-teal-500/30" },
+  // ★ المرحلة 5 (§4): مسودة + ملغى
+  draft: { label: "مسودة", badge: "bg-sky-500/10 text-sky-700 border-sky-500/30" },
+  cancelled: { label: "ملغى", badge: "bg-zinc-500/10 text-zinc-600 border-zinc-500/30" },
 };
 
 function contractStatusKey(c: Contract): ContractStatusKey {
@@ -155,6 +155,8 @@ function contractStatusKey(c: Contract): ContractStatusKey {
   if (c.status === "expired") return "expired";
   if (c.status === "terminated") return "terminated";
   if (c.status === "renewed") return "renewed";
+  if (c.status === "draft") return "draft";
+  if (c.status === "cancelled") return "cancelled";
   return "expired";
 }
 
@@ -517,9 +519,12 @@ function EmployeesTab({ employees, loading, onChanged }: {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [saving, setSaving] = useState(false);
+  // ★ المرحلة 5 (§29): ملف الموظف الكامل
+  const [profileEmployee, setProfileEmployee] = useState<Employee | null>(null);
   const [form, setForm] = useState<any>({
     firstName: "", lastName: "", birthDate: "", birthPlace: "", address: "",
     phone: "", nationalId: "", position: "guard", hourRate: 200, active: true,
+    email: "", firstNameFr: "", lastNameFr: "", status: "ACTIVE",
   });
 
   const handleSave = async () => {
@@ -550,14 +555,16 @@ function EmployeesTab({ employees, loading, onChanged }: {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("حذف هذا العامل؟ سيتم حذف جميع عقوده.")) return;
+    // ★ المرحلة 5 (§3): الحذف أرشفة ناعمة عند وجود بيانات مرتبطة — لا فقدان تاريخ
+    if (!confirm("حذف/أرشفة هذا العامل؟ إن كانت له عقود أو ساعات عمل فسيُؤرشف بدل الحذف.")) return;
     try {
       const res = await fetch(`/api/employees/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error();
-      toast.success("تم الحذف");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "فشل الحذف");
+      toast.success(data?.archived ? "تمت الأرشفة — البيانات المرتبطة محفوظة" : "تم الحذف");
       onChanged();
-    } catch {
-      toast.error("فشل الحذف");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "فشل الحذف");
     }
   };
 
@@ -566,6 +573,7 @@ function EmployeesTab({ employees, loading, onChanged }: {
     setForm({
       firstName: "", lastName: "", birthDate: "", birthPlace: "", address: "",
       phone: "", nationalId: "", position: "guard", hourRate: 200, active: true,
+      email: "", firstNameFr: "", lastNameFr: "", status: "ACTIVE",
     });
     setDialogOpen(true);
   };
@@ -660,14 +668,20 @@ function EmployeesTab({ employees, loading, onChanged }: {
                       <Badge variant="outline" className="text-[10px]">{emp.contracts?.length || 0}</Badge>
                     </td>
                     <td className="p-2.5 text-center">
-                      {emp.active ? (
-                        <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-700 border-emerald-500/30">نشط</Badge>
-                      ) : (
-                        <Badge variant="outline" className="text-[10px] bg-rose-500/10 text-rose-700 border-rose-500/30">متوقف</Badge>
-                      )}
+                      <Badge variant="outline" className={cn("text-[10px]", employeeStatusInfo(emp).badge)}>
+                        {employeeStatusInfo(emp).label}
+                      </Badge>
                     </td>
                     <td className="p-2.5">
                       <div className="flex gap-1 justify-center">
+                        <button
+                          onClick={() => setProfileEmployee(emp)}
+                          className="p-1.5 rounded-lg text-primary hover:bg-primary/10 transition-colors"
+                          title="ملف الموظف"
+                          aria-label={`ملف الموظف ${emp.lastName} ${emp.firstName}`}
+                        >
+                          <FileText className="h-3.5 w-3.5" />
+                        </button>
                         <button
                           onClick={() => openEdit(emp)}
                           className="p-1.5 rounded-lg text-teal-600 hover:bg-teal-500/10 transition-colors"
@@ -706,11 +720,9 @@ function EmployeesTab({ employees, loading, onChanged }: {
                       <p className="text-[10px] text-muted-foreground">{positionLabel(emp.position)}</p>
                     </div>
                   </div>
-                  {emp.active ? (
-                    <Badge variant="outline" className="text-[9px] shrink-0 bg-emerald-500/10 text-emerald-700 border-emerald-500/30">نشط</Badge>
-                  ) : (
-                    <Badge variant="outline" className="text-[9px] shrink-0 bg-rose-500/10 text-rose-700 border-rose-500/30">متوقف</Badge>
-                  )}
+                  <Badge variant="outline" className={cn("text-[9px] shrink-0", employeeStatusInfo(emp).badge)}>
+                    {employeeStatusInfo(emp).label}
+                  </Badge>
                 </div>
                 <div className="grid grid-cols-3 gap-1.5">
                   <MiniInfo label="الهاتف" value={emp.phone || "—"} />
@@ -720,6 +732,14 @@ function EmployeesTab({ employees, loading, onChanged }: {
                 <div className="flex items-center justify-between pt-1 border-t border-border/40">
                   <span className="text-[10px] text-muted-foreground font-mono" dir="ltr">{emp.phone || ""}</span>
                   <div className="flex gap-1">
+                    <button
+                      onClick={() => setProfileEmployee(emp)}
+                      className="p-1.5 rounded-lg text-primary hover:bg-primary/10 transition-colors"
+                      title="ملف الموظف"
+                      aria-label={`ملف الموظف ${emp.lastName} ${emp.firstName}`}
+                    >
+                      <FileText className="h-3.5 w-3.5" />
+                    </button>
                     <button
                       onClick={() => openEdit(emp)}
                       className="p-1.5 rounded-lg text-teal-600 hover:bg-teal-500/10 transition-colors"
@@ -792,6 +812,27 @@ function EmployeesTab({ employees, loading, onChanged }: {
               <Label className="text-xs">سعر الساعة (دج)</Label>
               <Input type="number" value={form.hourRate} onChange={(e) => setForm({ ...form, hourRate: +e.target.value })} className="h-9" />
             </div>
+            <div>
+              <Label className="text-xs">البريد الإلكتروني</Label>
+              <Input type="email" value={form.email || ""} onChange={(e) => setForm({ ...form, email: e.target.value })} className="h-9" dir="ltr" />
+            </div>
+            <div>
+              <Label className="text-xs">الحالة</Label>
+              <select value={form.status || "ACTIVE"} onChange={(e) => setForm({ ...form, status: e.target.value })} className="w-full h-9 text-xs rounded border bg-card px-2">
+                <option value="ACTIVE">نشط</option>
+                <option value="INACTIVE">غير نشط</option>
+                <option value="SUSPENDED">موقوف</option>
+                <option value="ARCHIVED">مؤرشف</option>
+              </select>
+            </div>
+            <div>
+              <Label className="text-xs">الاسم (فرنسي)</Label>
+              <Input value={form.firstNameFr || ""} onChange={(e) => setForm({ ...form, firstNameFr: e.target.value })} className="h-9" dir="ltr" />
+            </div>
+            <div>
+              <Label className="text-xs">اللقب (فرنسي)</Label>
+              <Input value={form.lastNameFr || ""} onChange={(e) => setForm({ ...form, lastNameFr: e.target.value })} className="h-9" dir="ltr" />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>إلغاء</Button>
@@ -802,6 +843,15 @@ function EmployeesTab({ employees, loading, onChanged }: {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ★ المرحلة 5 (§29): ملف الموظف الكامل */}
+      {profileEmployee && (
+        <EmployeeProfileDialog
+          key={profileEmployee.id}
+          employee={profileEmployee}
+          onClose={() => setProfileEmployee(null)}
+        />
+      )}
     </div>
   );
 }
@@ -814,10 +864,15 @@ function ContractsArchiveTab({ contracts, loading, onChanged }: {
 }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
   const [viewContract, setViewContract] = useState<Contract | null>(null);
   const [renewContract, setRenewContract] = useState<Contract | null>(null);
   const [renewDate, setRenewDate] = useState("");
   const [renewing, setRenewing] = useState(false);
+  // ★ المرحلة 5 (§24): إنهاء عقد — سبب إلزامي
+  const [terminateTarget, setTerminateTarget] = useState<Contract | null>(null);
+  const [terminateReason, setTerminateReason] = useState("");
+  const [terminating, setTerminating] = useState(false);
   const [entete, setEntete] = useState<EnteteConfig | null>(null);
   const [clubSettings, setClubSettings] = useState<Record<string, string>>({});
 
@@ -837,26 +892,77 @@ function ContractsArchiveTab({ contracts, loading, onChanged }: {
     };
   }, []);
 
-  // الفلترة: بحث بالاسم/رقم العقد + فلتر الحالة
+  // الفلترة: بحث بالاسم/رقم العقد + فلتر الحالة + فلتر نوع العقد (§5)
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return contracts.filter((c) => {
       const name = c.employee ? `${c.employee.lastName} ${c.employee.firstName}` : "";
       const matchQ = !q || c.contractNumber.toLowerCase().includes(q) || name.toLowerCase().includes(q);
       const matchS = statusFilter === "all" || statusInfo(c).key === statusFilter;
-      return matchQ && matchS;
+      const matchT = typeFilter === "all" || (c.contractType || "HOURLY") === typeFilter;
+      return matchQ && matchS && matchT;
     });
-  }, [contracts, search, statusFilter]);
+  }, [contracts, search, statusFilter, typeFilter]);
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("حذف هذا العقد نهائياً؟")) return;
+  // ★ المرحلة 5 (§26): الحذف الفعلي للمسودات فقط — العقود الحقيقية تُنهى ناعماً
+  const handleDelete = async (c: Contract) => {
+    if (c.status !== "draft") {
+      toast.error("لا يمكن حذف عقد غير مسودة — استخدم «إنهاء العقد» (التاريخ محفوظ)");
+      return;
+    }
+    if (!confirm("حذف مسودة العقد نهائياً؟")) return;
     try {
-      const res = await fetch(`/api/contracts/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error();
-      toast.success("تم الحذف");
+      const res = await fetch(`/api/contracts/${c.id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "فشل الحذف");
+      toast.success("تم حذف المسودة");
       onChanged();
-    } catch {
-      toast.error("فشل الحذف");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "فشل الحذف");
+    }
+  };
+
+  // ★ المرحلة 5 (§24): إنهاء عقد ناعم بسبب إلزامي — يظهر فوراً في كل الصفحات
+  const handleTerminate = async () => {
+    if (!terminateTarget) return;
+    if (terminateReason.trim().length < 3) {
+      toast.error("سبب الإنهاء إلزامي (3 أحرف على الأقل)");
+      return;
+    }
+    setTerminating(true);
+    try {
+      const res = await fetch(`/api/contracts/${terminateTarget.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "terminate", reason: terminateReason.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "فشل الإنهاء");
+      toast.success("تم إنهاء العقد — السبب محفوظ في سجل التدقيق");
+      setTerminateTarget(null);
+      setTerminateReason("");
+      onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "فشل الإنهاء");
+    } finally {
+      setTerminating(false);
+    }
+  };
+
+  // ★ تفعيل مسودة (draft → active)
+  const handleActivate = async (c: Contract) => {
+    try {
+      const res = await fetch(`/api/contracts/${c.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "activate" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "فشل التفعيل");
+      toast.success("تم تفعيل العقد");
+      onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "فشل التفعيل");
     }
   };
 
@@ -966,22 +1072,39 @@ function ContractsArchiveTab({ contracts, loading, onChanged }: {
       >
         <Download className="h-3.5 w-3.5" />
       </button>
-      <button
-        onClick={() => openRenew(c)}
-        className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-500/10 transition-colors"
-        title="تجديد"
-        aria-label={`تجديد العقد ${c.contractNumber}`}
-      >
-        <RefreshCw className="h-3.5 w-3.5" />
-      </button>
-      <button
-        onClick={() => handleDelete(c.id)}
-        className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-500/10 transition-colors"
-        title="حذف"
-        aria-label={`حذف العقد ${c.contractNumber}`}
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </button>
+      {(c.status === "active" || (c.status === "draft" && false)) && (
+        <button
+          onClick={() => {
+            setTerminateTarget(c);
+            setTerminateReason("");
+          }}
+          className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-500/10 transition-colors"
+          title="إنهاء العقد"
+          aria-label={`إنهاء العقد ${c.contractNumber}`}
+        >
+          <Ban className="h-3.5 w-3.5" />
+        </button>
+      )}
+      {c.status === "draft" && (
+        <>
+          <button
+            onClick={() => handleActivate(c)}
+            className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-500/10 transition-colors"
+            title="تفعيل المسودة"
+            aria-label={`تفعيل العقد ${c.contractNumber}`}
+          >
+            <CheckCircle2 className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={() => handleDelete(c)}
+            className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-500/10 transition-colors"
+            title="حذف المسودة"
+            aria-label={`حذف مسودة ${c.contractNumber}`}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </>
+      )}
     </>
   );
 
@@ -1044,6 +1167,19 @@ function ContractsArchiveTab({ contracts, loading, onChanged }: {
             <SelectItem value="expired">منتهٍ</SelectItem>
             <SelectItem value="terminated">منهيّ</SelectItem>
             <SelectItem value="renewed">مجدّد</SelectItem>
+            <SelectItem value="draft">مسودة</SelectItem>
+            <SelectItem value="cancelled">ملغى</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <SelectTrigger className="w-[130px] h-9 text-xs" aria-label="فلترة بنوع العقد">
+            <SelectValue placeholder="النوع" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">كل الأنواع</SelectItem>
+            {CONTRACT_TYPES.map((t) => (
+              <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
@@ -1239,6 +1375,46 @@ function ContractsArchiveTab({ contracts, loading, onChanged }: {
               تأكيد التجديد
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ★ المرحلة 5 (§24): حوار إنهاء العقد — سبب إلزامي يُوثَّق في التدقيق */}
+      <Dialog open={!!terminateTarget} onOpenChange={(open) => !open && setTerminateTarget(null)}>
+        <DialogContent className="max-w-md" dir="rtl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Ban className="h-4 w-4 text-rose-600" />
+              إنهاء العقد {terminateTarget?.contractNumber}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-2.5 text-[11px] text-amber-800">
+              إنهاء العقد ناعم: يصبح «منهيّ» ويبقى في الأرشيف مع السبب ومن أنهى —
+              لن يُسمح بتسجيل ساعات عمل بعد تاريخ إنهائه إلا بتجاوز صريح.
+            </div>
+            <div>
+              <Label className="text-xs">سبب الإنهاء *</Label>
+              <Textarea
+                value={terminateReason}
+                onChange={(e) => setTerminateReason(e.target.value)}
+                rows={3}
+                className="text-xs"
+                placeholder="مثال: نهاية الموسم / استقالة العامل / مخالفة..."
+              />
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" size="sm" onClick={() => setTerminateTarget(null)}>إلغاء</Button>
+            <Button
+              size="sm"
+              className="bg-rose-600 hover:bg-rose-700 text-white"
+              onClick={handleTerminate}
+              disabled={terminating}
+            >
+              {terminating && <Loader2 className="h-4 w-4 animate-spin ml-1" />}
+              تأكيد الإنهاء
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
@@ -1508,6 +1684,11 @@ function CreateContractTab({ employees, onCreated }: {
     hourRate: 200,
     workSchedule: "",
     notes: "",
+    // ★ المرحلة 5 (§4): نوع العقد + عنوان + ساعات أسبوعية + مسودة
+    contractType: "HOURLY",
+    title: "",
+    weeklyHours: "",
+    asDraft: false,
   });
   const [preview, setPreview] = useState<string>("");
 
@@ -1584,6 +1765,10 @@ function CreateContractTab({ employees, onCreated }: {
           hourRate: form.hourRate,
           workSchedule: form.workSchedule,
           notes: form.notes,
+          contractType: form.contractType,
+          title: form.title,
+          weeklyHours: form.weeklyHours ? Number(form.weeklyHours) : null,
+          asDraft: form.asDraft,
         }),
       });
       if (!res.ok) throw new Error();
@@ -1594,6 +1779,7 @@ function CreateContractTab({ employees, onCreated }: {
         employeeId: "", templateId: "",
         startDate: new Date().toISOString().split("T")[0],
         endDate: "", hourRate: 200, workSchedule: "", notes: "",
+        contractType: "HOURLY", title: "", weeklyHours: "", asDraft: false,
       });
       setPreview("");
       onCreated();
@@ -1682,6 +1868,38 @@ function CreateContractTab({ employees, onCreated }: {
                 <Input value={form.workSchedule} onChange={(e) => setForm({ ...form, workSchedule: e.target.value })} className="h-9" placeholder="40 ساعة/أسبوع" />
               </div>
             </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs">نوع العقد</Label>
+                <select
+                  value={form.contractType}
+                  onChange={(e) => setForm({ ...form, contractType: e.target.value })}
+                  className="w-full h-9 text-xs rounded border bg-card px-2"
+                >
+                  {CONTRACT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <Label className="text-xs">ساعات العمل الأسبوعية</Label>
+                <Input type="number" value={form.weeklyHours} onChange={(e) => setForm({ ...form, weeklyHours: e.target.value })} className="h-9" placeholder="40" />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs">عنوان العقد</Label>
+              <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className="h-9" placeholder="مثال: عقد حارس موسمي 2026" />
+            </div>
+
+            <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={form.asDraft}
+                onChange={(e) => setForm({ ...form, asDraft: e.target.checked })}
+                className="h-4 w-4 accent-teal-600"
+              />
+              حفظ كمسودة (تُفعَّل لاحقاً بعد المراجعة)
+            </label>
 
             <div>
               <Label className="text-xs">ملاحظات</Label>
