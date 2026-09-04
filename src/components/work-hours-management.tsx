@@ -18,6 +18,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { formatWallTime, formatWallDate, toLocalYMD } from "@/lib/wall-clock";
@@ -39,6 +40,7 @@ interface WorkHour {
   absenceReason: string | null;
   status: string;
   note: string | null;
+  rejectionReason?: string | null;
   user: {
     id: string;
     name: string;
@@ -78,10 +80,12 @@ const STATUS_COLORS: Record<string, string> = {
   "half-day": "bg-teal-500/15 text-teal-700 border-teal-500/30",
 };
 
+// ★ المرحلة 5 (§9): دورة حياة السجل — مسودة → اعتماد/رفض/إلغاء
 const APPROVAL_LABELS: Record<string, string> = {
-  pending: "بانتظار الموافقة",
+  pending: "مسودة (بانتظار الاعتماد)",
   approved: "موافق عليه",
   rejected: "مرفوض",
+  cancelled: "ملغى",
 };
 
 // ═════════ ★ أيام وساعات استغلال المسبح ═════════
@@ -132,6 +136,11 @@ export function WorkHoursManagement({ role }: { role?: string }) {
   const [editingRate, setEditingRate] = useState<{ userId: string; name: string; hourlyRate: number; position: string } | null>(null);
   /** إشارة إعادة حساب أجور العمال بعد أي تغيير في ساعات النقاط */
   const [wagesRefresh, setWagesRefresh] = useState(0);
+  // ★ المرحلة 5 (§10): اعتماد/رفض عدة سجلات دفعة واحدة
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkRejectOpen, setBulkRejectOpen] = useState(false);
+  const [bulkRejectReason, setBulkRejectReason] = useState("");
 
   // ═══ ★ المسبح: حصص السباحة (مصدر موحّد عبر useSwimConfig) + أيام الاستغلال ═══
   const { slots: swimSlots } = useSwimConfig();
@@ -348,19 +357,22 @@ export function WorkHoursManagement({ role }: { role?: string }) {
     }
   };
 
-  const handleApprove = async (id: string, status: "approved" | "rejected") => {
+  const handleApprove = async (id: string, status: "approved" | "rejected" | "cancelled", reason?: string) => {
     try {
       const res = await fetch(`/api/workhours/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, reason }),
       });
-      if (!res.ok) throw new Error("فشل");
-      toast.success(status === "approved" ? "تمت الموافقة" : "تم الرفض");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "فشل");
+      toast.success(
+        status === "approved" ? "تم اعتماد السجل" : status === "rejected" ? "تم رفض السجل" : "تم إلغاء السجل — يبقى في السجل بوضع ملغى"
+      );
       fetchWorkHours();
       setWagesRefresh((n) => n + 1);
-    } catch {
-      toast.error("فشل");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "فشل");
     }
   };
 
@@ -374,6 +386,61 @@ export function WorkHoursManagement({ role }: { role?: string }) {
       setWagesRefresh((n) => n + 1);
     } catch {
       toast.error("فشل");
+    }
+  };
+
+  // ═══ ★ المرحلة 5 (§10): اعتماد/رفض جماعي ═══
+  const toggleSelectAll = () => {
+    const approvable = filtered.filter((w) => w.status === "pending").map((w) => w.id);
+    setSelectedIds((prev) => (prev.length === approvable.length && prev.length > 0 ? [] : approvable));
+  };
+
+  const bulkApprove = async () => {
+    if (selectedIds.length === 0) return;
+    setBulkBusy(true);
+    try {
+      const res = await fetch("/api/workhours/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: selectedIds, action: "approved" }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "فشل الاعتماد");
+      toast.success(`تم اعتماد ${json.updated} سجل${json.skipped?.length ? ` — تُسطِر ${json.skipped.length}` : ""}`);
+      setSelectedIds([]);
+      fetchWorkHours();
+      setWagesRefresh((n) => n + 1);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "فشل الاعتماد");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const bulkReject = async () => {
+    if (selectedIds.length === 0 || bulkRejectReason.trim().length < 3) {
+      toast.error("سبب الرفض إلزامي (3 أحرف على الأقل)");
+      return;
+    }
+    setBulkBusy(true);
+    try {
+      const res = await fetch("/api/workhours/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: selectedIds, action: "rejected", reason: bulkRejectReason.trim() }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "فشل الرفض");
+      toast.success(`تم رفض ${json.updated} سجل — السبب محفوظ في التدقيق`);
+      setBulkRejectOpen(false);
+      setBulkRejectReason("");
+      setSelectedIds([]);
+      fetchWorkHours();
+      setWagesRefresh((n) => n + 1);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "فشل الرفض");
+    } finally {
+      setBulkBusy(false);
     }
   };
 
@@ -607,7 +674,7 @@ export function WorkHoursManagement({ role }: { role?: string }) {
                 { key: "brk", label: "استراحة (د)", format: (w) => (w.breakMinutes > 0 ? String(w.breakMinutes) : "—") },
                 { key: "hours", label: "الساعات", format: (w) => (w.workStatus === "present" ? calcWorkHours(w.startTime, w.endTime, w.breakMinutes).toFixed(1) : "—") },
                 { key: "state", label: "الحالة", format: (w) => (STATUS_LABELS[w.workStatus] || w.workStatus) },
-                { key: "approval", label: "الاعتماد", format: (w) => (w.status === "approved" ? "موافق" : w.status === "rejected" ? "مرفوض" : "معلّق") },
+                { key: "approval", label: "الاعتماد", format: (w) => (APPROVAL_LABELS[w.status] || w.status) },
                 { key: "note", label: "ملاحظات", format: (w) => (w.note || "") },
               ]}
             />
@@ -668,12 +735,45 @@ export function WorkHoursManagement({ role }: { role?: string }) {
         </div>
       </div>
 
+      {/* ★ المرحلة 5 (§10): شريط الاعتماد الجماعي */}
+      {isAdmin && selectedIds.length > 0 && (
+        <div className="rounded-2xl border border-teal-500/40 bg-teal-500/5 p-3 flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2 text-sm">
+            <CheckCircle2 className="h-4 w-4 text-teal-600" />
+            <span className="font-semibold">تم تحديد {selectedIds.length} سجل (مسودة) للاعتماد الجماعي</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={bulkApprove} disabled={bulkBusy} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+              <Check className="h-4 w-4 ml-1" /> اعتماد المحدد
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setBulkRejectOpen(true)} disabled={bulkBusy} className="border-rose-400 text-rose-700 hover:bg-rose-50">
+              <X className="h-4 w-4 ml-1" /> رفض المحدد
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setSelectedIds([])} disabled={bulkBusy}>
+              إلغاء التحديد
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Table */}
       <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-muted/60 text-foreground border-b-2 border-primary/20">
+                {isAdmin && (
+                  <th className="p-2 text-center w-8">
+                    <input
+                      type="checkbox"
+                      className="h-3.5 w-3.5 accent-teal-600"
+                      checked={selectedIds.length > 0 && selectedIds.length === filtered.filter((w) => w.status === "pending").length}
+                      onChange={toggleSelectAll}
+                      aria-label="تحديد كل المسودات"
+                      title="تحديد كل السجلات بانتظار الاعتماد"
+                    />
+                  </th>
+                )}
                 <th className="p-2 text-right w-8">#</th>
                 <th className="p-2 text-right min-w-[120px]">العامل</th>
                 <th className="p-2 text-right w-24">التاريخ</th>
@@ -690,9 +790,9 @@ export function WorkHoursManagement({ role }: { role?: string }) {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={12} className="text-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto" /></td></tr>
+                <tr><td colSpan={isAdmin ? 13 : 12} className="text-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto" /></td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={12} className="text-center py-12 text-muted-foreground">لا توجد سجلات</td></tr>
+                <tr><td colSpan={isAdmin ? 13 : 12} className="text-center py-12 text-muted-foreground">لا توجد سجلات</td></tr>
               ) : (
                 filtered.map((w, i) => {
                   const hours = w.workStatus === "present" ? calcWorkHours(w.startTime, w.endTime, w.breakMinutes) : 0;
@@ -706,6 +806,21 @@ export function WorkHoursManagement({ role }: { role?: string }) {
                       transition={{ delay: Math.min(i * 0.01, 0.3) }}
                       className={cn("border-b border-border/40 transition hover:bg-muted/40")}
                     >
+                      {isAdmin && (
+                        <td className="p-2 text-center">
+                          {w.status === "pending" && (
+                            <input
+                              type="checkbox"
+                              className="h-3.5 w-3.5 accent-teal-600"
+                              checked={selectedIds.includes(w.id)}
+                              onChange={(e) =>
+                                setSelectedIds((prev) => (e.target.checked ? [...prev, w.id] : prev.filter((x) => x !== w.id)))
+                              }
+                              aria-label={`تحديد سجل ${w.user.name}`}
+                            />
+                          )}
+                        </td>
+                      )}
                       <td className="p-2 text-center text-muted-foreground">{i + 1}</td>
                       <td className="p-2">
                         <div className="flex items-center gap-2">
@@ -736,12 +851,24 @@ export function WorkHoursManagement({ role }: { role?: string }) {
                             <Check className="h-2.5 w-2.5 ml-0.5" /> موافق
                           </Badge>
                         ) : w.status === "rejected" ? (
-                          <Badge variant="outline" className="text-[9px] bg-rose-500/10 text-rose-700 border-rose-500/30">
+                          <Badge
+                            variant="outline"
+                            className="text-[9px] bg-rose-500/10 text-rose-700 border-rose-500/30"
+                            title={w.rejectionReason || undefined}
+                          >
                             <X className="h-2.5 w-2.5 ml-0.5" /> مرفوض
+                          </Badge>
+                        ) : w.status === "cancelled" ? (
+                          <Badge
+                            variant="outline"
+                            className="text-[9px] bg-zinc-500/10 text-zinc-600 border-zinc-500/30"
+                            title={w.rejectionReason || undefined}
+                          >
+                            ملغى
                           </Badge>
                         ) : (
                           <Badge variant="outline" className="text-[9px] bg-amber-500/10 text-amber-700 border-amber-500/30">
-                            معلّق
+                            مسودة
                           </Badge>
                         )}
                       </td>
@@ -752,14 +879,25 @@ export function WorkHoursManagement({ role }: { role?: string }) {
                               <button onClick={() => handleApprove(w.id, "approved")} className="p-1 rounded hover:bg-emerald-50 text-emerald-600" title="موافقة">
                                 <Check className="h-3.5 w-3.5" />
                               </button>
-                              <button onClick={() => handleApprove(w.id, "rejected")} className="p-1 rounded hover:bg-rose-50 text-rose-600" title="رفض">
+                              <button onClick={() => handleApprove(w.id, "rejected", prompt("سبب الرفض (إلزامي):") || "")} className="p-1 rounded hover:bg-rose-50 text-rose-600" title="رفض بسبب">
                                 <X className="h-3.5 w-3.5" />
                               </button>
                             </>
                           )}
-                          <button onClick={() => handleDelete(w.id)} className="p-1 rounded hover:bg-rose-50 text-rose-600" title="حذف">
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                          {(w.status === "approved" || w.status === "rejected") && (
+                            <button
+                              onClick={() => handleApprove(w.id, "cancelled", prompt("سبب إلغاء السجل (إلزامي):") || "")}
+                              className="p-1 rounded hover:bg-zinc-100 text-zinc-600"
+                              title="إلغاء ناعم — يبقى في السجل بوضع ملغى"
+                            >
+                              <XCircle className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                          {w.status === "pending" && (
+                            <button onClick={() => handleDelete(w.id)} className="p-1 rounded hover:bg-rose-50 text-rose-600" title="حذف المسودة">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </motion.tr>
@@ -1257,6 +1395,34 @@ export function WorkHoursManagement({ role }: { role?: string }) {
             <Button onClick={handleSlotSave} disabled={slotSaving} className="bg-teal-600 hover:bg-teal-700 text-white">
               {slotSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4 ml-1" />}
               {slotEditing ? "حفظ" : "إضافة"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ★ المرحلة 5 (§10): حوار سبب الرفض الجماعي */}
+      <Dialog open={bulkRejectOpen} onOpenChange={setBulkRejectOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <X className="h-4 w-4 text-rose-600" /> رفض {selectedIds.length} سجل — السبب إلزامي
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label className="text-xs font-semibold">سبب الرفض *</Label>
+            <Textarea
+              value={bulkRejectReason}
+              onChange={(e) => setBulkRejectReason(e.target.value)}
+              rows={3}
+              className="text-xs"
+              placeholder="مثال: تسجيل خاطئ للوقت / لم يحضر الحصة..."
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setBulkRejectOpen(false)}>إلغاء</Button>
+            <Button size="sm" className="bg-rose-600 hover:bg-rose-700 text-white" onClick={bulkReject} disabled={bulkBusy}>
+              {bulkBusy && <Loader2 className="h-4 w-4 animate-spin ml-1" />}
+              تأكيد الرفض
             </Button>
           </DialogFooter>
         </DialogContent>

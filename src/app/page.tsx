@@ -115,6 +115,18 @@ interface Stats {
     todayWorkHours: number;
     pendingWagesMonth: number;
   } | null;
+  // ★ المرحلة 5 (§25/§27): قسم العمال — نفس مصادر الأجور والعقود
+  workers?: {
+    employeesCount: number;
+    activeEmployees: number;
+    activeContracts: number;
+    contractsExpiringSoon: number;
+    expiringContractsList: Array<{ contractNumber: string; employeeName: string; endDate: string; daysRemaining: number }>;
+    approvedHoursMonth: number;
+    grossWagesMonth: number;
+    paidWagesMonth: number;
+    outstandingWagesMonth: number;
+  } | null;
 }
 
 // ★ الأرقام المالية من الدفتر وحده (/api/financial/dashboard) — لا حساب موازٍ من المنخرطين
@@ -818,6 +830,64 @@ export default function Home() {
                     <StatCard label="ساعات عمل اليوم" value={stats.pool.todayWorkHours} suffix="سا" icon={Clock} accent="emerald" delay={0.1} sublabel="ساعات معتمدة" />
                     <StatCard label="أجور معلّقة" value={stats.pool.pendingWagesMonth} suffix="دج" icon={Wallet} accent="amber" delay={0.15} sublabel="متبقي الشهر الحالي" />
                   </ResponsiveGrid>
+                )}
+
+                {/* ★ بطاقات العمال — الموظفون والعقود والأجور (المرحلة 5 — §27) */}
+                {stats.workers && (
+                  <ResponsiveGrid minCardWidth={140} gap={12}>
+                    <StatCard label="العمال" value={stats.workers.activeEmployees} suffix={`/ ${stats.workers.employeesCount}`} icon={Users} accent="ocean" delay={0} sublabel="موظفون نشطون" />
+                    <StatCard label="العقود النشطة" value={stats.workers.activeContracts} suffix="عقد" icon={FileText} accent="teal" delay={0.05} sublabel="عقود سارية" />
+                    <StatCard label="ساعات الشهر" value={stats.workers.approvedHoursMonth} suffix="سا" icon={Clock} accent="emerald" delay={0.1} sublabel="ساعات معتمدة" />
+                    <StatCard label="أجور الشهر" value={stats.workers.grossWagesMonth} suffix="دج" icon={Wallet} accent="amber" delay={0.15} sublabel={`مدفوع ${stats.workers.paidWagesMonth.toLocaleString("en-US")}`} />
+                  </ResponsiveGrid>
+                )}
+
+                {/* ★ العقود التي ستنتهي قريباً (§25) */}
+                {stats.workers && stats.workers.expiringContractsList.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4, delay: 0.18 }}
+                    className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4"
+                  >
+                    <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+                      <h3 className="font-bold text-sm flex items-center gap-2 text-amber-800 dark:text-amber-300">
+                        <FileText className="h-4 w-4" />
+                        العقود التي ستنتهي قريباً ({stats.workers.contractsExpiringSoon})
+                      </h3>
+                      <button
+                        onClick={() => setActiveTab("contracts")}
+                        className="text-xs text-amber-700 hover:underline dark:text-amber-400"
+                      >
+                        إدارة العقود ←
+                      </button>
+                    </div>
+                    <div className="space-y-1.5 max-h-56 overflow-y-auto">
+                      {stats.workers.expiringContractsList.map((c) => (
+                        <div key={c.contractNumber} className="flex items-center justify-between gap-2 rounded-xl bg-card border border-border/50 px-3 py-2 text-xs">
+                          <div className="min-w-0">
+                            <p className="font-semibold truncate">{c.employeeName || "—"}</p>
+                            <p className="text-[10px] text-muted-foreground font-mono" dir="ltr">{c.contractNumber}</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-[10px] text-muted-foreground">تاريخ الانتهاء</p>
+                            <p className="font-semibold" dir="ltr">{c.endDate.split("-").reverse().join("/")}</p>
+                          </div>
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "text-[10px] shrink-0",
+                              c.daysRemaining <= 7
+                                ? "bg-rose-500/10 text-rose-700 border-rose-500/30"
+                                : "bg-amber-500/10 text-amber-700 border-amber-500/30"
+                            )}
+                          >
+                            {c.daysRemaining === 0 ? "ينتهي اليوم" : c.daysRemaining <= 7 ? `خلال ${c.daysRemaining} أيام` : `خلال ${c.daysRemaining} يوماً`}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
                 )}
 
                 {/* Renewal + Activity feed */}

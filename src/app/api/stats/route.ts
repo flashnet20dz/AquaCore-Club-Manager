@@ -175,6 +175,9 @@ export async function GET() {
     const femalesOver13 = computed.filter((s) => s.gender === "أنثى" && s.age >= 13).length;
 
     // ════ المرحلة 4: إحصائيات المسبح (لا مالية هنا — الأجور المعلّقة من wage-core) ════
+    // ★ المرحلة 5: نافذة الشهر ونتائج wage-core تُحسب مرة واحدة وتُشارك مع قسم العمال
+    let monthRangeRef: { from: string; to: string } | null = null;
+    let monthTotalsRef: { gross: number; paid: number; remaining: number } | null = null;
     let pool: {
       todayKey: string | null;
       operatingToday: boolean;
@@ -234,21 +237,106 @@ export async function GET() {
           todayWorkHours += Math.max(0, (new Date(r.endTime).getTime() - new Date(r.startTime).getTime()) / 3600000 - breakMinutes / 60);
         }
         // الأجور المعلّقة (المتبقي) للشهر الحالي — من نفس مصدر صفحة الأجور
+        // ★ نفس النتيجة تُشارك مع قسم العمال أدناه (حساب واحد — رقم واحد §27)
         const nowD = new Date();
         const ym = `${nowD.getUTCFullYear()}-${String(nowD.getUTCMonth() + 1).padStart(2, "0")}`;
         const last = new Date(Date.UTC(nowD.getUTCFullYear(), nowD.getUTCMonth() + 1, 0)).getUTCDate();
-        const { totals } = await computeWages(clubId, `${ym}-01`, `${ym}-${String(last).padStart(2, "0")}`);
+        monthRangeRef = { from: `${ym}-01`, to: `${ym}-${String(last).padStart(2, "0")}` };
+        const wageResult = await computeWages(clubId, monthRangeRef.from, monthRangeRef.to);
+        monthTotalsRef = wageResult.totals;
         pool = {
           todayKey,
           operatingToday,
           todaySessions: todaySessionsList.length,
           activeLifeguardsToday,
           todayWorkHours: Math.round(todayWorkHours * 10) / 10,
-          pendingWagesMonth: totals.remaining,
+          pendingWagesMonth: wageResult.totals.remaining,
         };
       }
     } catch (e) {
       console.warn("stats pool block failed:", e);
+    }
+
+    // ════ المرحلة 5: قسم العمال (§25/§27) — نفس مصادر الأجور والعقود ════
+    let workers: {
+      employeesCount: number;
+      activeEmployees: number;
+      activeContracts: number;
+      contractsExpiringSoon: number;
+      expiringContractsList: Array<{ contractNumber: string; employeeName: string; endDate: string; daysRemaining: number }>;
+      approvedHoursMonth: number;
+      grossWagesMonth: number;
+      paidWagesMonth: number;
+      outstandingWagesMonth: number;
+    } | null = null;
+    try {
+      if (!isSuperadmin && currentUser.clubId) {
+        const clubId = currentUser.clubId;
+        await ensureRuntimeColumns();
+
+        const [employeesCount, activeEmployees, activeContracts] = await Promise.all([
+          db.employee.count({ where: { clubId } }),
+          db.employee.count({ where: { clubId, status: "ACTIVE", active: true } }),
+          db.employmentContract.count({ where: { clubId, status: "active" } }),
+        ]);
+
+        // ★ العقود التي ستنتهي قريباً (خلال 30 يوماً) — مرتبة حسب الأقرب (§25)
+        const in30 = new Date();
+        in30.setUTCDate(in30.getUTCDate() + 30);
+        const expiring = await db.employmentContract.findMany({
+          where: { clubId, status: "active", endDate: { not: null, gte: new Date(), lte: in30 } },
+          orderBy: { endDate: "asc" },
+          take: 8,
+          include: { employee: { select: { firstName: true, lastName: true } } },
+        });
+        const expiringContractsList = expiring.map((c) => ({
+          contractNumber: c.contractNumber,
+          employeeName: `${c.employee?.lastName ?? ""} ${c.employee?.firstName ?? ""}`.trim(),
+          endDate: c.endDate!.toISOString().slice(0, 10),
+          daysRemaining: Math.max(0, Math.ceil((c.endDate!.getTime() - Date.now()) / 86400000)),
+        }));
+
+        workers = {
+          employeesCount,
+          activeEmployees,
+          activeContracts,
+          contractsExpiringSoon: expiringContractsList.length,
+          expiringContractsList,
+          approvedHoursMonth: 0, // يُملأ أدناه من نفس نافذة wage-core
+          grossWagesMonth: monthTotalsRef?.gross ?? 0,
+          paidWagesMonth: monthTotalsRef?.paid ?? 0,
+          outstandingWagesMonth: monthTotalsRef?.remaining ?? 0,
+        };
+
+        // الساعات المعتمدة للشهر — من نفس نافذة wage-core (نفس المصدر — رقم واحد)
+        if (monthRangeRef) {
+          const whAgg = await db.workHours.findMany({
+            where: {
+              clubId,
+              date: { gte: new Date(`${monthRangeRef.from}T00:00:00.000Z`), lte: new Date(`${monthRangeRef.to}T23:59:59.999Z`) },
+              status: "approved",
+            },
+            select: { startTime: true, endTime: true, note: true },
+          });
+          let h = 0;
+          for (const r of whAgg) {
+            let breakMinutes = 0;
+            let workStatus = "present";
+            try {
+              if (r.note && r.note.startsWith("{")) {
+                const meta = JSON.parse(r.note);
+                breakMinutes = meta.breakMinutes || 0;
+                workStatus = meta.workStatus || "present";
+              }
+            } catch {}
+            if (workStatus !== "present" && workStatus !== "half-day") continue;
+            h += Math.max(0, (new Date(r.endTime).getTime() - new Date(r.startTime).getTime()) / 3600000 - breakMinutes / 60);
+          }
+          workers.approvedHoursMonth = Math.round(h * 10) / 10;
+        }
+      }
+    } catch (e) {
+      console.warn("stats workers block failed:", e);
     }
 
     return NextResponse.json({
@@ -274,6 +362,7 @@ export async function GET() {
       bySwimmingDays,
       byTimeSlot,
       pool,
+      workers,
     });
   } catch (error) {
     console.error("GET /api/stats error:", error);

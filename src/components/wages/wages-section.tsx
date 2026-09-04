@@ -21,7 +21,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
-  Wallet, Users, Clock, CalendarDays, CalendarRange, Loader2, Banknote,
+  Wallet, Users, Clock, CalendarDays, RefreshCw, CalendarRange, Loader2, Banknote,
   BadgeCheck, CircleDashed, CircleAlert, ChevronRight, ChevronLeft, History, XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -84,8 +84,8 @@ interface WagesResponse {
   period: { from: string; to: string; label: string };
   workers: WorkerWage[];
   totals: { gross: number; paid: number; remaining: number };
-  /** صلاحية الإلغاء تُصدَر من الخادم (admin/superadmin فقط) */
-  viewer?: { canVoid: boolean };
+  /** الصلاحيات تُصدَر من الخادم — canVoid (إلغاء) للمدير، canPay (تسديد) للمدير/المحاسب (§34) */
+  viewer?: { canVoid: boolean; canPay: boolean };
   /** ★ كل التسديدات — كل الفترات (الجديدة والقديمة) — للعثور على أي تسديد خاطئ وإلغائه */
   recentPayments?: Array<WagePaymentRow & { workerName: string }>;
 }
@@ -166,6 +166,9 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
   const [payDate, setPayDate] = useState(toLocalYMD());
   const [payNote, setPayNote] = useState("");
   const [paying, setPaying] = useState(false);
+  // ★ المرحلة 5 (§37): مفتاح Idempotency يُولَّد عند فتح الحوار —
+  //   ضغط مزدوج/إعادة إرسال/تحديث الصفحة بنفس المفتاح = دفعة واحدة على الخادم
+  const [payIdemKey, setPayIdemKey] = useState("");
 
   // حوار الإلغاء
   const [voidTarget, setVoidTarget] = useState<(WagePaymentRow & { workerName?: string }) | null>(null);
@@ -227,6 +230,7 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
           paidAt: payDate,
           note: payNote,
           source: "workhours",
+          idempotencyKey: payIdemKey || undefined,
         }),
       });
       const json = await res.json();
@@ -282,6 +286,8 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
   const totals = data?.totals ?? { gross: 0, paid: 0, remaining: 0 };
   // ★ إلغاء التسديد في حالة الخطأ — للمدير فقط (الصلاحية من الخادم لا من الواجهة)
   const canVoid = data?.viewer?.canVoid ?? false;
+  // ★ المرحلة 5 (§34): المحاسب يسلّم أيضاً — الصلاحية من الخادم لا من الواجهة
+  const canPay = data?.viewer?.canPay ?? false;
   const activeWorkers = useMemo(() => data?.workers.filter((w) => w.totalHours > 0 || w.paid > 0) ?? [], [data]);
   const allPayments = useMemo(() => {
     const rows = activeWorkers.flatMap((w) => w.payments.map((p) => ({ ...p, workerName: w.name })));
@@ -305,8 +311,18 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
               </p>
             </div>
           </div>
-          {/* اختيار الفترة + تصدير */}
+          {/* اختيار الفترة + إعادة الحساب + تصدير */}
           <div className="flex items-center gap-1.5 flex-wrap">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={fetchData}
+              disabled={loading}
+              title="إعادة حساب الأجر من ساعات العمل المعتمدة (الخادم يُعيد الحساب — لا تغيير على التسديدات التاريخية)"
+            >
+              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+              إعادة حساب الأجر
+            </Button>
             <ExportButton
               rows={activeWorkers}
               filename={`أجور-العمال-${periodLabel.replace(/\s/g, "-")}`}
@@ -449,15 +465,15 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
                           </Badge>
                         </td>
                         <td className="p-2 text-center">
-                          {w.remaining > 0 ? (
+                          {w.remaining > 0 && canPay ? (
                             <Button
                               size="sm" className="h-8 bg-amber-600 hover:bg-amber-700 text-white gap-1"
-                              onClick={() => { setPayTarget(w); setPayAmount(String(w.remaining)); setPayMethod("cash"); setPayDate(toLocalYMD()); setPayNote(""); }}
+                              onClick={() => { setPayTarget(w); setPayAmount(String(w.remaining)); setPayMethod("cash"); setPayDate(toLocalYMD()); setPayNote(""); setPayIdemKey(crypto.randomUUID()); }}
                             >
                               <Banknote className="h-3.5 w-3.5" /> تسديد الأجر
                             </Button>
                           ) : (
-                            <span className="text-emerald-600 text-xs">✓ مسدَّد</span>
+                            <span className="text-emerald-600 text-xs font-semibold">✓ مدفوع بالكامل</span>
                           )}
                         </td>
                       </motion.tr>
@@ -506,10 +522,10 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
                       <MiniStat label="المدفوع" value={formatDA(w.paid)} tone="emerald" />
                       <MiniStat label="المتبقي" value={formatDA(w.remaining)} tone={w.remaining > 0 ? "rose" : "emerald"} />
                     </div>
-                    {w.remaining > 0 && (
+                    {w.remaining > 0 && canPay && (
                       <Button
                         size="sm" className="w-full h-9 bg-amber-600 hover:bg-amber-700 text-white gap-1"
-                        onClick={() => { setPayTarget(w); setPayAmount(String(w.remaining)); setPayMethod("cash"); setPayDate(toLocalYMD()); setPayNote(""); }}
+                        onClick={() => { setPayTarget(w); setPayAmount(String(w.remaining)); setPayMethod("cash"); setPayDate(toLocalYMD()); setPayNote(""); setPayIdemKey(crypto.randomUUID()); }}
                       >
                         <Banknote className="h-4 w-4" /> تسديد الأجر
                       </Button>

@@ -714,3 +714,71 @@ Files modified:
 - src/components/work-hours-management.tsx
 - src/components/pointage-panel.tsx
 - src/components/work-hours-panel.tsx
+
+---
+Task ID: phase-5
+Agent: main
+Task: المرحلة 5 — نظام الموظفين والعقود والأجور الاحترافي (Employee → Contract → WorkHours → Wage → Payment → Financial Center)
+
+Work Log:
+- فحص شامل قبل التعديل: Employee/EmploymentContract/ContractTemplate/WorkHours/WagePayment/FT/FinancialBalance/AuditLog موجودة + wage-core + postLedgerEntry + WagesSection مشترك بين الصفحتين + ExportButton موحد — البناء فوق الموجود بلا تكرار
+- Schema (جراحي): Employee(status/email/firstNameFr/lastNameFr + فهرس clubId,status) + EmploymentContract(contractType/title/weeklyHours/terminatedAt/terminatedById/terminatedReason + فهرس endDate) + WorkHours(rateSnapshot/rejectionReason/cancelledById/cancelledAt/slotId FK→SwimmingTimeSlot + فهرس slotId) + WagePayment(idempotencyKey unique/employeeId) + SwimmingTimeSlot.workHours back-relation
+- runtime-schema.ts: 16 عموداً جديداً PG/SQLite idempotent + فهارس (WorkHours_clubId_slotId/Employee_clubId_status/EmploymentContract_clubId_endDate) + فريد جزئي WagePayment_idempotencyKey_key
+- wage-core.ts: عميل معاملة اختياري (tx) + الإجمالي من لقطات السجلات (rateSnapshot أسبق من السعر الحالي §23) + hourRate معروض = متوسط مرجّح + currentRate منفصل + استبعاد الموظفين المؤرشفين من الخريطة
+- /api/wages: المحاسب يسلّم (hasWagePayAccess §34) + idempotencyKey (استباقية + P2002 سباق + قيد فريد §37) + إعادة حساب المتبقي داخل المعاملة مع قفل صف الرصيد PG (تزامن مدير×محاسب §38) + OVERPAY من داخل الذرّية + viewer.canPay/canVoid من الخادم
+- /api/workhours: rateSnapshot + حماية العقد (§24: 409 contractGuard للمدير/403 لغيره + allowAfterContractEnd) + تدقيق إنشاء + إصلاح جوهري: الملغى لم يعد يحجب إعادة التسجيل (notIn rejected+cancelled)
+- /api/workhours/bulk: نفس الحمايات + slotId عمود + rateSnapshot لكل السجلات
+- /api/workhours/[id]: cancelled مع سبب إلزامي + cancelledBy/At + الحذف الفعلي للمسودات فقط + تدقيق approve/reject/cancel/delete_draft
+- /api/workhours/approve (جديد): اعتماد/رفض جماعي حتى 200 سجل بمعاملة واحدة + سبب إلزامي للرفض + تدقيق مجمّع
+- /api/employees: GET ببوابة أدوار (admin/assistant/accountant/superadmin) + فلاتر server-side (status/position/بحث) + POST whitelist كامل + مزامنة active مع status + تدقيق
+- /api/employees/[id]: PATCH مضبوط + DELETE أرشفة ناعمة (ARCHIVED) عند وجود عقود/ساعات/تعويضات — حذف فعلي فقط لغير المستخدم
+- /api/employees/[id]/profile (جديد): ملف الموظف الكامل §29 (شخصية + عقود + تعيينات + ساعات + أجور 6 أشهر من wage-core + تسديدات + قيود FIN)
+- /api/contracts: GET فلاتر server-side (employeeId/type/status/فترة) + ترقيم اختياري + انتهاء تلقائي عند القراءة (§26 updateMany idempotent) + POST بأنواع/مسودة/أسبوعية + تدقيق
+- /api/contracts/[id]: terminate/cancel/activate/renew/edit كلها بتدقيق oldValue→newValue + DELETE للمسودات فقط
+- /api/stats: قسم العمال §25/§27 — employeesCount/activeEmployees/activeContracts/contractsExpiringSoon(+قائمة 8)/approvedHoursMonth/grossWagesMonth/paidWagesMonth/outstandingWagesMonth بنفس نافذة wage-core المشتركة (حساب واحد — رقم واحد)
+- UI contracts-panel: شارات الحالة الأربع + حقول التواصل والفرنسية في النموذج + زر ملف الموظف + أرشفة واعية + فلتر نوع العقد + حالة مسودة/ملغى + إنهاء بسبب (حوار) + تفعيل مسودة + حذف مسودات فقط + إنشاء بأنواع/عنوان/ساعات أسبوعية/مسودة
+- contracts-shared.ts (جديد): مساعدات مشتركة (POSITIONS/CONTRACT_TYPES/حالات الموظف) — بلا تكرار وبلا استيراد دائري
+- employee-profile-dialog.tsx (جديد): ملف كامل + تصدير موحد للعقود والأجور — key-remount لكل موظف
+- work-hours-management: مسودة/ملغى labels + أعمدة checkbox + select-all + شريط اعتماد جماعي + حوار سبب رفض جماعي + زر إلغاء ناعم للسجلات المعتمدة + تصدير يحترم الحالات
+- wages-section: idempotencyKey (crypto.randomUUID لكل فتح حوار) + canPay بوابة خادمية للمحاسب + زر «إعادة حساب الأجر» + «مدفوع بالكامل» بدل مسدَّد
+- page.tsx: بطاقات العمال الأربع في لوحة التحكم + widget «العقود التي ستنتهي قريباً» (شارات 7/30 يوم + الانتقال للعقود)
+- إصلاحات مكتشفة بالاختبار: (1) الملغى كان يحجب إعادة تسجيل نفس الحصة — notIn(rejected,cancelled) في المسارين (2) findFirst على الموظف كان يعيد المؤرشف (أسعار خاطئة) — استبعاد ARCHIVED + orderBy createdAt desc في 5 مواضع (3) حماية العقد تختار العقد الحاكم بـ endDate desc
+- اختبارات scripts/phase5-test.mjs: 85 فحصاً — موظف (حالة/مزامنة/whitelist) + عقود (أنواع/مسودة→تفعيل/انتهاء تلقائي بلا تغيير التاريخ) + لقطة السعر (تغيير 500→600: القديمة 500 والجديدة 600) + تعدد حصص + منع تكرار + اعتماد جماعي + رفض بسبب + حذف معتمد ممنوع + ملغى لا يُحيا + حساب 3×500+1×600=2100 + متوسط 525 + شهري + فترة 01→15=1500 + دفع جزئي 900 + إرسال مزدوج بنفس المفتاح = دفعة واحدة + دفع كامل + منع زائد + قيد 1:1 wage:{id} + Δرصيد +2100 + إلغاء ناعم (WP+FT+رصيد+متبقي 900) + إلغاء مزدوج 409 + تدقيق 7 أحداث + لوحة=أجور (نفس الشهر) + حماية عقد (409+تجاوز) + timezone 08/09/12/17/23 + أرشفة + Δ=0 نهائي — 85/85 نجحت (بعد تنظيف متبقيات تلقائي في المقدمة)
+- تحقق متصفح (agent-browser): دخول → لوحة التحكم (بطاقات العمال + العقود النشطة + أجور الشهر) → عقود العمال (شارات حالة مؤرشف + ملف الموظف الكامل حوار: عقود بأنواعها/حصص/ساعات/أجور/تسديدات) → أرشيف العقود (فلتر النوع + الحالة) → ساعات العمل (تحديد جماعي → شريط الاعتماد → POST 200 → approved في القاعدة) → الأجور (حوار تسديد احترافي → دفع جزئي 500 → مدفوع جزئياً 500/18,700 → إلغاء بسبب إلزامي من الواجهة → ملغى + المتبقي عاد 19,200) → المركز المالي (الملغى خارج الدفتر النشط، الرصيد سليم) → موبايل 390px بلا overflow
+- نشر: نسخ 21 ملفاً + schema.prisma بدمج جراحي (استبدال كتلة datasource فقط postgresql+directUrl — تحقق آلي بلا sqlite) → commit 61b4749 → push main → Vercel status:success → smoke: home 200/login superadmin/POST approve 400 (موجود+تحقق)/employees 403 بلا نادي (بوابة الأدوار تعمل)/login 200
+
+Stage Summary:
+- ✅ السلسلة كاملة: Employee ← Contract ← Pool Sessions ← WorkHours (لقطة سعر) ← Wage (server-side) ← WagePayment (idempotencyKey) ← FinancialTransaction (wage:{id}) ← Financial Center ← Dashboard
+- ✅ §23/§48 التاريخ محصّن: لقطة السعر في السجل + لقطة الحساب في التسديد + الإعدادات/العقود/الأسعار لا تعيد حساب الماضي
+- ✅ §37/§38 التزامن: قيد فريد + مفتاح عميل + قفل صف الرصيد + إعادة حساب داخل المعاملة — لا دفعان ولا ازدواج
+- ✅ §46 الإلغاء الذرّي من المكانين: WP+FT+الرصيد+التدقيق في معاملة واحدة
+- ✅ 85/85 اختبار + تحقق متصفح كامل (desktop+mobile) + lint نظيف + tsc بلا أخطاء جديدة (122 legacy ثابتة)
+- ✅ النشر: 61b4749 على main — Vercel success + smoke
+- ملاحظة: admin@rcs.dz على الإنتاج superadmin بلا نادي — فحص APIs النادي العميقة تم محلياً وعلى حساب النادي التجريبي؛ نمط أعمدة runtime-self-heal مثبت من المرحلتين 1-4 يضيف أعمدة الإنتاج تلقائياً عند أول طلب نادي
+- التقرير النهائي PHASE 5 RESULT أُسلّم للمستخدم في الرد
+
+Files created:
+- src/lib/work-contract-guard.ts
+- src/components/contracts-shared.ts
+- src/components/employees/employee-profile-dialog.tsx
+- src/app/api/workhours/approve/route.ts
+- src/app/api/employees/[id]/profile/route.ts
+- scripts/phase5-test.mjs
+
+Files modified:
+- prisma/schema.prisma (Employee/WorkHours/EmploymentContract/WagePayment/SwimmingTimeSlot — جراحي)
+- src/lib/runtime-schema.ts
+- src/lib/wage-core.ts
+- src/app/api/wages/route.ts
+- src/app/api/workhours/route.ts
+- src/app/api/workhours/[id]/route.ts
+- src/app/api/workhours/bulk/route.ts
+- src/app/api/employees/route.ts
+- src/app/api/employees/[id]/route.ts
+- src/app/api/contracts/route.ts
+- src/app/api/contracts/[id]/route.ts
+- src/app/api/stats/route.ts
+- src/app/page.tsx
+- src/components/contracts-panel.tsx
+- src/components/work-hours-management.tsx
+- src/components/wages/wages-section.tsx
