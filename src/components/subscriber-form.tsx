@@ -31,6 +31,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
+import { notifyFinancialUpdated } from "@/lib/financial-events";
 import { useSubscriptionTypes } from "@/hooks/use-subscription-types";
 import { useSwimConfig } from "@/hooks/use-swim-config";
 import { PhotoUploader } from "@/components/photo-uploader";
@@ -307,6 +308,7 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
           description: "المنخرط محفوظ على هذا الجهاز",
         });
       }
+      notifyFinancialUpdated();
 
       // 🔑 ارفع الصورة المؤقتة بعد حفظ المنخرط الجديد
       if (pendingPhoto && data.subscriber?.id) {

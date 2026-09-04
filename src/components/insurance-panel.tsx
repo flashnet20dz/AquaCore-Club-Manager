@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { notifyFinancialUpdated } from "@/lib/financial-events";
 import {
   OFFICIAL_HEADER_LINES, SIGNATURE_OPTIONS, MONTH_NAMES, formatDateDMY,
   type EnteteLogo,
@@ -201,6 +202,7 @@ export function InsurancePanel({ subscribers, onRefresh }: InsurancePanelProps) 
         return next;
       });
       toast.success(data.isInsured ? "تم تأمين المنخرط" : "تم إلغاء التأمين");
+      notifyFinancialUpdated();
       onRefresh?.();
     } catch {
       toast.error("فشل");
@@ -232,6 +234,7 @@ export function InsurancePanel({ subscribers, onRefresh }: InsurancePanelProps) 
       const verb = action === "insure" ? "تأمين" : "إلغاء تأمين";
       const skippedNote = data.skipped > 0 ? ` — ${data.skipped} كانوا في هذه الحالة مسبقاً` : "";
       toast.success(`تم ${verb} ${data.affected} منخرط${skippedNote}`);
+      notifyFinancialUpdated();
       setSelectedIds([]);
       onRefresh?.();
     } catch (e) {

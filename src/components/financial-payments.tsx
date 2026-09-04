@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { notifyFinancialUpdated } from "@/lib/financial-events";
 import {
   FinancialTransactionDialog,
   type TransactionData,
@@ -106,6 +107,8 @@ const EXPENSE_CATEGORIES = [
   { value: "wages", label: "أجور عمال" },
   { value: "insurance", label: "تأمين" },
   { value: "compound_rights", label: "حقوق المركب" },
+  { value: "maintenance", label: "صيانة" },
+  { value: "equipment", label: "معدات" },
   { value: "office_supplies", label: "لوازم مكتبية" },
   { value: "other_expense", label: "دفعات أخرى" },
 ];
@@ -172,9 +175,11 @@ interface FinancialPaymentsProps {
   headerActions?: React.ReactNode;
   /** تغيّر قيمته ⇒ إعادة جلب القيود (بعد تسديد أجر مثلاً) */
   refreshSignal?: number;
+  /** ★ مزامنة الفترة من رأس المركز: تغيّر nonce ⇒ ضبط نطاق التاريخ تلقائياً */
+  syncRange?: { from: string; to: string; nonce: number };
 }
 
-export function FinancialPayments({ initialType, headerActions, refreshSignal }: FinancialPaymentsProps = {}) {
+export function FinancialPayments({ initialType, headerActions, refreshSignal, syncRange }: FinancialPaymentsProps = {}) {
   // Filters — قيمة «الكل» = "all" وليس "" (Radix Select يمنع value فارغاً)
   const [typeFilter, setTypeFilter] = useState<string>(initialType ?? "all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -239,6 +244,17 @@ export function FinancialPayments({ initialType, headerActions, refreshSignal }:
       // تجاهل JSON تالف
     }
   }, []);
+
+  // ★ مزامنة الفترة من رأس المركز — تغيير الفترة يضبط نطاق تاريخ الدفتر تلقائياً
+  const syncedNonce = useRef(0);
+  useEffect(() => {
+    if (!syncRange || syncRange.nonce === 0) return;
+    if (syncedNonce.current === syncRange.nonce) return;
+    syncedNonce.current = syncRange.nonce;
+    setDateFrom(syncRange.from);
+    setDateTo(syncRange.to);
+    setPage(1);
+  }, [syncRange]);
 
   // ─── اسم النادي للإيصالات ───
   useEffect(() => {
@@ -454,6 +470,7 @@ export function FinancialPayments({ initialType, headerActions, refreshSignal }:
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "فشل الإلغاء");
       toast.success("تم إلغاء العملية — تبقى في السجل بوضع «ملغاة» ولا تدخل في الرصيد");
+      notifyFinancialUpdated();
       setCancelTarget(null);
       setCancelReason("");
       refreshAll();

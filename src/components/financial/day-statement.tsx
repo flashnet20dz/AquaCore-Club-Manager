@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { onFinancialUpdated } from "@/lib/financial-events";
 import {
   CalendarDays, Loader2, AlertTriangle, RefreshCw,
   ArrowDownCircle, ArrowUpCircle, Landmark, Inbox, ArrowRightLeft, History,
@@ -112,6 +113,9 @@ export function DayStatementCard({ refreshSignal = 0 }: { refreshSignal?: number
   useEffect(() => {
     fetchDay();
   }, [fetchDay, refreshSignal]);
+
+  // ★ مزامنة فورية: أي عملية مالية تُحدّث كشف اليوم بلا تحديث يدوي
+  useEffect(() => onFinancialUpdated(() => fetchDay(true)), [fetchDay]);
 
   const txs = data?.transactions ?? [];
 

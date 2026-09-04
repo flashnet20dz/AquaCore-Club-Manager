@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { notifyFinancialUpdated } from "@/lib/financial-events";
 import type { SubscriberWithComputed } from "@/lib/rcs";
 
 // ═══ Format any ISO/date value as DD/MM/YYYY (day/month/year — Arabic/French format) ═══
@@ -447,6 +448,7 @@ function RenewalModal({ open, onOpenChange, subscriber, onSaved }: {
         throw new Error(data.error || "فشل");
       }
       toast.success(`تم تجديد اشتراك ${subscriber.lastName} ${subscriber.firstName} لمدة ${months} شهر بتاريخ ${renewalDate}`);
+      notifyFinancialUpdated();
       onOpenChange(false);
       onSaved();
     } catch (e) {

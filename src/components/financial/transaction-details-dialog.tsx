@@ -56,6 +56,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip as UITooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { notifyFinancialUpdated } from "@/lib/financial-events";
 import { amountToDzdWords } from "@/lib/amount-in-words";
 import { categoryLabel, paymentMethodLabel, typeLabel } from "./labels";
 import { openReceiptPrint } from "./receipt";
@@ -225,6 +226,7 @@ export function TransactionDetailsDialog({
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "فشل الإلغاء");
       toast.success("تم إلغاء العملية — تبقى في السجل بوضع «ملغاة» ولا تدخل في الرصيد");
+      notifyFinancialUpdated();
       setCancelOpen(false);
       setCancelReason("");
       onChanged?.();

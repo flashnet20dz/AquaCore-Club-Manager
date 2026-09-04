@@ -201,7 +201,7 @@ export async function POST(req: NextRequest) {
     }
 
     const validIncomeCategories = ["subscription", "renewal", "insurance", "compound", "other_income"];
-    const validExpenseCategories = ["wages", "insurance", "compound_rights", "office_supplies", "other_expense"];
+    const validExpenseCategories = ["wages", "insurance", "compound_rights", "maintenance", "equipment", "office_supplies", "other_expense"];
     if (type === "income" && !validIncomeCategories.includes(category)) {
       return NextResponse.json({ error: "فئة مدخول غير صالحة" }, { status: 400 });
     }

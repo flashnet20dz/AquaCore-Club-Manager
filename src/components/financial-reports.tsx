@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   FileText, Loader2, AlertTriangle, Printer, FileSpreadsheet,
@@ -79,6 +79,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   other_income: "مدخول آخر",
   wages: "أجور عمال",
   compound_rights: "حقوق المركب",
+  maintenance: "صيانة",
+  equipment: "معدات",
   office_supplies: "لوازم مكتبية",
   other_expense: "دفعات أخرى",
 };
@@ -164,7 +166,12 @@ function hoursBetween(start: string, end: string): number {
 // ─────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────
-export function FinancialReports() {
+interface FinancialReportsProps {
+  /** ★ مزامنة الفترة من رأس المركز: تغيّر nonce ⇒ ضبط نطاق التاريخ تلقائياً */
+  syncRange?: { from: string; to: string; nonce: number };
+}
+
+export function FinancialReports({ syncRange }: FinancialReportsProps = {}) {
   // Period
   const [dateFrom, setDateFrom] = useState<string>(firstDayOfMonth());
   const [dateTo, setDateTo] = useState<string>(lastDayOfMonth());
@@ -177,6 +184,16 @@ export function FinancialReports() {
   const [dailyData, setDailyData] = useState<DailyStatementData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // ★ مزامنة الفترة من رأس المركز — تغيير الفترة يضبط نطاق التاريخ تلقائياً
+  const syncedNonce = useRef(0);
+  useEffect(() => {
+    if (!syncRange || syncRange.nonce === 0) return;
+    if (syncedNonce.current === syncRange.nonce) return;
+    syncedNonce.current = syncRange.nonce;
+    setDateFrom(syncRange.from);
+    setDateTo(syncRange.to);
+  }, [syncRange]);
 
   const fetchData = useCallback(async () => {
     if (!dateFrom || !dateTo) {

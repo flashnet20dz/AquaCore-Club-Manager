@@ -5,6 +5,9 @@ import { ensureRuntimeColumns } from "@/lib/runtime-schema";
 import { computeSubscriberFieldsDynamic, isExemptStatus, type SubscriptionTypeConfig } from "@/lib/rcs";
 import { financialNumber } from "@/lib/financial-posting";
 
+/** أشهر السنة بالعربية (للتدفق المالي الشهري) */
+const AR_MONTHS = ["جانفي", "فيفري", "مارس", "أفريل", "ماي", "جوان", "جويلية", "أوت", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
+
 /**
  * GET /api/financial/dashboard
  * ═════════════════════════════════════════════════════════════
@@ -120,6 +123,141 @@ export async function GET(req: NextRequest) {
         select: { id: true, seq: true, category: true, amount: true, date: true, payeeName: true },
       }),
     ]);
+
+    // ─── 2b) الفترة السابقة المكافئة (مقارنة تلقائية للـKPIs — المرحلة 2/5) ───
+    // نفس طول الفترة الحالية تنتهي لحظة بدئها: اليوم→أمس، الأسبوع→الأسبوع الماضي،
+    // الشهر→الشهر الماضي (نفس عدد الأيام المنقضية)، السنة→السنة الماضية، مخصص→نفس المدة قبلها
+    let prevStart: Date;
+    let prevEnd: Date;
+    let prevLabel: string;
+    if (periodParam === "today") {
+      prevStart = new Date(periodStart.getTime() - 86_400_000);
+      prevEnd = new Date(periodStart.getTime() - 1);
+      prevLabel = "أمس";
+    } else if (periodParam === "week") {
+      prevEnd = new Date(periodStart.getTime() - 1);
+      prevStart = new Date(prevEnd.getFullYear(), prevEnd.getMonth(), prevEnd.getDate() - 6, 0, 0, 0, 0);
+      prevLabel = "الأسبوع الماضي";
+    } else if (periodParam === "month") {
+      const lastDayPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
+      prevStart = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
+      prevEnd = new Date(now.getFullYear(), now.getMonth() - 1, Math.min(now.getDate(), lastDayPrevMonth), 23, 59, 59, 999);
+      prevLabel = "الشهر الماضي";
+    } else if (periodParam === "lastmonth") {
+      prevStart = new Date(now.getFullYear(), now.getMonth() - 2, 1, 0, 0, 0, 0);
+      prevEnd = new Date(now.getFullYear(), now.getMonth() - 1, 0, 23, 59, 59, 999);
+      prevLabel = "الشهر السابق للماضي";
+    } else if (periodParam === "year") {
+      prevStart = new Date(now.getFullYear() - 1, 0, 1, 0, 0, 0, 0);
+      prevEnd = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      prevLabel = "السنة الماضية";
+    } else {
+      const spanMs = periodEnd.getTime() - periodStart.getTime();
+      prevEnd = new Date(periodStart.getTime() - 1);
+      prevStart = new Date(prevEnd.getTime() - spanMs);
+      prevLabel = "الفترة السابقة";
+    }
+
+    const [prevIn, prevOut] = await Promise.all([
+      db.financialTransaction.aggregate({ where: { clubId: targetClubId, status: "active", type: "income", date: { gte: prevStart, lte: prevEnd } }, _sum: { amount: true } }),
+      db.financialTransaction.aggregate({ where: { clubId: targetClubId, status: "active", type: "expense", date: { gte: prevStart, lte: prevEnd } }, _sum: { amount: true } }),
+    ]);
+    const prevIncome = prevIn._sum.amount || 0;
+    const prevExpense = prevOut._sum.amount || 0;
+    const prevNet = prevIncome - prevExpense;
+    const changePct = (curr: number, prev: number) =>
+      prev > 0 ? Math.round(((curr - prev) / prev) * 1000) / 10 : curr > 0 ? 100 : 0;
+    const previous = {
+      label: prevLabel,
+      income: prevIncome,
+      expense: prevExpense,
+      net: prevNet,
+      incomeChangePct: changePct(periodIncomeSum, prevIncome),
+      expenseChangePct: changePct(periodExpenseSum, prevExpense),
+      netChangePct: changePct(periodIncomeSum - periodExpenseSum, prevNet),
+    };
+
+    // ─── 2c) التدفق المالي بgranularity متوافق مع الفترة (المرحلة 2/7) ───
+    // اليوم→بالساعة، الأسبوع/الشهر/≤62يوم→يومياً، ≤180يوم→أسبوعياً، السنة/أطول→شهرياً
+    const flowTxs = await db.financialTransaction.findMany({
+      where: { clubId: targetClubId, status: "active", date: { gte: periodStart, lte: periodEnd } },
+      select: { type: true, amount: true, date: true },
+    });
+    type FlowBucket = { label: string; income: number; expense: number; net: number };
+    const mkBucket = (label: string): FlowBucket => ({ label, income: 0, expense: 0, net: 0 });
+    let flowGranularity: "hour" | "day" | "week" | "month" = "day";
+    let flowBuckets: FlowBucket[] = [];
+    const addFlow = (idx: number, t: { type: string; amount: number }) => {
+      const b = flowBuckets[idx];
+      if (!b) return;
+      if (t.type === "income") b.income += t.amount; else b.expense += t.amount;
+    };
+    if (periodParam === "today") {
+      flowGranularity = "hour";
+      flowBuckets = Array.from({ length: 24 }, (_, h) => mkBucket(`${String(h).padStart(2, "0")}:00`));
+      for (const t of flowTxs) addFlow(new Date(t.date).getHours(), t);
+    } else if (periodParam === "year") {
+      flowGranularity = "month";
+      flowBuckets = AR_MONTHS.map((m) => mkBucket(m));
+      for (const t of flowTxs) {
+        const d = new Date(t.date);
+        if (d.getFullYear() === now.getFullYear()) addFlow(d.getMonth(), t);
+      }
+    } else if (periodParam === "month") {
+      flowGranularity = "day";
+      flowBuckets = Array.from({ length: now.getDate() }, (_, i) => mkBucket(String(i + 1)));
+      for (const t of flowTxs) addFlow(new Date(t.date).getDate() - 1, t);
+    } else if (periodParam === "lastmonth") {
+      flowGranularity = "day";
+      const days = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
+      flowBuckets = Array.from({ length: days }, (_, i) => mkBucket(String(i + 1)));
+      for (const t of flowTxs) addFlow(new Date(t.date).getDate() - 1, t);
+    } else {
+      const spanDays = Math.max(1, Math.floor((periodEnd.getTime() - periodStart.getTime()) / 86_400_000) + 1);
+      const baseDay = new Date(periodStart.getFullYear(), periodStart.getMonth(), periodStart.getDate());
+      if (spanDays <= 62) {
+        flowGranularity = "day";
+        flowBuckets = [];
+        const dayIndex = new Map<string, number>();
+        for (let i = 0; i < spanDays; i++) {
+          const d = new Date(baseDay.getFullYear(), baseDay.getMonth(), baseDay.getDate() + i);
+          dayIndex.set(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`, i);
+          flowBuckets.push(mkBucket(`${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`));
+        }
+        for (const t of flowTxs) {
+          const d = new Date(t.date);
+          const idx = dayIndex.get(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
+          if (idx !== undefined) addFlow(idx, t);
+        }
+      } else if (spanDays <= 180) {
+        flowGranularity = "week";
+        const weeks = Math.ceil(spanDays / 7);
+        flowBuckets = Array.from({ length: weeks }, (_, w) => {
+          const ws = new Date(baseDay.getFullYear(), baseDay.getMonth(), baseDay.getDate() + w * 7);
+          return mkBucket(`${String(ws.getDate()).padStart(2, "0")}/${String(ws.getMonth() + 1).padStart(2, "0")}`);
+        });
+        for (const t of flowTxs) {
+          const diffDays = Math.floor((new Date(t.date).setHours(0, 0, 0, 0) - baseDay.getTime()) / 86_400_000);
+          const w = Math.floor(diffDays / 7);
+          if (w >= 0 && w < weeks) addFlow(w, t);
+        }
+      } else {
+        flowGranularity = "month";
+        const monthKey = (d: Date) => d.getFullYear() * 12 + d.getMonth();
+        const startKey = monthKey(periodStart);
+        const count = monthKey(periodEnd) - startKey + 1;
+        flowBuckets = Array.from({ length: count }, (_, i) => {
+          const d = new Date(periodStart.getFullYear(), periodStart.getMonth() + i, 1);
+          return mkBucket(`${AR_MONTHS[d.getMonth()]} ${d.getFullYear()}`);
+        });
+        for (const t of flowTxs) {
+          const idx = monthKey(new Date(t.date)) - startKey;
+          if (idx >= 0 && idx < count) addFlow(idx, t);
+        }
+      }
+    }
+    for (const b of flowBuckets) b.net = b.income - b.expense;
+    const flow = { granularity: flowGranularity, buckets: flowBuckets };
 
     // ─── 3) الفئات في الفترة المختارة من الدفتر (groupBy — لا JSON كاش) ───
     const [periodIncByCat, periodExpByCat, monthIncByCat, monthExpByCat] = await Promise.all([
@@ -441,6 +579,10 @@ export async function GET(req: NextRequest) {
       payables,
       realAvailable,
       integrity,
+
+      // ★ المرحلة 2: مقارنة الفترة السابقة + التدفق المالي المتوافق
+      previous,
+      flow,
     });
   } catch (error) {
     console.error("GET /api/financial/dashboard error:", error);

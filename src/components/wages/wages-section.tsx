@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { notifyFinancialUpdated } from "@/lib/financial-events";
 import { toLocalYMD } from "@/lib/wall-clock";
 import { ExportButton } from "@/components/shared/export-button";
 
@@ -232,6 +233,7 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
       if (!res.ok) throw new Error(json.error || "فشل التسديد");
       if (json.retry) throw new Error("جارٍ تهيئة جدول الأجور — أعد المحاولة بعد ثوانٍ");
       toast.success(`تم تسديد ${formatDA(amt)} — القيد المالي أُنشئ ومزامَن مع المركز المالي ✓`);
+      notifyFinancialUpdated();
       setPayTarget(null);
       setPayNote("");
       await fetchData();
@@ -264,6 +266,7 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "فشل الإلغاء");
       toast.success("تم إلغاء التسديد وحذف قيده المالي من المركز");
+      notifyFinancialUpdated();
       setVoidTarget(null);
       setVoidReason("");
       await fetchData();

@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { notifyFinancialUpdated } from "@/lib/financial-events";
 import { FinancialTransactionDialog } from "@/components/financial-transaction-dialog";
 import { WagesSection } from "@/components/wages/wages-section";
 
@@ -241,6 +242,7 @@ export function DuesSection({ onChanged }: DuesSectionProps) {
         onSaved={() => {
           fetchData(true);
           onChanged?.();
+          notifyFinancialUpdated();
           toast.success("تم التسديد — القيد في الدفتر ومزامَن مع كل الصفحات ✓");
         }}
       />

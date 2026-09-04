@@ -40,6 +40,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { notifyFinancialUpdated } from "@/lib/financial-events";
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -85,6 +86,8 @@ const EXPENSE_CATEGORIES: { value: string; label: string }[] = [
   { value: "wages", label: "أجور عمال" },
   { value: "insurance", label: "تأمين" },
   { value: "compound_rights", label: "حقوق المركب" },
+  { value: "maintenance", label: "صيانة" },
+  { value: "equipment", label: "معدات" },
   { value: "office_supplies", label: "لوازم مكتبية" },
   { value: "other_expense", label: "دفعات أخرى" },
 ];
@@ -314,6 +317,7 @@ export function FinancialTransactionDialog({
       }
 
       toast.success(isEdit ? "تم تعديل العملية بنجاح" : "تم تسجيل العملية بنجاح");
+      notifyFinancialUpdated();
       onOpenChange(false);
       onSaved?.();
     } catch (err) {

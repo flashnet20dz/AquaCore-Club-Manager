@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus, Search, Users, Wallet, ShieldCheck, Waves, TrendingUp, Filter, X,
@@ -71,6 +71,7 @@ import { BackupPanel } from "@/components/backup-panel";
 import { SubscriberRecordModal } from "@/components/subscriber-record-modal";
 import { WhatsAppReminders } from "@/components/whatsapp-reminders";
 import { hasPermission, ROLE_LABELS, ROLE_ICONS } from "@/lib/roles";
+import { onFinancialUpdated } from "@/lib/financial-events";
 import { notifyClick, notifySuccess } from "@/lib/sounds";
 import { toast } from "sonner";
 import {
@@ -337,6 +338,11 @@ export default function Home() {
     const t = setTimeout(fetchData, 250);
     return () => clearTimeout(t);
   }, [fetchData, sessionUser]);
+
+  // ★ مزامنة فورية: أي عملية مالية في أي مكان تُحدّث بطاقات الصفحة الرئيسية بلا تحديث
+  const fetchDataRef = useRef(fetchData);
+  fetchDataRef.current = fetchData;
+  useEffect(() => onFinancialUpdated(() => fetchDataRef.current()), []);
 
   const handleAdd = () => {
     setEditInitial(undefined);

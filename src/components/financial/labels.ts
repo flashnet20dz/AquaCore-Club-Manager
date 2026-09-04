@@ -11,6 +11,8 @@ export const CATEGORY_LABELS: Record<string, string> = {
   other_income: "مدخول آخر",
   wages: "أجور عمال",
   compound_rights: "حقوق المركب",
+  maintenance: "صيانة",
+  equipment: "معدات",
   office_supplies: "لوازم مكتبية",
   other_expense: "دفعات أخرى",
 };
