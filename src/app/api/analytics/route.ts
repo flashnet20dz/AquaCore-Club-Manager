@@ -9,6 +9,11 @@ export async function GET() {
     if (!currentUser) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
     }
+    // 🛡️ super-admin بلا سياق نادي: 400 رشيقة بدل 500 (نفس أسلوب المسار المالي —
+    // حسابات النادي تُعرض من داخل سياق النادي، والمدير الأعلى له لوحته الخاصة)
+    if (currentUser.role === "superadmin" && !currentUser.clubId) {
+      return NextResponse.json({ error: "النادي غير محدد" }, { status: 400 });
+    }
 
     const clubFilter = currentUser.role === "superadmin" ? {} : { clubId: currentUser.clubId! };
     const [subscribers, attendances, renewals, ledgerIncome, ledgerTotalAgg] = await Promise.all([
