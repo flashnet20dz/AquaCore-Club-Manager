@@ -7,9 +7,9 @@ generator client {
 }
 
 datasource db {
-  provider      = "sqlite"
-  url           = env("DATABASE_URL")
-  // ⚠️ محلي SQLite. عند النشر: أعد postgresql + directUrl (درس b8f4e5d — استبدال جراحي فقط)
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
 }
 
 // ═══════════════════════════════════════════════════════════
