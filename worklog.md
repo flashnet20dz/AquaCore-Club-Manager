@@ -457,3 +457,118 @@ Stage Summary:
 - الصندوق وتقرير Z محذوفان — الوردية كانت مصدر حقيقة موازياً؛ الآن «قيد جديد» في الدفتر هو الطريق الوحيد والواضح
 - الأداة الوحيدة المنقذة: أجور العمال (حساب ذكي من ساعات العمل + ترحيل تلقائي) — كل ما تبقى كان تكراراً حرفياً لصفحات متخصصة
 - لم يُلمس card-designer-pro.tsx إطلاقاً، ولا schema.prisma (لا حاجة لـ DDL إنتاجي)
+
+---
+Task ID: env-rollback-recovery
+Agent: Z.ai Code (main)
+Task: استعادة بيئة العمل بعد تراجع الحاوية إلى نسخة قديمة (قبل a7f8714/f74431d/491ca67)
+
+Work Log:
+- اكتُشفت تراجعات: runtime-schema.ts مفقود، schema بلا أعمدة الإلغاء، dashboard-revenue.tsx مفقود، استنساخ النشر محذوف، aquacore-deploy.env (توكن الدفع) محذوف، worklog فقد 4 مدخلات
+- الإنتاج سليم (GitHub/Vercel): استُنسئ flashnet20dz/AquaCore-Club-Manager بكامل التاريخ حتى 491ca67 إلى /home/z/AquaCore-Club-Manager
+- مزامنة my-project من الاستنساخ: src/ (rsync --delete، مطابقة تامة) + prisma/schema.prisma + public/sw.js — مع إبقاء .env وdb/ وnode_modules المحلية
+- استبدال جراحي لكتلة datasource فقط: postgresql+directUrl → sqlite محلياً (درس b8f4e5d)، db:push ناجح + prisma generate، dev server يعمل و/login 200
+- ★ توكن الدفع غير قابل للاستعادة محلياً — الدفع للنشر يتطلب إعادة توكن GitHub من المستخدم
+
+Stage Summary:
+- my-project = الإنتاج حرفياً (491ca67) + datasource محلي sqlite
+- كل ما بُني سابقاً (إلغاء ناعم، كشف يومي، حصص المسبح، اختيار متعدد، عقود، زر تصدير، إيرادات لوحة التحكم) عاد إلى بيئة التطوير
+- worklog: المدخلات المفقودة أعيد اختصارها أدناه من سياق الجلسة ورسائل git
+
+---
+Task ID: financial-system-unified-7 (مستعاد مختصراً)
+Task: النظام المالي الموحد — إلغاء ناعم بلا حذف (a7f8714)
+Work: FinancialTransaction/WagePayment + status/cancelledAt/cancelledById/cancellationReason (عبر runtime-schema.ts ensureRuntimeColumns إلزامي في كل مسار يستخدم الأعمدة) + SwimmingTimeSlot.dayOfWeek + 7 مسارات حذف صارت إلغاء ناعم 409 + AuditLog + dashboard 16 فلتر active + كشف يومي ?day= + تقارير ملغاة/سنة + قسم أيام وحصص المسبح في ساعات العمل
+
+---
+Task ID: unified-sessions-multi-select-9 (مستعاد مختصراً)
+Task: مصدر موحد للحصص + اختيار متعدد + زر تصدير موحد + عقود (f74431d)
+Work: بطاقات اختيار متعدد للحصص في نموذج ساعات العمل من useSwimConfig + [تحديد الكل] + إجماليات حية + سجل لكل حصة + حمايات خادم (يوم مغلق 400/تكرار 409) + ExportButton مشترك (Excel/CSV/PDF/طباعة A4) في الساعات والأجور والعقود + عقود العمال (بطاقات إحصائية + جدول + مستند A4 بتواقيع)
+
+---
+Task ID: financial-center-dashboard-data (مستعاد مختصراً)
+Task: المركز المالي يأخذ معلومات لوحة التحكم (491ca67)
+Work: DashboardRevenueBlock (financial/dashboard-revenue.tsx) في نظرة عامة يستدعي /api/stats — رسوم الاشتراكات/التأمين/المركب/الإيرادات + رقائق المسددون + سطر مطابقة الدفتر — ملاحظة: هذه المهمة ستنقلب قرارها في المهمة الحالية (المرحلة 5: المصدر يصبح الدفتر)
+
+---
+Task ID: 10-a
+Agent: frontend subagent
+Task: إعادة تصميم نظرة عامة المركز المالي (فترات + KPIs + مستحقات/التزامات + سلامة + كشف يوم)
+
+Work Log:
+- قرأت worklog (آخر 6 مدخلات) + overview.tsx القديم (863 سطراً) + financial-hub.tsx + dashboard-revenue.tsx + مسار /api/financial/dashboard و /api/financial/integrity (قراءة فقط) واختبتهم بcurl (period/day/custom/integrity كلها تعيد المفاتيح المتوقعة)
+- بنيت src/components/financial/integrity-widget.tsx (جديد): زر «فحص الحسابات» → GET integrity يعرض ✓ متطابقة أو ⚠ فرق (المسجل/الحقيقي/الفرق + chips فروق الفئات + وقت الفحص + قيود بلا ترقيم)، وزر «إعادة بناء الرصيد» يظهر فقط لـadmin/superadmin (prop role) → POST مع توست النتيجة ثم onChanged لإعادة جلب الكل؛ الحالة الابتدائية من integrity الخفيف داخل payload الـdashboard مع شارة «فحص تلقائي»
+- بنيت src/components/financial/day-statement.tsx (جديد): منتقي تاريخ input[type=date] منمّق (افتراضي اليوم بالتوقيت المحلي، max=اليوم) → ?day= → معادلة اليوم الأفقية (افتتاحي + داخل − خارج = ختامي) + قائمة عمليات اليوم max-h-64 overflow-y-auto بشريط nice-scroll وأيقونة لكل طريقة دفع + skeletons وحالة خطأ بإعادة محاولة + refreshSignal من الأب
+- أعدت كتابة src/components/financial/overview.tsx بالكامل حول مصدر واحد (?period=):
+  * مبدّل فترة علوي (اليوم/هذا الأسبوع/هذا الشهر/الشهر الماضي/هذه السنة/فترة مخصصة) بأزرار h-11 (لمسات ≥44px) + مدخلا تاريخ مخصصان وزر «تطبيق» بتحقق (البداية قبل النهاية) + زر تحديث spinner صامت + سطر نطاق الفترة من periodRange؛ كل تغيير فترة = skeleton كامل (المبدّل يبقى ظاهراً)
+  * شبكة البطاقات الرئيسية الثمانية بالترتيب: الرصيد الحالي (teal) | المتاح الحقيقي (emerald، تلميح «بعد الالتزامات X دج» + title توضيحي) | إجمالي المداخيل (emerald) | إجمالي المصاريف (rose) | صافي الحركة (emerald/rose) | المستحقات للنادي (amber، تنقر → قسم المستحقات) | الالتزامات على النادي (amber، تفصيل الأجور) | العمليات الملغاة (slate، count + total) — أيقونات lucide فقط وبلا أزرق/بنفسجي (دونات أيضاً: استبدلت البنفسجي/الوردي البنفسجي بـlime/orange/green/yellow)
+  * بطاقة معادلة الرصيد: افتتاحي + مداخيل − مصاريف = ختامي (EqTiles أفقية تلتف على الموبايل، tabular-nums)
+  * KPIs الفترة: عدد العمليات | متوسط العملية | أكبر مصروف (الجهة + شارة FIN) | أكبر مصدر دخل — من period.largest*
+  * تحليل مصادر الدخل والمصاريف من period.incomeByCategory/expenseByCategory: صف لكل فئة (الاسم بالعربية، المبلغ، النسبة بشريط تقدم، عدد العمليات) — قابل للنقر: يكتب localStorage «rcs-financial-ledger-preset» {type,category} ثم onNavigateSection("transactions")؛ تحققت حياً أن دفتر 10-b يقرأ المفتاح ويطبق الفلتر (مدخول+اشتراك → FIN-2026-000002 وحده) ثم يستهلكه (removeItem)
+  * DashboardRevenueBlock مُغذّى من نفس البيانات: totalIncome=balance.totalIncome، subscription=renewal+subscription، counts من period.incomeByCategory، movementsCount=period.count، receivables
+  * المقارنة الشهرية: أبقيت KPI cards بنسب التغير وأضفت القيم الفعلية للشهرين (القيمة الحالية كاملة + «الشهر الماضي: X دج» كاملة)
+  * أبقيت وأعدت تنظيم: التدفق النقدي 6 أشهر (أعمدة+خط صافي)، دونات المداخيل/المصاريف من بيانات الفترة بعدد العمليات، طرق الدفع (الفترة)، أكبر المصاريف + أكبر المداخيل عمودان بأرقام FIN وCTA لفتح الدفتر، آخر القيود بشارات FIN وطريقة الدفع، قراءة المدير المالي الختامية حسب الفترة المختارة (+ حالة صفر مداخيل)
+  * التحديث الفوري: focus listener + إعادة جلب عند التركيب (العودة للقسم تعيد التركيب) + زر تحديث صامت + reloadTick يرفعه ودجت السلامة بعد إعادة البناء فيعيد جلب كل شيء (شامل كشف اليوم عبر refreshSignal)
+  * Props: أضفت role?: string ووسّعت OverviewNavSection بـ"dues" (لا يكسر financial-hub: HubSection = OverviewNavSection | "dues")
+- عدّلت financial-hub.tsx سطراً واحداً: <FinancialOverview role={role} onNavigateSection={handleNavigateSection} />
+- حوادث بيئية: (1) النادي كان «مقفل — لا يوجد اشتراك نشط» بعد تراجع الحاوية → مدّدت trialEndDate محلياً +30 يوم عبر سكربت prisma (إصلاح بيانات فقط، لا كود) (2) dev server مات أثناء الاختبار → أعدت تشغيله (setsid bun run dev كما في السجل) (3) اكتشفت أن جلسة agent-browser الافتراضية كانت تُقاد من وكيل آخر بالتوازي (POST قيود وبحث 1500 ظهر في dev.log) → انتقلت لجلسة معزولة --session t10a لإتمام الاختبار دون تداخل
+- التحقق: eslint على financial/ + financial-hub.tsx → صفر؛ tsc --noEmit → لا أخطاء في ملفاتي (البقية 123 قديمة في electron/scripts/api غير الملموسة)؛ curl: period=lastmonth/today/custom&from&to + integrity كلها سليمة
+- متصفح (جلسة معزولة 1440×900 و375×812): دخول admin → المركز المالي → النظرة العامة تعرض البطاقات الثماني (المتاح الحقيقي 78,200 = 98,200 − 20,000) والمعادلة (100,000 + 3,200 − 5,000 = 98,200) وKPIs الفترة بأرقام FIN؛ مبدّل الفترة: «اليوم» غيّر المعادلة والعدد، «فترة مخصصة» 01/08→31/08 أعطت count=1 ونطاقاً صحيحاً، والعودة لـ«هذا الشهر» سليمة؛ النقر على فئة «تسجيل اشتراك» كتب المفتاح وانتقل للدفتر مُصفّياً (مدخول+اشتراك، نتيجة واحدة)؛ «فحص الحسابات» → توست «✓ الحسابات متطابقة»؛ بطاقة المستحقات تفتح قسم المستحقات؛ زر التحديث صامت دون فقدان البيانات؛ كشف اليوم يعرض 4 عمليات 04/09؛ موبايل 375px بلا فيض أفقي (scrollWidth=375)؛ صفر أخطاء console/page errors؛ لقطتان: /tmp/t10a-desktop.png و /tmp/t10a-mobile.png (منسوختان إلى tool-results/)
+
+Stage Summary:
+- «نظرة عامة» صارت تستهلك /api/financial/dashboard بالكامل: فترات (6 أنماط + مخصص)، 8 بطاقات رئيسية بمفاهيم المتاح الحقيقي/المستحقات/الالتزامات/الملغاة، معادلة الفترة، KPIs الفترة بأرقام FIN، تحليل فئات قابل للنقر يفتح الدفتر مُصفّياً (تعاون مباشر مع وكيل 10-b عبر مفتاح localStorage المتفق عليه)، سلامة حسابات بفحص وإعادة بناء للمدير، وكشف يومي تفاعلي
+- كل مكون الفترة (بطاقات/معادلة/KPIs/تحليلات/دونات/طرق الدفع/قراءة المدير) يتغير مع المبدّل، بينما بقيت المقارنة الشهرية والتدفق النقدي 6 أشهر ثابتين كمرجع
+- الهوية البصرية محفوظة: teal/emerald/amber/rose/slate فقط، rounded-2xl، ظلال خفيفة، tabular-nums، RTL كامل، لمسات ≥44px، skeletons، toasts
+- لم يُلمس card-designer-pro.tsx ولا أي API route أو prisma (تعديل قاعدة البيانات الوحيد: تمديد trialEndDate محلياً لفكّ القفل — بيانات لا مخطط)
+
+---
+Task ID: 10-b
+Agent: frontend subagent
+Task: جدول المعاملات الاحترافي (فرز/بحث/فلاتر خادمية + FIN + تفاصيل/Timeline + إيصال + تصدير مفلتر)
+
+Work Log:
+- أُعيد بناء financial-payments.tsx كلياً: كل شيء خادمي — فرز بالرؤوس (date/amount/category/type/payeeName/seq مع sortField/sortDir للـAPI وسهم اتجاه، صفر فرز عميل)، بحث موحّد ?q= مع debounce 350ms ومؤشر انتظار داخل الحقل، فلاتر (نوع/فئة/حالة/طريقة دفع/من-إلى تاريخ) + «مسح الفلاتر»، Pagination خادمية (افتراضي 50 + أحجام 25/50/100) — كل تغيير يعيد الجلب مع skeletons
+- أعمدة جديدة: رقم العملية FIN بخط Courier monospace/tabular-nums بارز (القديم بلا seq يعرض «—» مع tooltip «قيد قديم — سُجّل قبل تفعيل الترقيم التسلسلي»)، التاريخ dd/mm (السنة في title)، النوع بادج، الفئة بالتسمية العربية، الجهة، طريقة الدفع، المبلغ الموقّع (+أخضر/−أحمر، الملغاة line-through)، الحالة نشطة/ملغاة بtooltip كامل (السبب+الاسم+الوقت)، إجراءات (تفاصيل/طباعة/تعديل/إلغاء — النقر خارجها يفتح التفاصيل). النقر على الصف (أو Enter للوحة المفاتيح) يفتح حوار التفاصيل
+- بطاقات إحصاء من stats الاستجابة: مداخيل/مصاريف/صافي/ملغاة «وفق الفلاتر الحالية» (2×2 موبايل، 4×1 ديسكتوب) + رصيد الدفتر الكامل يُجلب بطلب خفيف منفصل لمعاينة «قيد جديد»
+- ملف جديد financial/transaction-details-dialog.tsx (المرحلة 33): يجلب [id]، FIN كبير أعلى، كل الحقول + بطاقة المبلغ بالمبلغ بالحروف، بيانات المنخرط المرتبط (رقم الملف بارز!) وبيانات أجر العامل (الفترة/ساعات×سعر=المبلغ/الحالة)، Timeline سجل التدقيق خط زمني عمودي (أيقونة ولون حسب action: create إmerald/update amber/cancel rose/rebuild teal) وأسماء المستخدمين والأوقات، إلغاء داخل الحوار (سبب ≥3) يعيد جلب التفاصيل فيُظهر قيد الإلغاء في الـTimeline فوراً
+- ملف جديد financial/receipt.ts (المرحلة 34): نافذة طباعة A4 RTL رسمية — اسم النادي من /api/settings (settings.clubName، fallback «AquaCore»)، FIN، المرجع، التاريخ والوقت، الدافع/المستفيد، طريقة الدفع، صندوق المبلغ + المبلغ بالحروف، السبب/ملاحظة، توقيعا المحاسب والدافع + دائرة ختم، ألوان teal/rose، حرارية-friendly (@media max-width:480px + flex-wrap لا يكسر)
+- ملف جديد src/lib/amount-in-words.ts (المرحلة 34): تحويل عدد صحيح إلى حروف عربية صحيحة — مئات/عشرات/مئات مركبة، تمييز المضاعف حسب آخر جزء (ثلاثة آلاف/خمسة عشر ألفًا/مائة ألف)، ملايين ومليارات، «فقط … دج جزائري لا غير» — مُختبَر على 38 حالة
+- التصدير (المرحلة 35): ExportButton المشترك فقط، rows تُجلب خلفياً بكل الفلاتر (limit=200، كل الصفحات بالتوازي، سقف 20 صفحة + toast إن اقتُطع) بعد debounce 500ms عند أي تغيير فلاتر/بحث/فرز، الزر disabled أثناء التحضير، الأعمدة العشرة المطلوبة (رقم العملية «قيد قديم» للقديم، المبلغ موقّع، الحالة…)
+- Preset (المرحلة 10): قراءة rcs-financial-ledger-preset عند التحميل، تطبيق type/category (مع تحقق من صحة القيمة) ثم حذف المفتاح
+- إلغاء ناعم من الصف بنفس نمط wages-section (AlertDialog سبب ≥3 أحرف، الزر معطّل قبلها) — toast + إعادة جلب القائمة والرصيد؛ حافظت على props (initialType, headerActions, refreshSignal) وتوقيع FinancialPayments كما هو
+- موبايل: بطاقات مكدسة بدل الجدول (md:hidden) بأزرار ≥44px، scrollbar أنيق (.elegant-scroll في globals.css)، حالات فارغة تصف ما يمكن البحث عنه
+- تحقق: eslint 0 أخطاء، tsc بلا أخطاء في ملفاتي، تحقق حي كامل (agent-browser): FIN ظاهرة/فرز المبلغ خادمي أثبت بالشبكة (sortField=amount&sortDir=desc وأُعيد الترتيب)/بحث 1500 وجد القيد المُنشأ حديثاً/فلتر ملغاة عرض السجل مع السبب/التفاصيل+Timeline/الإيصال فتح نافذة «إيصال استلام FIN-2026-000009» بالمبلغ حروفاً واسم النادي من الإعدادات/CSV «تم تحميل ملف CSV»/موبايل 375px بلا فيض أفقي/صفر أخطاء console — لقطات: /tmp/shots/{desktop-transactions-final,mobile-transactions,receipt-print}.png
+
+Stage Summary:
+- جدول المعاملات صار دفتراً محاسبياً كامل الدوران: كل الاستعلامات خادمية (فرز/بحث/فلاتر/صفحات) والعميل يعرض فقط — الأداء ثابت مهما كبر السجل
+- كل قيد له هوية FIN مرئية + سجل تدقيق مرئي في حوار التفاصيل، والإيصال الرسمي بالمبلغ حروفاً جاهز للطباعة (A4 وحراري)
+- زر التصدير الموحّد يصدّر كل النتائج المفلترة لا الصفحة فقط، وPreset من بطاقات النظرة العامة يعمل بنظرة-واحدة
+- لم يُلمس: API routes، prisma، financial-hub.tsx، overview.tsx، card-designer-pro.tsx — ملفاتي فقط (financial-payments.tsx + financial/ + amount-in-words.ts + فئة scrollbar في globals.css)
+- ملاحظة واحدة: قيود «قيد جديد» اليدوية لا تكتب AuditLog إنشاء (postLedgerEntry لا يسجّل) فيبدأ Timeline فارغاً حتى أول إلغاء — سلوك الخادم الحالي، يمكن للوكيل الخادمي إضافة AuditLog إنشاء لاحقاً
+
+---
+Task ID: financial-core-unified-49
+Agent: Z.ai Code (main)
+Task: إعادة هندسة المركز المالي — 49 مرحلة: FinancialTransaction مصدراً وحيداً للحقيقة
+
+Work Log:
+- ★ استرداد بيئة بعد تراجع الحاوية (مدخل env-rollback-recovery أعلاه) ثم تنفيذ المراحل
+- Schema جراحي: Payment ← cancelledAt/cancelledById/cancellationReason (status يعيد استخدام "cancelled") + FinancialTransaction ← seq (فريد clubId+seq) + فهارس (clubId,status)/(clubId,reference) — db:push محلي + runtime-schema (أعمدة PG/SQLite + ensureFinancialIndexes: فهرس فريد جزئي (clubId,reference) للنشط فقط — يدعم نمط toggle) + كشف مزوّد DB لإسكات استعلامات PG على SQLite
+- financial-posting.ts (النواة): postLedgerEntry idempotent بالمرجع (استباقي + تفاعلي P2002) + توليد seq بإعادة محاولة + رصيد ذرّي (increment لا read-modify-write) + lastTransaction يتحدث عند كل إضافة + financialNumber(FIN-YYYY-NNNNNN) + backfillSeqTx idempotent
+- المرحلة 3: POST /api/subscribers يرحّل التسجيل المدفوع ذرّياً (مكونات الحقول المحسوبة من نوع الاشتراك: subscription/insurance/compound بمراجع subscriber:{id}:{cat}) — معفى/لم يدفع: بلا قيد + AuditLog registration_exempt
+- المرحلة 9/41: payments DELETE + toggle-insurance + toggle-compound + bulk-insurance كلها إلغاء ناعم للدفعة (لا payment.delete) + منع إلغاء مزدوج 409 + فلتر status!=cancelled في كل قراء المبالغ (payments/dashboard-extras/wages legacy/toggle checks)
+- المرحلة 4/5: /api/stats تجريد نهائي من المال (إحصاءات منخرطين فقط) — page.tsx يجلب /api/financial/dashboard (لصلاحيات financialDashboard فقط): hero=totalIncome، بطاقات=قيود الفئات، التفصيل المالي=دفتر+متاح حقيقي+مستحقات — DashboardRevenueBlock أصبح props-based من الدفتر (بلا /api/stats)
+- المرحلة 30: dashboard API جديد: period (6 أنماط+custom) + period{opening/income/expense/net/closing/count/avg/largest×2/byCategory مع counts} + receivables (من حالات الاشتراك: لم يدفع/تأمين فقط/اشتراك 300) + payables (أجور مستحقة) + realAvailable + integrity مدمج + topIncome + كل القديم محفوظ للتوافق
+- المرحلة 31: /api/financial/integrity GET (مطابقة كاش↔دفتر: إجماليات+فئات) + POST إعادة بناء (admin) + backfill seq + AuditLog
+- المراحل 25-28: transactions API فرز خادمي (قائمة بيضاء + orderBy مصفوفة) + بحث q موحّد (FIN/seq/مبلغ/مرجع/ملاحظة/جهة/ملف منخرط/عامل) + GET [id] تفاصيل+Timeline (AuditLog متعدد المصادر) + FIN في كل الاستجابات
+- المرحلة 42/32: wages POST عبر postLedgerEntry (كان ينشئ مباشرة) + AuditLog إنشاء للقيود اليدوية + reports/monthly من الدفتر (كان Payment) + عزل clubId
+- إصلاح عائلات المراجع: toggle/bulk/payments تشمل subscriber:{id}:{cat} — إلغاء التأمين يُلغي قيد التسجيل المرتبط (اكتشفها اختبار toggle)
+- الوكلاء: 10-a أعادت تصميم نظرة عامة (فترات/8 بطاقات/معادلة/KPIs/نقر فئات→preset/ودجت سلامة/كشف يوم) — 10-b جدول المعاملات (فرز/بحث/فلاتر/pagination خادمية + FIN + حوار تفاصيل+Timeline + إيصال A4 بالمبلغ بالحروف (amount-in-words) + تصدير مفلتر ExportButton + قراءة preset) — sw.js → v8
+- الاختبارات (curl API): سيناريو المرحلة 46 كاملاً (افتتاحي 100k → تسجيل 1700+500+1000 حسب نوع الاشتراك، تجديد 1500، مصروف 5000، أجر 16000 من 32 سا×500) = معادلة الفترة والمركز وكشف اليوم والتقرير الشهري متطابقة ✓؛ تزامن 5 طلبات بنفس المرجع→قيد واحد ✓؛ idempotency مرجعي ✓؛ seq 1..N بلا فجوة ✓؛ إلغاء ناعم دفعة+قيد معاً و409 للمزدوج ✓؛ toggle on/off/on مع إعادة إنشاء مشروعة ✓؛ مزامنة عكسية (إلغاء من الدفتر→WagePayment ملغى والمتبقي يعود) ✓؛ إعادة بناء الرصيد ✓؛ صلاحيات 403 بلا جلسة ✓؛ stats بلا مفاتيح مالية ✓؛ معفى بلا قيد ✓؛ eslint صفر على كل الملفات + tsc نظيف لملفاتنا
+
+Stage Summary:
+- FinancialTransaction هو المصدر الوحيد للحقيقة المالية: لوحة التحكم والمركز والتقارير والكشف اليومي والإحصاءات كلها تقرأ من الدفتر — لا يوجد رقمان مختلفان لنفس الإيراد
+- كل عمليات الدفع (تسجيل/تجديد/تأمين/مركب/أجور/مصروف) تصب في نفس الدفتر تلقائياً بقيود idempotent مرقّمة FIN
+- الإلغاء ناعم 100%: لا حذف فعلي للقيود ولا للدفعات — التاريخ محفوظ دائماً مع من/متى/لماذا
+- FinancialBalance كاش قابل لإعادة البناء + فحص سلامة بنقرة مدير — الآمن ضد التزامن عبر increment ذرّي
+- لم يُلمس card-designer-pro.tsx؛ النشر معلّق على توكن GitHub (فُقد بالتراجع)

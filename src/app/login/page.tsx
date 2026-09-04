@@ -136,9 +136,9 @@ function LoginForm() {
             className="w-full h-full object-cover opacity-30"
           />
           <div className="absolute inset-0 bg-gradient-to-br from-slate-950/95 via-teal-950/90 to-slate-950/95" />
-          {/* دوائر توهج ثابتة */}
-          <div className="absolute top-[-5%] right-[-5%] w-96 h-96 rounded-full bg-teal-500/15 blur-3xl" />
-          <div className="absolute bottom-[-5%] left-[-5%] w-96 h-96 rounded-full bg-sky-500/15 blur-3xl" />
+          {/* دوائر توهج حية (شفق متحرك) */}
+          <div className="aurora-blob absolute top-[-5%] right-[-5%] w-96 h-96 rounded-full bg-teal-500/15 blur-3xl" />
+          <div className="aurora-blob-delayed absolute bottom-[-5%] left-[-5%] w-96 h-96 rounded-full bg-sky-500/15 blur-3xl" />
         </div>
 
         {/* المحتوى */}
@@ -243,8 +243,8 @@ function LoginForm() {
         {/* خلفية متدرجة للجوال */}
         <div className="absolute inset-0 lg:hidden">
           <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-teal-950 to-slate-950" />
-          <div className="absolute top-[-10%] right-[-5%] w-72 h-72 rounded-full bg-teal-500/15 blur-3xl" />
-          <div className="absolute bottom-[-10%] left-[-5%] w-72 h-72 rounded-full bg-sky-500/15 blur-3xl" />
+          <div className="aurora-blob absolute top-[-10%] right-[-5%] w-72 h-72 rounded-full bg-teal-500/15 blur-3xl" />
+          <div className="aurora-blob-delayed absolute bottom-[-10%] left-[-5%] w-72 h-72 rounded-full bg-sky-500/15 blur-3xl" />
         </div>
 
         {/* نموذج الدخول */}
@@ -345,7 +345,7 @@ function LoginForm() {
                 <Button
                   type="submit"
                   disabled={loading}
-                  className="w-full h-12 text-base font-bold rounded-xl bg-gradient-to-l from-teal-500 to-sky-500 hover:from-teal-400 hover:to-sky-400 border-0 text-white shadow-lg shadow-teal-500/20 transition-all hover:shadow-xl hover:shadow-teal-500/30"
+                  className="w-full h-12 text-base font-bold rounded-xl bg-gradient-to-l from-teal-500 to-sky-500 hover:from-teal-400 hover:to-sky-400 border-0 text-white shadow-lg shadow-teal-500/20 transition-all hover:shadow-xl hover:shadow-teal-500/30 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-60 disabled:hover:translate-y-0"
                 >
                   {loading ? (
                     <><Loader2 className="h-5 w-5 animate-spin" /> جاري الدخول...</>

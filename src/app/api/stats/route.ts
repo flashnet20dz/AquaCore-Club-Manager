@@ -5,9 +5,12 @@ import { getCurrentUser } from "@/lib/session";
 
 /**
  * GET /api/stats
- * 🔒 محسّن: يستخدم groupBy في DB للتوزيعات + select محدود للحسابات المالية
- * كان يحمّل ALL subscribers (~2KB/each) → الآن يحمّل فقط الحقول اللازمة (~200bytes/each)
- * = 10x أقل استهلاك ذاكرة، يدعم 50,000+ منخرط بدلاً من 5,000
+ * 🔒 محسّن: يستخدم groupBy في DB للتوزيعات + select محدود للحسابات العمرية/الحالات
+ * ═════════════════════════════════════════════════════════════
+ * ★ إحصائيات المنخرطين فقط (المرحلة 4):
+ * لا حساب مالي هنا إطلاقاً — كل رقم مالي في النظام يأتي من دفتر
+ * FinancialTransaction عبر /api/financial/dashboard (المصدر الوحيد للحقيقة).
+ * مستحقات الاشتراكات غير المدفوعة تُحسب هي أيضاً في المسار المالي (receivables).
  */
 export async function GET() {
   try {
@@ -151,11 +154,8 @@ export async function GET() {
     const unpaid = computed.filter((s) => s.paymentStatus === "لم يدفع");
     const exempt = computed.filter((s) => s.isExempt);
 
-    const totalSubscriptionFees = paid.reduce((sum, s) => sum + (s.subscriptionFee ?? 0), 0);
-    const totalInsuranceFees = paid.reduce((sum, s) => sum + (s.insuranceFee ?? 0), 0);
-    const totalCompoundRights = paid.reduce((sum, s) => sum + (s.compoundRights ?? 0), 0);
-    const totalRevenue = totalSubscriptionFees + totalInsuranceFees;
-    const avgPayment = paid.length > 0 ? Math.round(totalRevenue / paid.length) : 0;
+    // ★ الحساب المالي أُزيل من هذا المسار عمداً (المرحلة 4) —
+    // الإيرادات والمستحقات والرسوم كلها من الدفتر في /api/financial/dashboard
 
     // Renewal status breakdown (محسوب)
     const renewalStatuses = ["✅ ساري", "⚠️ قريب الانتهاء", "⛔ منتهي - يتطلب تجديد", "🔒 مجمدة"] as const;
@@ -171,31 +171,12 @@ export async function GET() {
     const malesOver13 = computed.filter((s) => s.gender === "ذكر" && s.age >= 13).length;
     const femalesOver13 = computed.filter((s) => s.gender === "أنثى" && s.age >= 13).length;
 
-    // Financial detail (محسوب)
-    const financialDetail = {
-      count300: computed.filter((s) => s.subscriptionFee === 300).length,
-      sum300: computed.filter((s) => s.subscriptionFee === 300).reduce((sum, s) => sum + 300, 0),
-      count1300: computed.filter((s) => s.subscriptionFee === 1300).length,
-      sum1300: computed.filter((s) => s.subscriptionFee === 1300).reduce((sum, s) => sum + 1300, 0),
-      count1500: computed.filter((s) => s.subscriptionFee === 1500).length,
-      sum1500: computed.filter((s) => s.subscriptionFee === 1500).reduce((sum, s) => sum + 1500, 0),
-      totalInsurance: totalInsuranceFees,
-      totalCompoundRights,
-    };
-
     return NextResponse.json({
       total,
       paid: paid.length,
       // ★ EXEMPT count as a first-class metric (separate from paid/unpaid)
       unpaid: unpaid.length,
       exempt: exempt.length,
-      financial: {
-        totalSubscriptionFees,
-        totalInsuranceFees,
-        totalCompoundRights,
-        totalRevenue,
-        avgPayment,
-      },
       bySubscriptionType,
       byPaymentStatus,
       byRenewalStatus,
@@ -212,7 +193,6 @@ export async function GET() {
       byBloodType,
       bySwimmingDays,
       byTimeSlot,
-      financialDetail,
     });
   } catch (error) {
     console.error("GET /api/stats error:", error);

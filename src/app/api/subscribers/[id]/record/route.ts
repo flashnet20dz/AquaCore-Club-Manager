@@ -67,7 +67,7 @@ export async function GET(
         totalVisits: attendances.length,
         attendanceLast30,
         absent3Weeks,
-        totalPayments: payments.reduce((s, p) => s + p.amount, 0),
+        totalPayments: payments.filter((p) => p.status !== "cancelled").reduce((s, p) => s + p.amount, 0),
         renewalCount: renewals.length,
       },
     });

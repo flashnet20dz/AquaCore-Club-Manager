@@ -160,7 +160,7 @@ export function CardsPanel({ subscribers }: CardsPanelProps) {
 
       {/* Settings dialog */}
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-2xl max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><Settings2 className="h-5 w-5 text-primary" /> إعدادات تصميم البطاقة (وجهين)</DialogTitle>
           </DialogHeader>

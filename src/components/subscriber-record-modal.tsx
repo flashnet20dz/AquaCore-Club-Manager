@@ -131,9 +131,9 @@ export function SubscriberRecordModal({ subscriber, open, onOpenChange }: Subscr
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-3xl max-h-[92dvh] overflow-y-auto p-4 sm:p-6">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-3">
+          <DialogTitle className="flex flex-wrap items-center gap-x-3 gap-y-2 pl-8 sm:pl-0">
             <div className="h-10 w-10 rounded-xl overflow-hidden shrink-0 relative bg-muted">
               {subscriber.photoPath && (
                 <img
@@ -150,25 +150,27 @@ export function SubscriberRecordModal({ subscriber, open, onOpenChange }: Subscr
                 {subscriber.lastName[0]}{subscriber.firstName[0]}
               </div>
             </div>
-            <div className="flex-1">
-              <p className="text-base font-bold">{subscriber.lastName} {subscriber.firstName}</p>
+            <div className="flex-1 min-w-[120px]">
+              <p className="text-base font-bold break-words">{subscriber.lastName} {subscriber.firstName}</p>
               <p className="text-xs text-muted-foreground font-mono">{subscriber.fileNumber} • {subscriber.age} سنة</p>
             </div>
-            {subscriber.phone && (
+            <div className="flex gap-1.5 w-full sm:w-auto">
+              {subscriber.phone && (
+                <button
+                  onClick={openWhatsApp}
+                  className="flex flex-1 sm:flex-none items-center justify-center gap-1 px-3 py-2 sm:py-1.5 rounded-lg bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/25 transition text-xs font-semibold"
+                >
+                  <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
+                </button>
+              )}
               <button
-                onClick={openWhatsApp}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/25 transition text-xs font-semibold"
+                onClick={openPortal}
+                className="flex flex-1 sm:flex-none items-center justify-center gap-1 px-3 py-2 sm:py-1.5 rounded-lg bg-teal-500/15 text-teal-700 hover:bg-teal-500/25 transition text-xs font-semibold"
+                title="نسخ وفتح رابط بوابة المنخرط (بطاقة رقمية + سجل حضور)"
               >
-                <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
+                <ExternalLink className="h-3.5 w-3.5" /> البوابة
               </button>
-            )}
-            <button
-              onClick={openPortal}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-teal-500/15 text-teal-700 hover:bg-teal-500/25 transition text-xs font-semibold"
-              title="نسخ وفتح رابط بوابة المنخرط (بطاقة رقمية + سجل حضور)"
-            >
-              <ExternalLink className="h-3.5 w-3.5" /> البوابة
-            </button>
+            </div>
           </DialogTitle>
         </DialogHeader>
 
@@ -200,12 +202,12 @@ export function SubscriberRecordModal({ subscriber, open, onOpenChange }: Subscr
 
             {/* Tabs */}
             <Tabs defaultValue="payments">
-              <TabsList className="w-full">
-                <TabsTrigger value="payments" className="flex-1"><Wallet className="h-3.5 w-3.5 ml-1" /> المدفوعات</TabsTrigger>
-                <TabsTrigger value="renewals" className="flex-1"><RefreshCw className="h-3.5 w-3.5 ml-1" /> التجديدات</TabsTrigger>
-                <TabsTrigger value="attendance" className="flex-1"><Calendar className="h-3.5 w-3.5 ml-1" /> الحضور</TabsTrigger>
-                <TabsTrigger value="activity" className="flex-1"><ActivityIcon className="h-3.5 w-3.5 ml-1" /> النشاط</TabsTrigger>
-                <TabsTrigger value="contract" className="flex-1"><FileSignature className="h-3.5 w-3.5 ml-1" /> العقد</TabsTrigger>
+              <TabsList className="w-full flex-wrap h-auto gap-1">
+                <TabsTrigger value="payments" className="flex-1 min-w-[88px] text-xs px-2"><Wallet className="h-3.5 w-3.5 ml-1 hidden sm:inline" /> المدفوعات</TabsTrigger>
+                <TabsTrigger value="renewals" className="flex-1 min-w-[88px] text-xs px-2"><RefreshCw className="h-3.5 w-3.5 ml-1 hidden sm:inline" /> التجديدات</TabsTrigger>
+                <TabsTrigger value="attendance" className="flex-1 min-w-[88px] text-xs px-2"><Calendar className="h-3.5 w-3.5 ml-1 hidden sm:inline" /> الحضور</TabsTrigger>
+                <TabsTrigger value="activity" className="flex-1 min-w-[88px] text-xs px-2"><ActivityIcon className="h-3.5 w-3.5 ml-1 hidden sm:inline" /> النشاط</TabsTrigger>
+                <TabsTrigger value="contract" className="flex-1 min-w-[88px] text-xs px-2"><FileSignature className="h-3.5 w-3.5 ml-1 hidden sm:inline" /> العقد</TabsTrigger>
               </TabsList>
 
               <TabsContent value="payments" className="mt-3 max-h-72 overflow-y-auto">

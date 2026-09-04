@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
-import { postLedgerEntry, deleteLedgerByReferencesTx } from "@/lib/financial-posting";
+import { postLedgerEntry, cancelLedgerByReferencesTx } from "@/lib/financial-posting";
+import { ensureRuntimeColumns, ensureFinancialIndexes } from "@/lib/runtime-schema";
 
 /**
  * خريطة فئات لوحة الأعباء (دفتر Payment التشغيلي) ← فئات الدفتر المالي
@@ -27,7 +28,8 @@ export async function GET(req: NextRequest) {
     const userId = url.searchParams.get("userId");
 
     const clubFilter = user.role === "superadmin" ? {} : { clubId: user.clubId! };
-    const where: Record<string, unknown> = { ...clubFilter };
+    // ★ الملغاة لا تدخل في أي مبلغ — تبقى فقط في التاريخ ويمكن عرضها بوسم «ملغاة»
+    const where: Record<string, unknown> = { ...clubFilter, status: { not: "cancelled" } };
     if (category) where.category = category;
     if (userId) where.userId = userId;
 
@@ -41,7 +43,7 @@ export async function GET(req: NextRequest) {
       take: 100,
     });
 
-    const allPayments = await db.payment.findMany({ where: clubFilter });
+    const allPayments = await db.payment.findMany({ where: { ...clubFilter, status: { not: "cancelled" } } });
     const totals = {
       compound: allPayments.filter((p) => p.category === "compound").reduce((s, p) => s + p.amount, 0),
       insurance: allPayments.filter((p) => p.category === "insurance").reduce((s, p) => s + p.amount, 0),
@@ -60,6 +62,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    await ensureRuntimeColumns();
+    await ensureFinancialIndexes();
     const user = await getCurrentUser();
     if (!user || (user.role !== "admin" && user.role !== "superadmin")) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
@@ -132,6 +136,8 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    await ensureRuntimeColumns();
+    await ensureFinancialIndexes();
     const user = await getCurrentUser();
     if (!user || (user.role !== "admin" && user.role !== "superadmin")) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
@@ -141,22 +147,61 @@ export async function DELETE(req: NextRequest) {
     const id = url.searchParams.get("id");
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-    const existing = await db.payment.findUnique({ where: { id } });
+    // سبب الإلغاء (يُرسل من نافذة الإلغاء — إلزامي للتوثيق المحاسبي)
+    const body = await req.json().catch(() => ({}));
+    const reason = (body?.reason || "").trim();
+    if (reason.length < 3) {
+      return NextResponse.json({ error: "سبب الإلغاء إلزامي (3 أحرف على الأقل)" }, { status: 400 });
+    }
+
+    const existing = await db.payment.findUnique({ where: { id }, include: { user: { select: { name: true } } } });
     if (!existing) return NextResponse.json({ error: "غير موجود" }, { status: 404 });
     // Verify the payment belongs to the user's club (superadmin bypasses)
     if (user.role !== "superadmin" && existing.clubId !== user.clubId) {
       return NextResponse.json({ error: "غير موجود" }, { status: 404 });
     }
+    // ★ منع الإلغاء المزدوج — الملغاة تبقى كما هي (idempotency محاسبية)
+    if (existing.status === "cancelled") {
+      return NextResponse.json({ error: "الدفعة ملغاة مسبقاً" }, { status: 409 });
+    }
 
-    // ★ ذرّية: حذف الدفعة + القيد المرحّل المرتبط بها في الدفتر المالي
+    // ★ ذرّية: إلغاء ناعم للدفعة (تبقى في التاريخ — لا حذف فعلي — المرحلة 9/41)
+    // + إلغاء قيدها المرحّل ناعماً في الدفتر + توثيق AuditLog
     await db.$transaction(async (tx) => {
-      await tx.payment.delete({ where: { id } });
+      await tx.payment.update({
+        where: { id },
+        data: {
+          status: "cancelled",
+          cancelledAt: new Date(),
+          cancelledById: user.id,
+          cancellationReason: reason,
+        },
+      });
       const refs = [`payment:${id}`];
-      if (existing.subscriberId) refs.push(`bulk-ins:${existing.subscriberId}`, `bulk-comp:${existing.subscriberId}`);
-      await deleteLedgerByReferencesTx(tx, existing.clubId, refs);
+      if (existing.subscriberId) {
+        refs.push(`bulk-ins:${existing.subscriberId}`, `bulk-comp:${existing.subscriberId}`);
+        if (existing.category === "insurance") refs.push(`subscriber:${existing.subscriberId}:insurance`);
+        if (existing.category === "compound") refs.push(`subscriber:${existing.subscriberId}:compound`);
+        if (existing.category === "subscription") refs.push(`subscriber:${existing.subscriberId}:subscription`);
+      }
+      await cancelLedgerByReferencesTx(tx, existing.clubId, refs, {
+        cancelledById: user.id,
+        reason: `إلغاء دفعة قديمة (${existing.category}) — ${reason}`,
+      });
+      await tx.auditLog.create({
+        data: {
+          clubId: existing.clubId,
+          userId: user.id,
+          action: "payment_void",
+          entityType: "Payment",
+          entityId: existing.id,
+          description: `إلغاء دفعة ${existing.amount} دج (${existing.category})${existing.user?.name ? ` للعامل ${existing.user.name}` : ""} — السبب: ${reason}`,
+          metadata: JSON.stringify({ amount: existing.amount, category: existing.category, method: existing.method, reason, softCancelled: true }),
+        },
+      }).catch(() => undefined);
     });
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, message: "تم إلغاء الدفعة (يبقى سجلها في التاريخ بوضع ملغاة) وإلغاء قيدها المالي إن وجد" });
   } catch (e) {
     console.error("DELETE payment:", e);
     return NextResponse.json({ error: "Internal" }, { status: 500 });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { applyBalanceDelta, recomputeBalanceTx } from "@/lib/financial-posting";
+import { ensureRuntimeColumns, ensureFinancialIndexes } from "@/lib/runtime-schema";
 
 /**
  * POST /api/subscribers/bulk-insurance
@@ -13,6 +14,8 @@ import { applyBalanceDelta, recomputeBalanceTx } from "@/lib/financial-posting";
  */
 export async function POST(req: NextRequest) {
   try {
+    await ensureRuntimeColumns();
+    await ensureFinancialIndexes();
     const user = await getCurrentUser();
     if (!user || !["admin", "assistant", "superadmin"].includes(user.role)) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
@@ -48,9 +51,9 @@ export async function POST(req: NextRequest) {
     });
     const feeByName = new Map(types.map((t) => [t.name, t.insuranceFee]));
 
-    // من لديهم دفعة تأمين حالياً
+    // من لديهم دفعة تأمين حالياً (نشطة فقط — الملغاة لا تعني تأميناً قائماً)
     const existing = await db.payment.findMany({
-      where: { subscriberId: { in: subs.map((s) => s.id) }, category: "insurance", ...(clubId ? { clubId } : {}) },
+      where: { subscriberId: { in: subs.map((s) => s.id) }, category: "insurance", status: { not: "cancelled" }, ...(clubId ? { clubId } : {}) },
       select: { id: true, subscriberId: true },
     });
     const insuredSet = new Set(
@@ -124,23 +127,42 @@ export async function POST(req: NextRequest) {
       if (paymentsToDelete.length > 0) {
         const idToSub = new Map(subs.map((s) => [s.id, s]));
         await db.$transaction(async (tx) => {
-          await tx.payment.deleteMany({
+          // ★ إلغاء ناعم للدفعات (تبقى في التاريخ — لا حذف فعلي)
+          await tx.payment.updateMany({
             where: { id: { in: paymentsToDelete.map((p) => p.id) } },
+            data: {
+              status: "cancelled",
+              cancelledAt: new Date(),
+              cancelledById: user.id,
+              cancellationReason: "إلغاء تأمين جماعي",
+            },
           });
-          // ★ حذف القيود المرحّلة المرتبطة (فردي payment: أو جماعي bulk-ins:)
+          // ★ إلغاء القيود المرحّلة ناعماً (فردي payment: أو جماعي bulk-ins:)
+          // الملغاة تبقى في سجل الدفتر بوضع «ملغاة» ولا تدخل في الرصيد
           const refs = paymentsToDelete.flatMap((p) => {
             const r = [`payment:${p.id}`];
-            if (p.subscriberId) r.push(`bulk-ins:${p.subscriberId}`);
+            if (p.subscriberId) {
+              r.push(`bulk-ins:${p.subscriberId}`);
+              r.push(`subscriber:${p.subscriberId}:insurance`);
+            }
             return r;
           });
-          const found = await tx.financialTransaction.findMany({
-            where: { reference: { in: refs }, category: "insurance", type: "income" },
-            select: { id: true, clubId: true },
+          const cancelled = await tx.financialTransaction.updateMany({
+            where: { reference: { in: refs }, category: "insurance", type: "income", status: "active" },
+            data: {
+              status: "cancelled",
+              cancelledAt: new Date(),
+              cancelledById: user.id,
+              cancellationReason: "إلغاء تأمين جماعي",
+            },
           });
-          if (found.length > 0) {
-            await tx.financialTransaction.deleteMany({ where: { id: { in: found.map((f) => f.id) } } });
-            const perClub = new Set(found.map((f) => f.clubId));
-            for (const clubId of perClub) {
+          if (cancelled.count > 0) {
+            const clubs = await tx.financialTransaction.findMany({
+              where: { reference: { in: refs }, category: "insurance" },
+              select: { clubId: true },
+              distinct: ["clubId"],
+            });
+            for (const { clubId } of clubs) {
               await recomputeBalanceTx(tx, clubId);
             }
           }

@@ -22,7 +22,7 @@ export async function GET(_req: NextRequest) {
     const clubFilter = user.role === "superadmin" ? {} : { clubId: user.clubId! };
 
     const rows = await db.payment.findMany({
-      where: { category: "insurance", subscriberId: { not: null }, ...clubFilter },
+      where: { category: "insurance", subscriberId: { not: null }, status: { not: "cancelled" }, ...clubFilter },
       select: { subscriberId: true },
     });
 

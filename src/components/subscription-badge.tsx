@@ -83,7 +83,7 @@ export function SubscriptionBadge() {
         title="حالة الاشتراك — اضغط للتفعيل أو المراجعة"
       >
         <Icon className="h-3.5 w-3.5" />
-        <span className="hidden sm:inline">{meta.label(status)}</span>
+        <span className="hidden lg:inline">{meta.label(status)}</span>
       </Button>
       <ActivationModal open={open} onClose={() => setOpen(false)} onActivated={load} />
     </>

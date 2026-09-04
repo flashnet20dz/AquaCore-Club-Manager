@@ -1,6 +1,86 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser, hasPermission } from "@/lib/session";
+import { cancelLedgerEntryTx, financialNumber } from "@/lib/financial-posting";
+import { ensureRuntimeColumns } from "@/lib/runtime-schema";
+
+/**
+ * GET /api/financial/transactions/[id]
+ * تفاصيل العملية الاحترافية (المرحلة 33) + سجل التدقيق Timeline (المرحلة 32):
+ * القيد + رقم FIN + المستخدم + مُلغي العملية + السجلات المرتبطة (أجر/منخرط)
+ * + كل AuditLog المتعلق بالقيد (إنشاء/تعديل/إلغاء).
+ */
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    await ensureRuntimeColumns();
+    const currentUser = await getCurrentUser();
+    if (!currentUser || !hasPermission(currentUser.role, "financialPayments")) {
+      return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
+    }
+
+    const { id } = await params;
+    const clubFilter = currentUser.role === "superadmin" ? {} : { clubId: currentUser.clubId! };
+    const tx = await db.financialTransaction.findFirst({
+      where: { id, ...clubFilter },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        wagePayment: { select: { id: true, periodLabel: true, hours: true, hourRate: true, amount: true, status: true } },
+      },
+    });
+    if (!tx) return NextResponse.json({ error: "غير موجودة" }, { status: 404 });
+
+    // subscriberId بلا relation في المخطط — جلب يدوي
+    const subscriber = tx.subscriberId
+      ? await db.subscriber.findUnique({
+          where: { id: tx.subscriberId },
+          select: { id: true, fileNumber: true, lastName: true, firstName: true, phone: true },
+        })
+      : null;
+
+    const [cancelledBy, auditLogs] = await Promise.all([
+      tx.cancelledById
+        ? db.user.findUnique({ where: { id: tx.cancelledById }, select: { id: true, name: true } })
+        : Promise.resolve(null),
+      // Timeline: سجلات التدقيق المرتبطة بالقيد (بالكيان أو بالمرجع أو بالعملية المصدر)
+      db.auditLog.findMany({
+        where: {
+          clubId: tx.clubId,
+          OR: [
+            { entityType: "FinancialTransaction", entityId: tx.id },
+            ...(tx.reference ? [{ metadata: { contains: tx.reference } }] : []),
+            ...(tx.reference?.startsWith("wage:") ? [{ entityType: "WagePayment", entityId: tx.reference.slice(5) }] : []),
+            ...(tx.reference?.startsWith("payment:") ? [{ entityType: "Payment", entityId: tx.reference.slice(8) }] : []),
+          ],
+        },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      }).catch(() => []),
+    ]);
+
+    // أسماء مستخدمي سجل التدقيق (AuditLog بلا relation user في المخطط)
+    const auditUserIds = Array.from(new Set(auditLogs.map((a) => a.userId).filter((v): v is string => Boolean(v))));
+    const auditUsers = auditUserIds.length
+      ? await db.user.findMany({ where: { id: { in: auditUserIds } }, select: { id: true, name: true } })
+      : [];
+    const auditUserMap = new Map(auditUsers.map((u) => [u.id, u.name]));
+
+    return NextResponse.json({
+      transaction: {
+        ...tx,
+        subscriber,
+        cancelledByName: cancelledBy?.name ?? null,
+        number: financialNumber(tx.seq, tx.date),
+      },
+      timeline: auditLogs.map((a) => ({
+        ...a,
+        userName: a.userId ? auditUserMap.get(a.userId) ?? null : null,
+      })),
+    });
+  } catch (error) {
+    console.error("GET /api/financial/transactions/[id] error:", error);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+  }
+}
 
 /**
  * PUT /api/financial/transactions/[id]
@@ -18,6 +98,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const clubFilter = currentUser.role === "superadmin" ? {} : { clubId: currentUser.clubId! };
     const existing = await db.financialTransaction.findFirst({ where: { id, ...clubFilter } });
     if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    // ★ لا تعديل لعملية ملغاة — يجب استرجاعها أولاً (حماية محاسبية)
+    if (existing.status === "cancelled") {
+      return NextResponse.json({ error: "لا يمكن تعديل عملية ملغاة — العملية خارج الرصيد أصلاً" }, { status: 409 });
+    }
 
     // ★ Accountant can only edit their own transactions
     if (currentUser.role === "accountant" && existing.createdById !== currentUser.id) {
@@ -76,10 +161,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
 /**
  * DELETE /api/financial/transactions/[id]
- * Delete a transaction (requires reason). Recomputes balance.
+ * ★ إلغاء العملية — إلغاء ناعم لا حذف فعلي:
+ * status=cancelled + cancelledAt/cancelledById/cancellationReason محفوظة،
+ * العملية تبقى في السجل بوضع «ملغاة» ولا تدخل في الرصيد/التقارير.
+ * يتطلب سبباً. يُعيد الحساب ويوثّق في Activity وAuditLog.
  */
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    await ensureRuntimeColumns();
     const currentUser = await getCurrentUser();
     if (!currentUser || !hasPermission(currentUser.role, "financialPayments")) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
@@ -90,32 +179,76 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     const reason = body.reason;
 
     if (!reason || reason.trim().length < 3) {
-      return NextResponse.json({ error: "سبب الحذف مطلوب (3 أحرف على الأقل)" }, { status: 400 });
+      return NextResponse.json({ error: "سبب الإلغاء مطلوب (3 أحرف على الأقل)" }, { status: 400 });
     }
 
     const clubFilter = currentUser.role === "superadmin" ? {} : { clubId: currentUser.clubId! };
     const existing = await db.financialTransaction.findFirst({ where: { id, ...clubFilter } });
     if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+    // ★ منع الإلغاء المزدوج (idempotency)
+    if (existing.status === "cancelled") {
+      return NextResponse.json({ error: "العملية ملغاة مسبقاً" }, { status: 409 });
+    }
+
     if (currentUser.role === "accountant" && existing.createdById !== currentUser.id) {
-      return NextResponse.json({ error: "يمكنك حذف العمليات التي سجّلتها أنت فقط" }, { status: 403 });
+      return NextResponse.json({ error: "يمكنك إلغاء العمليات التي سجّلتها أنت فقط" }, { status: 403 });
     }
 
     await db.$transaction(async (tx) => {
-      await tx.financialTransaction.delete({ where: { id } });
-      await recomputeBalance(tx, existing.clubId);
+      const ok = await cancelLedgerEntryTx(tx, existing.clubId, id, {
+        cancelledById: currentUser.id,
+        reason: reason.trim(),
+      });
+      if (!ok) throw new Error("ALREADY_CANCELLED");
+
+      // ★ إذا كان القيد مرتبطاً بتسديد أجر (wage:{id}) يُلغى سجل WagePayment أيضاً
+      // (نفس العملية من الصفحتين — بلا حذف ولا سجل جديد منفصل)
+      if (existing.reference?.startsWith("wage:")) {
+        const wageId = existing.reference.slice(5);
+        await tx.wagePayment.updateMany({
+          where: { id: wageId, status: "active" },
+          data: {
+            status: "cancelled",
+            cancelledAt: new Date(),
+            cancelledById: currentUser.id,
+            cancellationReason: reason.trim(),
+          },
+        });
+      }
+
+      // ★ AuditLog: من ألغى / متى / السبب / القيمة الأصلية
+      await tx.auditLog.create({
+        data: {
+          clubId: existing.clubId,
+          userId: currentUser.id,
+          action: "financial_transaction_cancel",
+          entityType: "FinancialTransaction",
+          entityId: existing.id,
+          description: `إلغاء عملية مالية (${existing.type}/${existing.category}): ${existing.amount} دج — السبب: ${reason.trim()}`,
+          metadata: JSON.stringify({
+            amount: existing.amount, type: existing.type, category: existing.category,
+            reference: existing.reference, payeeName: existing.payeeName,
+            originalValue: existing.amount, cancelledAt: new Date().toISOString(),
+            createdAt: existing.createdAt.toISOString(),
+          }),
+        },
+      }).catch(() => undefined);
     });
 
     await db.activity.create({
       data: {
         clubId: existing.clubId,
         userId: currentUser.id,
-        type: "financial_delete",
-        description: `حذف عملية مالية (${existing.type}/${existing.category}): ${existing.amount.toLocaleString()} دج — السبب: ${reason}`,
+        type: "financial_cancel",
+        description: `إلغاء عملية مالية (${existing.type}/${existing.category}): ${existing.amount.toLocaleString()} دج — السبب: ${reason}`,
       },
     }).catch(() => {});
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      message: "تم إلغاء العملية — تبقى في السجل بوضع «ملغاة» ولا تدخل في الرصيد",
+    });
   } catch (error) {
     console.error("DELETE /api/financial/transactions/[id] error:", error);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
@@ -123,12 +256,12 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 }
 
 /**
- * Recompute the FinancialBalance from all transactions.
- * Called after every PUT/DELETE to ensure consistency.
+ * إعادة حساب الرصيد من كل القيود النشطة فقط (الملغاة مستثناة).
+ * ★ مستبدلة بـ recomputeBalanceTx من financial-posting — محفوظة للتوافق.
  */
 async function recomputeBalance(tx: any, clubId: string) {
   const allTx = await tx.financialTransaction.findMany({
-    where: { clubId },
+    where: { clubId, status: "active" },
     select: { type: true, category: true, amount: true },
   });
 

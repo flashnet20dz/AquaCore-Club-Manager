@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
-import { postLedgerEntry, deleteLedgerByReferencesTx } from "@/lib/financial-posting";
+import { postLedgerEntry, cancelLedgerByReferencesTx } from "@/lib/financial-posting";
+import { ensureRuntimeColumns, ensureFinancialIndexes } from "@/lib/runtime-schema";
 
 /**
  * PATCH /api/subscribers/[id]/toggle-compound
@@ -10,6 +11,8 @@ import { postLedgerEntry, deleteLedgerByReferencesTx } from "@/lib/financial-pos
  */
 export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    await ensureRuntimeColumns();
+    await ensureFinancialIndexes();
     const user = await getCurrentUser();
     if (!user || !["admin", "assistant", "superadmin"].includes(user.role)) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
@@ -22,19 +25,32 @@ export async function PATCH(_req: NextRequest, { params }: { params: Promise<{ i
       return NextResponse.json({ error: "المنخرط غير موجود" }, { status: 404 });
     }
 
-    // تحقق من وجود دفعة حقوق مركب
+    // تحقق من وجود دفعة حقوق مركب نشطة (الملغاة لا تعني حقاً قائماً)
     const existingCompound = await db.payment.findFirst({
-      where: { subscriberId: id, category: "compound", ...clubFilter },
+      where: { subscriberId: id, category: "compound", status: { not: "cancelled" }, ...clubFilter },
     });
 
     if (existingCompound) {
-      // ★ حذف دفعة حقوق المركب + القيد المرحّل في الدفتر المالي (ذرّياً)
+      // ★ إلغاء ناعم للدفعة التشغيلية (تبقى في التاريخ) + إلغاء القيد المرحّل ناعماً في الدفتر (ذرّياً)
       await db.$transaction(async (tx) => {
-        await tx.payment.delete({ where: { id: existingCompound.id } });
-        await deleteLedgerByReferencesTx(tx, sub.clubId, [
+        await tx.payment.update({
+          where: { id: existingCompound.id },
+          data: {
+            status: "cancelled",
+            cancelledAt: new Date(),
+            cancelledById: user.id,
+            cancellationReason: `إلغاء حقوق المركب للمنخرط ${sub.lastName} ${sub.firstName}`,
+          },
+        });
+        // يشمل مرجع ترحيل التسجيل المدفوع (subscriber:{id}:compound)
+        await cancelLedgerByReferencesTx(tx, sub.clubId, [
           `payment:${existingCompound.id}`,
           `bulk-comp:${id}`,
-        ]);
+          `subscriber:${id}:compound`,
+        ], {
+          cancelledById: user.id,
+          reason: `إلغاء حقوق المركب للمنخرط ${sub.lastName} ${sub.firstName}`,
+        });
         await tx.activity.create({
           data: {
             clubId: sub.clubId,

@@ -15,7 +15,7 @@ export async function GET() {
       db.subscriber.findMany({ where: clubFilter, orderBy: { createdAt: "asc" } }),
       db.attendance.findMany({ where: clubFilter, take: 1000, orderBy: { date: "desc" } }),
       db.renewal.findMany({ where: clubFilter, orderBy: { createdAt: "desc" } }),
-      db.payment.findMany({ where: clubFilter, orderBy: { date: "desc" } }),
+      db.payment.findMany({ where: { ...clubFilter, status: { not: "cancelled" } }, orderBy: { date: "desc" } }),
     ]);
 
     // Revenue evolution (last 6 months)

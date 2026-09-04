@@ -607,7 +607,7 @@ function CompensationFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto p-0">
+      <DialogContent className="sm:max-w-3xl max-h-[92dvh] overflow-y-auto p-0">
         <DialogHeader className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur px-6 py-4">
           <DialogTitle className="flex items-center gap-2 text-lg">
             <Banknote className="h-5 w-5 text-teal-600" />
