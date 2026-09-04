@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
@@ -36,9 +36,11 @@ export async function POST(req: NextRequest) {
 
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
     const prevMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    // ★ المرحلة 3: الإيراد من دفتر FinancialTransaction حصراً (النشط فقط) —
+    // لا قراءة مالية من Payment حتى يبقى رقم المساعد مطابقاً للمركز المالي.
     const [monthRev, prevRev] = await Promise.all([
-      db.payment.aggregate({ where: { ...(clubId ? { clubId } : {}), status: { not: "cancelled" }, date: { gte: monthStart } }, _sum: { amount: true } }),
-      db.payment.aggregate({ where: { ...(clubId ? { clubId } : {}), status: { not: "cancelled" }, date: { gte: prevMonthStart, lt: monthStart } }, _sum: { amount: true } }),
+      db.financialTransaction.aggregate({ where: { ...(clubId ? { clubId } : {}), status: "active", type: "income", date: { gte: monthStart } }, _sum: { amount: true } }),
+      db.financialTransaction.aggregate({ where: { ...(clubId ? { clubId } : {}), status: "active", type: "income", date: { gte: prevMonthStart, lt: monthStart } }, _sum: { amount: true } }),
     ]);
 
     const weekAgo = new Date(today.getTime() - 7 * dayMs);
