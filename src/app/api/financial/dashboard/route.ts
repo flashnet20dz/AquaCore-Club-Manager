@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser, hasPermission } from "@/lib/session";
 import { ensureRuntimeColumns } from "@/lib/runtime-schema";
 import { computeSubscriberFieldsDynamic, isExemptStatus, type SubscriptionTypeConfig } from "@/lib/rcs";
-import { financialNumber } from "@/lib/financial-posting";
+import { financialNumber, recomputeBalanceTx } from "@/lib/financial-posting";
 
 /** أشهر السنة بالعربية (للتدفق المالي الشهري) */
 const AR_MONTHS = ["جانفي", "فيفري", "مارس", "أفريل", "ماي", "جوان", "جويلية", "أوت", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
@@ -73,7 +73,8 @@ export async function GET(req: NextRequest) {
     }
 
     // ─── 1) الرصيد التاريخي من الدفتر مباشرة (aggregates = الحقيقة، لا الكاش) ───
-    const [allIn, allOut, cache] = await Promise.all([
+    // ★ تدقيق FIN: خرائط الفئات التاريخية أيضاً من الدفتر (groupBy) — لا من كاش FinancialBalance
+    const [allIn, allOut, cache, allInByCat, allOutByCat] = await Promise.all([
       db.financialTransaction.aggregate({
         where: { clubId: targetClubId, status: "active", type: "income" },
         _sum: { amount: true },
@@ -83,17 +84,50 @@ export async function GET(req: NextRequest) {
         _sum: { amount: true },
       }),
       db.financialBalance.findUnique({ where: { clubId: targetClubId } }),
+      db.financialTransaction.groupBy({
+        by: ["category"],
+        where: { clubId: targetClubId, status: "active", type: "income" },
+        _sum: { amount: true },
+      }),
+      db.financialTransaction.groupBy({
+        by: ["category"],
+        where: { clubId: targetClubId, status: "active", type: "expense" },
+        _sum: { amount: true },
+      }),
     ]);
     const ledgerTotalIncome = allIn._sum.amount || 0;
     const ledgerTotalExpense = allOut._sum.amount || 0;
     const ledgerBalance = ledgerTotalIncome - ledgerTotalExpense;
 
-    // فحص سلامة سريع مدمج (المرحلة 31): مطابقة الكاش مع الدفتر
+    const ledgerIncomeByCategory: Record<string, number> = {};
+    for (const g of allInByCat) ledgerIncomeByCategory[g.category] = g._sum.amount || 0;
+    const ledgerExpenseByCategory: Record<string, number> = {};
+    for (const g of allOutByCat) ledgerExpenseByCategory[g.category] = g._sum.amount || 0;
+
+    // ★ إصلاح ذاتي للكاش (تدقيق FIN): إن اختلفت إجماليات/خرائط الكاش عن الدفتر
+    // يُعاد بناء FinancialBalance من الدفتر فوراً (idempotent — نفس recomputeBalanceTx لزر الإصلاح)
+    const cacheDrifted =
+      (cache?.totalIncome ?? 0) !== ledgerTotalIncome ||
+      (cache?.totalExpense ?? 0) !== ledgerTotalExpense ||
+      !mapsEqual(safeParse(cache?.incomeByCategory), ledgerIncomeByCategory) ||
+      !mapsEqual(safeParse(cache?.expenseByCategory), ledgerExpenseByCategory);
+    let cacheHealed = false;
+    if (cacheDrifted) {
+      try {
+        await db.$transaction((tx) => recomputeBalanceTx(tx, targetClubId));
+        cacheHealed = true;
+        console.warn("financial/dashboard: FinancialBalance cache drifted — rebuilt from ledger");
+      } catch (healErr) {
+        console.error("financial/dashboard: cache self-heal failed:", healErr);
+      }
+    }
+
+    // فحص سلامة سريع مدمج (المرحلة 31): مطابقة الكاش مع الدفتر — بعد الإصلاح الذاتي يطابق
     const integrity = {
-      cachedBalance: cache?.balance ?? 0,
+      cachedBalance: cacheHealed ? ledgerBalance : (cache?.balance ?? 0),
       ledgerBalance,
-      matches: (cache?.balance ?? 0) === ledgerBalance,
-      diff: ledgerBalance - (cache?.balance ?? 0),
+      matches: cacheHealed ? true : (cache?.balance ?? 0) === ledgerBalance,
+      diff: cacheHealed ? 0 : ledgerBalance - (cache?.balance ?? 0),
     };
 
     // ─── 2) الفترة: افتتاحي / داخل / خارج / ختامي (المرحلة 14) ───
@@ -363,21 +397,22 @@ export async function GET(req: NextRequest) {
       wagesGross += h * (rateMap.get(r.userId) || defaultRate);
     }
     wagesGross = Math.round(wagesGross);
-    const wagesPaid = (cache ? safeParse(cache.expenseByCategory).wages : 0) || 0;
+    // ★ تدقيق FIN: كل قراءات الفئات هنا من الدفتر مباشرة — لا من الكاش
+    const wagesPaid = ledgerExpenseByCategory.wages || 0;
     const wagesRemaining = Math.max(0, wagesGross - wagesPaid);
 
     const dues = {
       insurance: {
         label: "التأمين",
-        collected: safeParse(cache?.incomeByCategory).insurance || 0,
-        paid: safeParse(cache?.expenseByCategory).insurance || 0,
-        remaining: Math.max(0, (safeParse(cache?.incomeByCategory).insurance || 0) - (safeParse(cache?.expenseByCategory).insurance || 0)),
+        collected: ledgerIncomeByCategory.insurance || 0,
+        paid: ledgerExpenseByCategory.insurance || 0,
+        remaining: Math.max(0, (ledgerIncomeByCategory.insurance || 0) - (ledgerExpenseByCategory.insurance || 0)),
       },
       compound: {
         label: "حقوق المركب",
-        collected: safeParse(cache?.incomeByCategory).compound || 0,
-        paid: safeParse(cache?.expenseByCategory).compound_rights || 0,
-        remaining: Math.max(0, (safeParse(cache?.incomeByCategory).compound || 0) - (safeParse(cache?.expenseByCategory).compound_rights || 0)),
+        collected: ledgerIncomeByCategory.compound || 0,
+        paid: ledgerExpenseByCategory.compound_rights || 0,
+        remaining: Math.max(0, (ledgerIncomeByCategory.compound || 0) - (ledgerExpenseByCategory.compound_rights || 0)),
       },
       wages: {
         label: "أجور العمال",
@@ -387,14 +422,14 @@ export async function GET(req: NextRequest) {
       },
       officeSupplies: {
         label: "الأدوات المكتبية",
-        collected: safeParse(cache?.expenseByCategory).office_supplies || 0,
-        paid: safeParse(cache?.expenseByCategory).office_supplies || 0,
+        collected: ledgerExpenseByCategory.office_supplies || 0,
+        paid: ledgerExpenseByCategory.office_supplies || 0,
         remaining: 0,
       },
       otherDebt: {
         label: "ديون أخرى",
-        collected: safeParse(cache?.expenseByCategory).other_expense || 0,
-        paid: safeParse(cache?.expenseByCategory).other_expense || 0,
+        collected: ledgerExpenseByCategory.other_expense || 0,
+        paid: ledgerExpenseByCategory.other_expense || 0,
         remaining: 0,
       },
     };
@@ -530,8 +565,9 @@ export async function GET(req: NextRequest) {
         totalIncome: ledgerTotalIncome,
         totalExpense: ledgerTotalExpense,
         balance: ledgerBalance,
-        incomeByCategory: safeParse(cache?.incomeByCategory),
-        expenseByCategory: safeParse(cache?.expenseByCategory),
+        // ★ من الدفتر مباشرة (تدقيق FIN) — دائماً متوافقة مع totalIncome/totalExpense
+        incomeByCategory: ledgerIncomeByCategory,
+        expenseByCategory: ledgerExpenseByCategory,
       },
       lastTransactions: lastTransactions.map((t) => ({ ...t, number: financialNumber(t.seq, t.date) })),
       monthlyComparison: {
@@ -593,4 +629,13 @@ export async function GET(req: NextRequest) {
 function safeParse(str: string | null | undefined): Record<string, number> {
   if (!str) return {};
   try { return JSON.parse(str) || {}; } catch { return {}; }
+}
+
+/** مقارنة خرائط فئات (يتجاهل المفاتيح ذات القيمة صفر) */
+function mapsEqual(a: Record<string, number>, b: Record<string, number>): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of keys) {
+    if ((a[k] || 0) !== (b[k] || 0)) return false;
+  }
+  return true;
 }
