@@ -107,6 +107,8 @@ export async function GET() {
     }));
 
     // ─── 4) الأهداف: إيراد الشهر الحالي مقابل الهدف ───
+    // ★ المرحلة 3: الإيراد من دفتر FinancialTransaction حصراً (النشط فقط) —
+    // نفس رقم بطاقات لوحة التحكم والمركز المالي، لا قراءة من Payment.
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
     const prevMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
     const targetSetting = clubId
@@ -114,22 +116,18 @@ export async function GET() {
       : null;
     const target = Number(targetSetting?.value || 0);
 
-    const monthPayments = await db.payment.aggregate({
-      where: {
-        ...(clubId ? { clubId } : {}),
-        status: { not: "cancelled" },
-        date: { gte: monthStart },
-      },
-      _sum: { amount: true },
+    const goalWhere = (from: Date, to?: Date) => ({
+      ...(clubId ? { clubId } : {}),
+      status: "active" as const,
+      type: "income" as const,
+      date: to ? { gte: from, lt: to } : { gte: from },
     });
-    const prevPayments = await db.payment.aggregate({
-      where: {
-        ...(clubId ? { clubId } : {}),
-        status: { not: "cancelled" },
-        date: { gte: prevMonthStart, lt: monthStart },
-      },
-      _sum: { amount: true },
-    });
+    const [monthRevenueAgg, prevRevenueAgg] = await Promise.all([
+      db.financialTransaction.aggregate({ where: goalWhere(monthStart), _sum: { amount: true } }),
+      db.financialTransaction.aggregate({ where: goalWhere(prevMonthStart, monthStart), _sum: { amount: true } }),
+    ]);
+    const monthPayments = { _sum: { amount: monthRevenueAgg._sum.amount || 0 } };
+    const prevPayments = { _sum: { amount: prevRevenueAgg._sum.amount || 0 } };
 
     // ─── 5) الجدول الأسبوعي: يوم × فترة × المنخرطون (مرتّب بالتوقيت، مع سعة كل حصة) ───
     const DAYS = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];

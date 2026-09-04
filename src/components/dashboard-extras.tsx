@@ -15,6 +15,7 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { onFinancialUpdated } from "@/lib/financial-events";
 
 interface ChurnItem {
   subscriberId: string; name: string; fileNumber: string;
@@ -110,6 +111,10 @@ export function DashboardExtras() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // ★ المرحلة 3: الهدف الشهري (من الدفتر) يتحدث فوراً بعد أي عملية مالية
+  // — نفس ناقل الأحداث الموحد بلا تحديث يدوي
+  useEffect(() => onFinancialUpdated(load), [load]);
 
   const openWhatsApp = async (ids: string[], includePortal: boolean) => {
     try {

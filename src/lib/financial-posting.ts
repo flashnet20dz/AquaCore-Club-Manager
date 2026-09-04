@@ -181,9 +181,14 @@ export async function postLedgerEntry(tx: PrismaTx, data: LedgerEntryInput): Pro
 /**
  * تحديث تفاضلي لرصيد النادي (singleton FinancialBalance).
  * ★ الأرقام الإجمالية عبر increment ذرّي (لا read-modify-write للإجماليات — المرحلة 7)؛
- *   خرائط الفئات JSON تُدمج داخل نفس الذرّية (انحرافها محتمل نظرياً على PG المتزامن
- *   لكنه مستثنى عملياً بترتيب الكتابة، و«فحص سلامة الرصيد» يكشفه ويصلحه بإعادة البناء).
+ * ★ المرحلة 3 (نقطة 28): دمج خرائط الفئات JSON تحصينه بقفل صفّي على PostgreSQL
+ *   (SELECT … FOR UPDATE) داخل نفس المعاملة — تزامن قيدين متزامنين يسلسل
+ *   قراءة/دمج/كتابة الخريطة فلا تضيع فئة تحت الأخرى. SQLite يكتب تسلسلياً
+ *   أصلاً (قاعدة البيانات كلها قفل كتابة واحد) فيتجاوز القفل — صيغة FOR UPDATE
+ *   غير مدعومة لديه، والفحص عبر DATABASE_URL يعزل البيئتين (Web=PG / Desktop=SQLite).
  */
+const IS_SQLITE = (process.env.DATABASE_URL || "").startsWith("file:");
+
 export async function applyBalanceDelta(
   tx: PrismaTx,
   clubId: string,
@@ -191,25 +196,42 @@ export async function applyBalanceDelta(
   category: string,
   amount: number
 ): Promise<void> {
+  // 🛡️ قفل صف الرصيد (PostgreSQL فقط) — بلا صف بعد = نتيجة فارغة بلا خطأ
+  if (!IS_SQLITE) {
+    try {
+      await tx.$queryRaw`SELECT "clubId" FROM "FinancialBalance" WHERE "clubId" = ${clubId} FOR UPDATE`;
+    } catch {
+      // الجدول لم يُنشأ بعد (أول قيد قبل db push) — أكمل بلا قفل، الإنشاء أدناه سينشئه
+    }
+  }
+
   const existing = await tx.financialBalance.findUnique({ where: { clubId } });
   if (!existing) {
     const incomeByCat = type === "income" ? { [category]: amount } : {};
     const expenseByCat = type === "expense" ? { [category]: amount } : {};
-    await tx.financialBalance.create({
-      data: {
-        clubId,
-        totalIncome: type === "income" ? amount : 0,
-        totalExpense: type === "expense" ? amount : 0,
-        balance: type === "income" ? amount : -amount,
-        incomeByCategory: JSON.stringify(incomeByCat),
-        expenseByCategory: JSON.stringify(expenseByCat),
-      },
-    });
-    return;
+    try {
+      await tx.financialBalance.create({
+        data: {
+          clubId,
+          totalIncome: type === "income" ? amount : 0,
+          totalExpense: type === "expense" ? amount : 0,
+          balance: type === "income" ? amount : -amount,
+          incomeByCategory: JSON.stringify(incomeByCat),
+          expenseByCategory: JSON.stringify(expenseByCat),
+        },
+      });
+      return;
+    } catch (e) {
+      // 🛡️ سباق إنشاء الصف الأول (نادٍ آخر قيّد في نفس اللحظة) —
+      // P2002 = تعارض clubId الفريد → تابع كتحديث increment ذرّي أدناه
+      if ((e as { code?: string })?.code !== "P2002") throw e;
+    }
   }
 
-  const incomeByCat = parseJSONMap(existing.incomeByCategory);
-  const expenseByCat = parseJSONMap(existing.expenseByCategory);
+  // قراءة جديدة بعد القفل/سباق الإنشاء — الصف موجود الآن حتماً
+  const row = await tx.financialBalance.findUniqueOrThrow({ where: { clubId } });
+  const incomeByCat = parseJSONMap(row.incomeByCategory);
+  const expenseByCat = parseJSONMap(row.expenseByCategory);
   if (type === "income") incomeByCat[category] = (incomeByCat[category] || 0) + amount;
   else expenseByCat[category] = (expenseByCat[category] || 0) + amount;
 

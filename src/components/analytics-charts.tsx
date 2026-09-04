@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
@@ -9,6 +9,7 @@ import {
 } from "recharts";
 import { TrendingUp, Users, Calendar, Wallet, Loader2, Activity } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { onFinancialUpdated } from "@/lib/financial-events";
 
 interface Analytics {
   revenueEvolution: { label: string; revenue: number; subscribers: number }[];
@@ -26,13 +27,21 @@ export function AnalyticsCharts() {
   const [data, setData] = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     fetch("/api/analytics")
       .then((r) => r.json())
       .then(setData)
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // ★ المرحلة 3: تحديث فوري بعد أي عملية مالية — رسم الإيرادات يبقى متطابقاً
+  // مع المركز المالي بلا تحديث يدوي (نفس ناقل الأحداث الموحد)
+  useEffect(() => onFinancialUpdated(load), [load]);
 
   if (loading) {
     return (

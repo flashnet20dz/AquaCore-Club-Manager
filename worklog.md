@@ -636,3 +636,29 @@ Stage Summary:
 - تسجيل الدخول يعمل الآن داخل لوحة المعاينة (iframe) وفي الإنتاج معاً بنفس آلية الكوكي
 - السبب الجذري معمّم: أي كوكي Lax في iframe cross-site يُحجب — أي كوكي مستقبلي يجب أن يتبع نمط None+Secure+Partitioned
 - قيود معروفة: Safari بلا دعم CHIPS قد يبقى محظوراً داخل iframe (استخدم Chrome/Edge في لوحة المعاينة)؛ فتح «تبويب جديد» يطلب دخولاً منفصلاً لاختلاف قسمة الكوكي المقسّم — سلوك متوقع
+
+---
+Task ID: phase-3-full-sync
+Agent: Z.ai Code (main)
+Task: المرحلة 3 — المزامنة المالية الكاملة بين Dashboard وFinancial Center وجميع الصفحات
+
+Work Log:
+- تدقيق شامل: /api/stats نظيف ماليّاً مسبقاً؛ كل postLedgerEntry وحيدة الإنشاء (subscribers/renewals/payments/wages/toggle-insurance/toggle-compound/manual)؛ المراجع الموحدة موجودة؛ page.tsx + dashboard-revenue يقرآن /api/financial/dashboard
+- خرقان مكتشفان وأُصلحا: api/analytics (إيراد من Renewal.amount وtotalAmount) وapi/dashboard-extras (هدف الشهر من Payment) وai/insights + ai/ask (إيراد من Payment) → الكل أصبح من دفتر FT النشط حصراً
+- نقطة 28: applyBalanceDelta — قفل صفّي SELECT…FOR UPDATE على PostgreSQL لدمج خرائط الفئات JSON + تحصين سباق إنشاء صف الرصيد الأول (P2002→تابع كـ increment) + إعادة قراءة بعد القفل؛ SQLite يتجاوز القفل عبر فحص DATABASE_URL file:
+- ملف جديد src/lib/financial-query.ts: طبقة الاستعلام الموحدة (financialQueryKeys قياسية + fetchFinancialDashboard + invalidateFinancialViews تفوّض لناقل الأحداث)
+- analytics-charts + dashboard-extras: مستمع onFinancialUpdated → إعادة جلب فورية (الإحصاءات والهدف يلحقان المركز المالي بلا F5)
+- page.tsx: الجلب المالي عبر fetchFinancialDashboard مع .catch(()=>null) حفاظاً على سلوك finRes.ok الأصلي
+- إصلاح NextRequest غير المستوردة في ai/insights (كانت TS2304)
+- ★ حادثة تشغيل: الخادم كان يُقتل بين استدعاءات الأدوات (المنصة تقتل شجرة الجلسة) + OOM حقيقي سابق (tsc/eslint مع الخادم) → الحل dev-daemon.py (double-fork daemonization مطابق لسلوك agent-browser الناجي) — الخادم الآن مستقر عبر الجلسات
+- سيناريو E2E كامل (بعد نسخة احتياطية): تسجيل RCS مدفوع → 3 قيود (subscription 1700 المحتسب+insurance 500+compound 1000) بنمراج subscriber:{id}:* ✓/نفس المرجع مرتين → نفس المعرف وقيد واحد ✓/تجديد 1500 → renewal:{id} ✓/راتب كريم 4000 (حارس الاستحقاق رفض الزيادة ✓ ثم تسديد) → WagePayment+FT 1:1 FIN-2026-000024 ✓/مصروف صيانة 25000 ✓/معفى → صفر قيود ✓/إلغاء ناعم → 200+إعادة حساب، مزدوج → 409 ✓
+- مطابقة الأرقام عبر المصادر (بعد السيناريو): معادلة الدفتر 108510−9000=99510 ✓/dashboard(all)==analytics totals 108510==108510 ✓/dashboard(month)==reports.summary==extras.goals 8510==8510 ✓ والمصاريف 9000==9000 (الملغى مستثنى في الجميع) ✓/دلتا صافية +1477 مطابقة يدوياً ✓
+- تنظيف جراحي لبيانات الاختبار (حذف مستهدف لكيانات الاختبار + recomputeBalanceTx) → القاعدة عادت للمضبوط 103033/5000/98033 بلا استرجاع أعمى حفاظاً على أي عمل مستخدم متزامن
+- إنتاج: a4c3989 ثم 93bc536 (analytics: ردّ 400 رشيق لsuper-admin بلا نادي بدل 500 قديم) → Vercel success ×2 → دخان: / 200، دخول خاطئ 401، analytics 400 رشيق، extras 200
+- eslint على كل الملفات: صفر؛ tsc ملفاتنا: صفر (الثلاثة في analytics-charts وواحد في analytics القديمة موروثة بنفس الأسطر في نسخة الإنتاج غير المماسة)؛ prisma validate ✓؛ schema.prisma لم يُلمس — لا Migration مطلوبة
+
+Stage Summary:
+- أي رقم مالي في النظام الآن من دفتر FT حصراً: المركز المالي=لوحة التحكم=التحليلات=التقارير=هدف الشهر=المساعد الذكي — رقم واحد بلا حساب موازٍ
+- تحصين التزامن على PG (قفل صف الرصيد) مع بقاء SQLite/Desktop بلا تغيير سلوك
+- طبقة الاستعلام المالية الموحدة جاهزة لتبنّي تدريجي، والمزامنة الفورية شملت الإحصاءات والأهداف
+- أدوات تشغيل: dev-daemon.py لتشغيل خادم التطوير daemon حقيقياً ينجو من قاتل جلسات المنصة

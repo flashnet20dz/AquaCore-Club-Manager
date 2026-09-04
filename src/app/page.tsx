@@ -72,6 +72,7 @@ import { SubscriberRecordModal } from "@/components/subscriber-record-modal";
 import { WhatsAppReminders } from "@/components/whatsapp-reminders";
 import { hasPermission, ROLE_LABELS, ROLE_ICONS } from "@/lib/roles";
 import { onFinancialUpdated } from "@/lib/financial-events";
+import { fetchFinancialDashboard } from "@/lib/financial-query";
 import { notifyClick, notifySuccess } from "@/lib/sounds";
 import { toast } from "sonner";
 import {
@@ -318,14 +319,16 @@ export default function Home() {
         fetch("/api/stats"),
         fetch("/api/activities"),
         // ★ المال من الدفتر فقط — للصلاحيات المالية فقط (الكاشير لا يرى بطاقات المال)
-        canFin ? fetch("/api/financial/dashboard?period=month", { cache: "no-store" }) : Promise.resolve(null),
+        // المرحلة 3: عبر طبقة الاستعلام المالية الموحدة (مصدر واحد للحقيقة)
+        // .catch → فشل المسار المالي لا يُسقط بقية لوحة التحكم (نفس سلوك finRes.ok الأصلي)
+        canFin ? fetchFinancialDashboard<FinSummary>("month").catch(() => null) : Promise.resolve(null as FinSummary | null),
       ]);
       const statsData = await statsRes.json();
       const actData = await actRes.json();
       setSubscribers(allSubs);
       setStats(statsData);
       setActivities(actData.activities || []);
-      setFinSummary(finRes && finRes.ok ? await finRes.json() : null);
+      setFinSummary(finRes);
     } catch {
       toast.error("تعذر تحميل البيانات");
     } finally {
