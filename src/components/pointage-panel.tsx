@@ -10,11 +10,18 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { formatWallTime } from "@/lib/wall-clock";
+import { useSwimConfig } from "@/hooks/use-swim-config";
+import {
+  sessionsForDay, todayDayKey, isOperatingDay, POOL_DAY_LABELS,
+  slotDurationHours, type PoolSlot,
+} from "@/lib/pool-schedule";
 
 interface GuardAssignment {
   id: string;
   dayOfWeek: string;
   timeSlot: string;
+  slotId: string | null;
   groupName: string | null;
   assignmentType: string;
   attendanceStatus: string;
@@ -28,24 +35,10 @@ interface GuardAssignment {
     position: string | null;
     avatar: string | null;
   };
+  slot?: { id: string; name: string; startTime: string; endTime: string; dayOfWeek: string | null; active: boolean } | null;
 }
 
-const DAYS = ["الأحد والأربعاء", "الاثنين والخميس", "الثلاثاء والجمعة", "كل الأيام"];
 const DAY_NAMES = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
-
-function getTodayName(): string {
-  const today = new Date().getDay(); // 0=Sunday
-  return DAY_NAMES[today];
-}
-
-function isTodayMatching(dayOfWeek: string): boolean {
-  if (dayOfWeek === "كل الأيام") return true;
-  const todayName = getTodayName();
-  if (dayOfWeek === "الأحد والأربعاء") return todayName === "الأحد" || todayName === "الأربعاء";
-  if (dayOfWeek === "الاثنين والخميس") return todayName === "الإثنين" || todayName === "الخميس";
-  if (dayOfWeek === "الثلاثاء والجمعة") return todayName === "الثلاثاء" || todayName === "الجمعة";
-  return false;
-}
 
 function calcDuration(start: string | null, end: string | null): number {
   if (!start || !end) return 0;
@@ -55,9 +48,9 @@ function calcDuration(start: string | null, end: string | null): number {
 }
 
 function formatTime(d: string | null): string {
-  if (!d) return "—";
-  const date = new Date(d);
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  // ★ الأوقات مخزّنة wall-clock UTC — تُقرأ بمكوّنات UTC دائماً
+  // (جذر إصلاح انحراف الساعة +1: لا toLocaleTimeString ولا getHours محلية)
+  return formatWallTime(d);
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: typeof Clock }> = {
@@ -72,6 +65,9 @@ export function PointagePanel() {
   const [assignments, setAssignments] = useState<GuardAssignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  // ★ المصدر الموحّد: جلسات اليوم من إعدادات المسبح (كما في التسجيل وجدول المسبح)
+  const { slots: swimSlots } = useSwimConfig();
 
   const fetchAssignments = useCallback(async () => {
     setLoading(true);
@@ -90,10 +86,40 @@ export function PointagePanel() {
 
   useEffect(() => { fetchAssignments(); }, [fetchAssignments]);
 
-  // 🔑 حصص اليوم فقط (للحارس)
-  const todayAssignments = useMemo(() => {
-    return assignments.filter((a) => isTodayMatching(a.dayOfWeek));
+  // 🔑 حصص اليوم: من الإعدادات + التعيين المطابق (slotId أولاً ثم لقطة النص للقديم)
+  const todayKey = todayDayKey();
+  const todaySettingsSessions = useMemo(
+    () => sessionsForDay(swimSlots as PoolSlot[], todayKey),
+    [swimSlots, todayKey]
+  );
+
+  const matchAssignment = useCallback((slot: PoolSlot): GuardAssignment | undefined => {
+    return assignments.find((a) => {
+      if (!a.attendanceStatus || a.attendanceStatus === "cancelled") return false;
+      if (a.slotId) return a.slotId === slot.id;
+      // توافق التعيينات النصّية القديمة
+      return a.timeSlot === `${slot.startTime}-${slot.endTime}`;
+    });
   }, [assignments]);
+
+  const todayAssignments = useMemo(() => {
+    // نُبقي أيضاً أي تعيين نصّي قديم لا يقابله جلسة في الإعدادات (لا نخفي بيانات)
+    const matched = todaySettingsSessions
+      .map((slot) => ({ slot, a: matchAssignment(slot) }))
+      .filter((x): x is { slot: PoolSlot; a: GuardAssignment } => Boolean(x.a));
+    const matchedIds = new Set(matched.map((m) => m.a.id));
+    const legacyOnly = assignments.filter((a) => !matchedIds.has(a.id) && !a.slotId && a.dayOfWeek === "كل الأيام");
+    return [
+      ...matched.map((m) => ({
+        ...m.a,
+        timeSlot: `${m.slot.startTime}-${m.slot.endTime}`,
+        groupName: m.a.groupName || m.slot.name,
+      } as GuardAssignment)),
+      ...legacyOnly,
+    ];
+  }, [todaySettingsSessions, matchAssignment, assignments]);
+
+  const todayOperating = isOperatingDay(null, todayKey); // النقاط تعمل دائماً — عرض فقط
 
   // إحصائيات
   const stats = useMemo(() => {
@@ -158,7 +184,7 @@ export function PointagePanel() {
     }
   };
 
-  const todayName = getTodayName();
+  const todayName = DAY_NAMES[new Date().getDay()];
   const todayDate = new Date().toLocaleDateString("ar-DZ");
 
   return (

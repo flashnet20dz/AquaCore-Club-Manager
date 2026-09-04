@@ -53,6 +53,7 @@ import { UserManagement } from "@/components/user-management";
 import { WorkHoursPanel } from "@/components/work-hours-panel";
 import { WorkHoursManagement } from "@/components/work-hours-management";
 import { PointagePanel } from "@/components/pointage-panel";
+import { PoolSchedule } from "@/components/pool-schedule";
 import { ImportPanel } from "@/components/import-panel";
 import { CardDesignerPro } from "@/components/card-designer-pro";
 import { InsurancePanel } from "@/components/insurance-panel";
@@ -105,6 +106,15 @@ interface Stats {
   byBloodType: { type: string; count: number }[];
   bySwimmingDays: { days: string; count: number }[];
   byTimeSlot: { slot: string; count: number }[];
+  // ★ المرحلة 4: إحصائيات المسبح (من الإعدادات وساعات العمل — بلا مالية)
+  pool?: {
+    todayKey: string | null;
+    operatingToday: boolean;
+    todaySessions: number;
+    activeLifeguardsToday: number;
+    todayWorkHours: number;
+    pendingWagesMonth: number;
+  } | null;
 }
 
 // ★ الأرقام المالية من الدفتر وحده (/api/financial/dashboard) — لا حساب موازٍ من المنخرطين
@@ -579,6 +589,7 @@ export default function Home() {
                  activeTab === "compensations" ? "التعويضات" :
                  activeTab === "waitlist" ? "قائمة الانتظار" :
                  activeTab === "workhours" ? "ساعات العمل" :
+                 activeTab === "pool-schedule" ? "جدول المسبح" :
                  activeTab === "insurance" ? "التأمين" :
                  activeTab === "categories" ? "الفئات" :
                  activeTab === "analytics" ? "التحليلات" :
@@ -621,6 +632,11 @@ export default function Home() {
               {hasPermission(sessionUser.role, "workHours") && (
                 <TabsTrigger value="workhours" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
                   <Clock className="h-4 w-4" /> ساعات العمل
+                </TabsTrigger>
+              )}
+              {hasPermission(sessionUser.role, "workHours") && (
+                <TabsTrigger value="pool-schedule" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
+                  <Waves className="h-4 w-4" /> جدول المسبح
                 </TabsTrigger>
               )}
               {hasPermission(sessionUser.role, "renewals") && (
@@ -785,6 +801,22 @@ export default function Home() {
                     <StatCard label="التأمين المحصّل" value={Math.round(finSummary.balance.incomeByCategory.insurance || 0)} suffix="دج" icon={ShieldCheck} accent="emerald" delay={0.05} sublabel="من الدفتر المالي" />
                     <StatCard label="حقوق المركب المحصّلة" value={Math.round(finSummary.balance.incomeByCategory.compound || 0)} suffix="دج" icon={Waves} accent="teal" delay={0.1} sublabel="من الدفتر المالي" />
                     <StatCard label="متوسط العملية" value={finSummary.period.avgAmount} suffix="دج" icon={TrendingUp} accent="amber" delay={0.15} sublabel="حركات هذا الشهر" />
+                  </ResponsiveGrid>
+                )}
+
+                {/* ★ بطاقات المسبح — من الجلسات وساعات العمل (المرحلة 4) */}
+                {stats.pool && (
+                  <ResponsiveGrid minCardWidth={140} gap={12}>
+                    <StatCard
+                      label="جلسات اليوم"
+                      value={stats.pool.operatingToday ? stats.pool.todaySessions : 0}
+                      suffix={stats.pool.operatingToday ? "جلسة" : "مغلق"}
+                      icon={Waves} accent="teal" delay={0}
+                      sublabel="من إعدادات جدول المسبح"
+                    />
+                    <StatCard label="حراس اليوم" value={stats.pool.activeLifeguardsToday} suffix="عامل" icon={Users} accent="ocean" delay={0.05} sublabel="معيّنون على جلسات اليوم" />
+                    <StatCard label="ساعات عمل اليوم" value={stats.pool.todayWorkHours} suffix="سا" icon={Clock} accent="emerald" delay={0.1} sublabel="ساعات معتمدة" />
+                    <StatCard label="أجور معلّقة" value={stats.pool.pendingWagesMonth} suffix="دج" icon={Wallet} accent="amber" delay={0.15} sublabel="متبقي الشهر الحالي" />
                   </ResponsiveGrid>
                 )}
 
@@ -1313,6 +1345,13 @@ export default function Home() {
             </TabsContent>
           )}
 
+          {/* POOL SCHEDULE TAB (المرحلة 4) — المصدر الموحّد لجلسات المسبح */}
+          {hasPermission(sessionUser.role, "workHours") && (
+            <TabsContent value="pool-schedule" className="mt-0">
+              <PoolSchedule role={sessionUser.role} />
+            </TabsContent>
+          )}
+
           {/* CARD DESIGNER PRO TAB (unified — المصمم الوحيد) */}
           {hasPermission(sessionUser.role, "cards") && (
             <TabsContent value="cards-pro" className="mt-0">
@@ -1392,6 +1431,14 @@ export default function Home() {
                 label="ساعات العمل"
                 active={activeTab === "workhours"}
                 onClick={() => { setActiveTab("workhours"); setMobileNavOpen(false); }}
+              />
+            )}
+            {hasPermission(sessionUser.role, "workHours") && (
+              <MobileNavItem
+                icon={Waves}
+                label="جدول المسبح"
+                active={activeTab === "pool-schedule"}
+                onClick={() => { setActiveTab("pool-schedule"); setMobileNavOpen(false); }}
               />
             )}
             {hasPermission(sessionUser.role, "renewals") && (

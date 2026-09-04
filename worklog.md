@@ -662,3 +662,55 @@ Stage Summary:
 - تحصين التزامن على PG (قفل صف الرصيد) مع بقاء SQLite/Desktop بلا تغيير سلوك
 - طبقة الاستعلام المالية الموحدة جاهزة لتبنّي تدريجي، والمزامنة الفورية شملت الإحصاءات والأهداف
 - أدوات تشغيل: dev-daemon.py لتشغيل خادم التطوير daemon حقيقياً ينجو من قاتل جلسات المنصة
+
+---
+Task ID: phase-4
+Agent: main
+Task: المرحلة 4 — نظام استغلال المسبح الموحد (Pool Operating Schedule + Sessions + Pointage + Work Hours + Wages)
+
+Work Log:
+- فحص شامل قبل التعديل: schema.prisma (SwimmingDay/SwimmingTimeSlot/GuardAssignment/WorkHours/Employee/WagePayment موجودة)، use-swim-config.ts (مصدر موحد موجود مع cache)، workhours API (wall-clock UTC + منع تكرار)، wages API (قيد 1:1 + إلغاء ناعم)، settings-panel (مدير أيام/توقيتات)، subscriber-form (يقرأ من الإعدادات)
+- الفجوات الفعلية المحددة: جدول موحد للمسبح + تعيين عمال لكل جلسة + Pointage مبني على الجلسات + bulk API + إحصائيات مسبح للوحة + إصلاح timezone display في النقاط القديمة + اختبارات
+- Schema (جراحي): GuardAssignment.slotId String? FK → SwimmingTimeSlot (onDelete SetNull) + back-relation guardAssignments + @@index([clubId, slotId]) — تطوير النموذج الموجود بدل إنشاء PoolSessionEmployee مكرر
+- runtime-schema.ts: عمود slotId (PG+SQLite) + فهرس GuardAssignment_clubId_slotId_idx (idempotent ذاتي الإصلاح على الإنتاج)
+- src/lib/pool-schedule.ts (جديد): POOL_DAYS/dayKeyFromDate/slotDurationHours/sessionsForDay/isOperatingDay/slotSnapshot — المصدر الموحد المشترك خادم/عميل
+- guard-assignments API: POST يدعم slotId (يشتق اليوم/التوقيت لقطة تاريخية من الحصة + منع تكرار slotId+userId) + GET يضمّن معلومات الحصة
+- POST /api/workhours/bulk (جديد): عدة حصص بطلب واحد ذري — تحقق من الإعدادات/اليوم/التعطيل + منع تكرار (skip) + لقطة session في note JSON + معاملة واحدة
+- src/lib/wage-core.ts (جديد): استخراج computeWages/wagePeriodLabel من wages route → مصدر موحد يستهلكه /api/wages و /api/stats (طبقة استعلام موحدة)
+- /api/stats: block pool (todaySessions/activeLifeguardsToday/todayWorkHours/pendingWagesMonth) — pendingWages من wage-core نفسه، لا حساب مالي موازٍ + ensureRuntimeColumns قبل استعلام slotId
+- src/components/pool-schedule.tsx (جديد): تبويب «جدول المسبح» — أيام التشغيل (Setting: poolOperatingDays) + جدول اليوم/الجلسة/البداية/النهاية/الحالة/العمال/الإجراءات + إضافة/تعديل/حذف/تفعيل-تعطيل + حوار تعيين عمال (checkboxes) + Pointage يومي (تاريخ → جلسات → حاضر/متأخر/غائب عبر bulk) + ExportButton موحد
+- page.tsx: تبويب pool-schedule (desktop + mobile nav) + 4 بطاقات مسبح في لوحة التحكم (جلسات اليوم/حراس اليوم/ساعات اليوم/أجور معلقة)
+- work-hours-management.tsx: التسجيل متعدد الحصص انتقل لـ bulk API (طلب واحد بدل حلقة) + الدوال الموحدة من pool-schedule lib
+- pointage-panel.tsx: جلسات اليوم من الإعدادات (slotId أولاً ثم مطابقة نصية للتوافق) بدل قوائم «الأحد والأربعاء» الثابتة + formatWallTime بدل getHours المحلية (جذر +1h)
+- work-hours-panel.tsx: toLocaleTimeString/formatWallDate إصلاح timezone display
+- اختبارات scripts/phase4-test.mjs: 55 فحصاً — جلسات CRUD، تعيين + منع تكرار التعيين، bulk 2 جلسة = 2 ساعة، duplicate skip، timezone (09:00 تبقى 09:00/T09:00Z)، أجر (2سا×500=1000)، دفع جزئي partial، منع دفع زائد، قيد FIN مرجع wage:{id}، إلغاء ناعم (WagePayment+FT cancelled + المتبقي يعود)، لقطة تاريخية (تعديل الجلسة لا يغيّر السجلات القديمة)، تنظيف كامل — 55/55 نجحت
+- تحقق المتصفح (agent-browser): تسجيل دخول → تبويب جدول المسبح (جدول/أيام/جلسات) → إضافة جلسة → تعيين عامل (checkbox) → ظهور العامل في الصفوف → حذف الجلسة → قسم Pointage يعرض جلسات اليوم من الإعدادات → لوحة التحكم تعرض بطاقات المسبح الأربع → تبويب ساعات العمل سليم → منتقي الحصص المتعدد → تسجيل 2 حصة عبر الواجهة (toast نجاح) → موبايل 390px متجاوب
+- نشر: نسخ 14 ملف لـ AquaCore-Club-Manager → commit 2cc621a → Vercel success → 【اكتشاف عاجل】 login 500: نسخ schema.prisma كاملاً كسر قاعدة b8f4e5d (استبدال جراحي فقط) — sqlite حلت محل postgresql → استعادة datasource فوراً (bc578f8) → إصلاح إضافي stats ensureRuntimeColumns (22e3cb2) → smoke: home 200/login 200/stats 200 (362 منخرطاً)/financial 400 المتوقع لsuperadmin بلا نادي
+
+Stage Summary:
+- ✅ Settings هي المصدر الوحيد للجلسات — لا قوائم hardcoded نشطة (rcs.ts TIME_SLOTS بقيت fallback تحذيري فقط عند فشل الشبكة)
+- ✅ السلسلة كاملة: Settings → Operating Days → Sessions → جدول المسبح → Registration/Pointage/Work Hours → Wages → FT → Financial Center
+- ✅ slotId يربط التعيين بالحصة + لقطة نصية تاريخية — الإعدادات تتحكم بالمستقبل فقط
+- ✅ 55/55 اختبار + تحقق متصفح كامل (desktop+mobile)
+- ✅ النشر: 2cc621a + bc578f8 + 22e3cb2 على main — Vercel success
+- ⚠️ درس مهم: نسخ schema.prisma بين البيئات ممنوع — datasource جراحي دائماً (postgresql+directUrl للإنتاج)
+- ⚠️ عمود slotId على إنتاج PG يُضاف ذاتياً من أول طلب نادي (ensureRuntimeColumns) — نمط مثبت من المرحلة 1
+- التقرير النهائي PHASE 4 RESULT أُسلّم للمستخدم في الرد
+
+Files created:
+- src/lib/pool-schedule.ts
+- src/lib/wage-core.ts
+- src/app/api/workhours/bulk/route.ts
+- src/components/pool-schedule.tsx
+- scripts/phase4-test.mjs
+
+Files modified:
+- prisma/schema.prisma (GuardAssignment.slotId + relations + index)
+- src/lib/runtime-schema.ts (عمود + فهرس)
+- src/app/api/guard-assignments/route.ts
+- src/app/api/stats/route.ts
+- src/app/api/wages/route.ts
+- src/app/page.tsx
+- src/components/work-hours-management.tsx
+- src/components/pointage-panel.tsx
+- src/components/work-hours-panel.tsx
