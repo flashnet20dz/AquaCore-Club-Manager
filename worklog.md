@@ -572,3 +572,22 @@ Stage Summary:
 - الإلغاء ناعم 100%: لا حذف فعلي للقيود ولا للدفعات — التاريخ محفوظ دائماً مع من/متى/لماذا
 - FinancialBalance كاش قابل لإعادة البناء + فحص سلامة بنقرة مدير — الآمن ضد التزامن عبر increment ذرّي
 - لم يُلمس card-designer-pro.tsx؛ النشر معلّق على توكن GitHub (فُقد بالتراجع)
+
+---
+Task ID: deploy-financial-core-49
+Agent: Z.ai Code (main)
+Task: نشر إعادة هندسة المركز المالي (49 مرحلة) — commit c972e74 كان معلّقاً على توكن GitHub
+
+Work Log:
+- استلام توكن GitHub جديد من المستخدم وتحديث /home/z/aquacore-deploy.env
+- فحص الحالة: c972e74 كان ملتزماً محلياً في /home/z/AquaCore-Club-Manager لكن origin/main توقف عند 491ca67 (النشر كان معلّقاً على التوكن المفقود)
+- فحوصات الأمان قبل الدفع: ① schema.prisma الإنتاجي datasource=postgresql + directUrl سليمة (الفرق مع التطوير كتلة datasource فقط — التصميم المزدوج المتوقع) ② eslint على ملفات التزامن الـ30+ → صفر أخطاء صفر تحذيرات (أخطاء lint الخمسة عشر كلها في ملفات قديمة غير ملموسة: scripts/*.js + 5 مكونات قديمة) ③ مزامنة الملفات بين المستودعين مؤكدة ④ تغييرات الـschema كلها إضافية (Payment إلغاء ناعم + FT seq/فهارس) بلا أي حذف أو تعديل نوع
+- الدفع: git push HEAD:main → نجح 491ca67..c972e74 (36 ملفاً، +4218/−1660)
+- مراقبة النشر عبر GitHub commit status API → Vercel: pending → success (~75 ثانية)
+- اختبارات دخان إنتاجية على aladine-pool-manager.vercel.app: / → 200 (0.78s)؛ /api/auth/me → 401؛ /login → 200؛ POST تسجيل دخول ببيانات خاطئة → 401 مع رسالة عربية وعدّاد محاولات («9 محاولات متبقية») = PostgreSQL متصل ويستعلم سليماً (انكسار المخطط كان سيعطي 500)
+- تحقق من آلية ترحيل الإنتاج: runtime-schema.ts منشور بكل ADD COLUMN IF NOT EXISTS (FT: seq/status/cancel*، WagePayment: cancel*، Payment: cancel*، dayOfWeek) + ensureFinancialIndexes تستدعى من postLedgerEntry وsubscribers POST — الترحيل يطبق ذاتياً بشكل idempotent عند أول عملية مالية
+
+Stage Summary:
+- ★ إعادة هندسة المركز المالي الكاملة حيّة الآن في الإنتاج: FinancialTransaction مصدراً وحيداً للحقيقة، أرقام FIN، إلغاء ناعم شامل، فحص سلامة مع إعادة بناء، نظرة عامة بالفترات الثمانية، دفتر معاملات خادمي بالكامل مع إيصال A4 بالمبلغ حروفاً
+- النشر: 491ca67 → c972e74 على main، Vercel success، كل اختبارات الدخان خضراء
+- لا حاجة لأي تدخل يدوي في قاعدة البيانات — الأعمدة والفهارس تُنشأ تلقائياً عند أول استخدام
