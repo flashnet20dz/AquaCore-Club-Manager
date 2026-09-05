@@ -958,3 +958,26 @@ Work Log:
 Stage Summary:
 - البطاقة الآن تُسمّي تكوينها وتُفصّل أرقامها من نفس الدفتر (مصدر واحد للحقيقة) وتتحدّث حية: 45s polling + عودة التبويب + زر يدوي + أحداث onFinancialUpdated القائمة.
 - ⚠️ النشر للإنتاج مُعطَّل: بيئة الرمل مُسحت /home/z/AquaCore-Club-Manager و/home/z/aquacore-deploy.env (توكن GitHub) — يحتاج توكن جديد من المستخدم لدفع 24 commit (يشمل FINAL AUDIT 362850e + هذا الإصلاح) إلى origin/main ثم مراقبة Vercel.
+
+---
+Task ID: DEPLOY-FC53F0C
+Agent: Z.ai Code (main)
+Task: نشر FINAL AUDIT + DASH-INCOME-LIVE-1 إلى الإنتاج (بعد استلام توكن جديد من المستخدم)
+
+Work Log:
+- اكتُشف أن الـremote تقدّم: origin/main = 5a4c003 (41 commit نشرٍ سابقة عبر الاستنساخ المنفصل — منها تدقيق المداخيل المُركّب 🟢) بينما المحلي ahead 25 — تفرّق تاريخين، لذا نُفّذت عملية النشر المعتمدة (استنساخ جديد + نسخ جراحية) لا دمج التواريخ
+- فُحّص اتجاه كل ملف من ملفات النشر (prod-only lines لكل ملف): كل الاختلافات لصالح dev (النواة الجماعية/الأرشفة الناعمة/إصلاحات TS/نصوص الأرشفة) — وصفّحت 3 مخاطر وأُغلق كلٌّ منها:
+  * ⚠️ .env.example للإنتاج أحدث (موجة-1: MEMBER_PORTAL/WHATSAPP) → استُثني من النسخ
+  * ⚠️ env اسمه DIRECT_URL في الإنتاج لا DIRECT_DATABASE_URL (درس b8f4e5d) → صُحّح جراحياً في schema.prisma.postgres وحُرس في السكربت
+  * ⚠️ seed-users الإنتاج فيه بلوك Settings قديم يكسر TS (Setting أصبح club-scoped) — نسخة dev هي الإصلاح الصحيح نفسه
+- فُحّصت سلامة إصلاحات الأمان السابقة في نسخ dev: timingSafeEqual موجودة (3) في cron/notifications، وباريتي كامل في seed-roles — لا انحدار
+- نُقّح سكربت النشر .zscripts/deploy-final-audit.sh: أُضيف src/app/page.tsx (بطاقة المداخيل الحية) + حارسا directUrl/provider + بوابة بناء كاملة قبل الدفع (npm ci → prisma validate → npm run build بـTS strict)
+- النشر: استنساخ طازج → نسخ 45 ملفاً + schema.prisma.postgres→schema.prisma (postgresql+DIRECT_URL) + migrations: حذف القديمين وأرشفتهما في prisma/manual-sql-postgres (rename 100% — التاريخ محفوظ) + baseline PG كامل + migration_lock (postgresql) + worklog
+- بوابة البناء: ✅ نجحت (47 ملفاً، +4112/−176) — commit fc53f0c مدفوع إلى main
+- Vercel: pending → **success** (~100 ثانية)
+- فحص دخاني على aladine-pool-manager.vercel.app: / = 200، /login يرندر AquaCore، /api/auth/session = {} سليم؛ نُزّلت كل chunks الصفحة الرئيسية (13، 4.2MB) ووُجدت سلاسل الميزات الجديدة «اشتراكات + تأمين + تجديد» و«تحديث تلقائي» في chunk الصفحة؛ التسمية القديمة «المداخيل (دفتر)» اختفت من Hero والمتبقي وحيد في مكوّن التقارير (ReportStatCard من-teal-500/15 — نفس الدفتر، بالتصميم)
+
+Stage Summary:
+- الإنتاج الآن: FINAL AUDIT كامل (مصدر مالي وحيد + Batch Kernel + صفر حذف فعلي + migrations baseline + TS strict بلا ignoreBuildErrors) + بطاقة «إجمالي المداخيل (اشتراكات + تأمين + تجديد)» الحية (45s + visibility + زر)
+- سكربت النشر أصبح ذا بوابة بناء ذاتية — آمن لإعادة التشغيل مستقبلاً
+- العملية أثبتت مجدداً: التحقق من اتجاه كل ملف قبل النسخ هو صمام الأمان الوحيد بين بيئتين متفرقتين التاريخ
