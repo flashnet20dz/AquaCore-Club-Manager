@@ -103,7 +103,9 @@ export async function POST(req: NextRequest) {
         // إنشاء سجلات الحضور دفعة واحدة
         const result = await db.attendance.createMany({
           data: records,
-          skipDuplicates: true,
+          // SQLite-generated client omits skipDuplicates from its types (and rejects it at runtime);
+          // production PostgreSQL client supports it — `as never` keeps runtime unchanged.
+          skipDuplicates: true as never,
         });
         checkedIn = result.count;
 

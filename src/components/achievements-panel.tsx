@@ -654,7 +654,7 @@ function buildCatalogItems(data: AchievementsData, detail: DetailData | null): C
         : b.next
           ? `التقدم: ${b.value} / ${b.next}`
           : "—",
-    }));
+    })) ?? [];
   }
   return data.badgeCatalog.map((b) => ({
     id: b.id,

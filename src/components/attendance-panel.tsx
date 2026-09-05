@@ -216,9 +216,10 @@ export function AttendancePanel({ subscribers, onRefresh }: AttendancePanelProps
         const clean = customTime.trim();
         const rangeMatch = clean.match(/^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/);
         const simpleMatch = clean.match(/^(\d{1,2}):(\d{2})$/);
-        if (rangeMatch || simpleMatch) {
-          const h = (rangeMatch ? rangeMatch[1] : simpleMatch[1]).padStart(2, "0");
-          const m = rangeMatch ? rangeMatch[2] : simpleMatch[2];
+        const timeMatch = rangeMatch ?? simpleMatch;
+        if (timeMatch) {
+          const h = timeMatch[1].padStart(2, "0");
+          const m = timeMatch[2];
           const today = new Date();
           const iso = new Date(today.getFullYear(), today.getMonth(), today.getDate(), parseInt(h), parseInt(m), 0).toISOString();
           body.checkInTime = iso;

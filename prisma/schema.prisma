@@ -7,9 +7,10 @@ generator client {
 }
 
 datasource db {
-  provider   = "postgresql"
-  url        = env("DATABASE_URL")
-  directUrl  = env("DIRECT_URL")
+  provider      = "postgresql"
+  url           = env("DATABASE_URL")
+  directUrl     = env("DIRECT_URL")
+  // ⚠️ إنتاج PostgreSQL (Neon). المحلي SQLite — استبدال جراحي فقط (درس b8f4e5d)
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1191,6 +1192,11 @@ model StaffCompensation {
   createdById     String?
   approvedById    String?
   approvedAt      DateTime?
+
+  // ★ Soft Archive — لا حذف فعلي: null = نشط، تاريخ = مؤرشف (محفوظ للتاريخ والتدقيق)
+  archivedAt      DateTime?
+  archivedById    String?
+  archiveReason   String?
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

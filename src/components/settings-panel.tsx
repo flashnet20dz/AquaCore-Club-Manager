@@ -523,9 +523,9 @@ function SwimmingDaysManager() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("حذف؟")) return;
+    if (!confirm("تعطيل هذا اليوم؟ سيُخفى من النماذج والقوائم لكن السجل يبقى محفوظاً ويمكن إعادة تفعيله بإنشاء يوم بنفس الاسم.")) return;
     await globalThis.fetch(`/api/swimming-days/${id}`, { method: "DELETE" });
-    toast.success("تم الحذف"); syncMutate(); fetchDays();
+    toast.success("تم تعطيل اليوم — السجل محفوظ"); syncMutate(); fetchDays();
   };
 
   const restoreDefaults = async () => {
@@ -622,9 +622,9 @@ function SwimmingTimeSlotsManager() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("حذف؟")) return;
+    if (!confirm("تعطيل هذا التوقيت؟ سيُخفى من النماذج والقوائم لكن السجل يبقى محفوظاً مع تاريخ سجلات ساعات العمل.")) return;
     await globalThis.fetch(`/api/swimming-slots/${id}`, { method: "DELETE" });
-    toast.success("تم الحذف"); invalidateSwimConfig(); fetchSlots();
+    toast.success("تم تعطيل التوقيت — السجل محفوظ"); invalidateSwimConfig(); fetchSlots();
   };
 
   return (

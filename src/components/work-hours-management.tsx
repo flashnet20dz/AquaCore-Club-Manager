@@ -521,14 +521,14 @@ export function WorkHoursManagement({ role }: { role?: string }) {
   };
 
   const handleSlotDelete = async (id: string) => {
-    if (!confirm("حذف هذه الحصة؟ سيختفي أيضاً من منتقي الحصص في نموذج النقاط.")) return;
+    if (!confirm("تعطيل هذه الحصة؟ ستُخفى من منتقي الحصص في نموذج النقاط لكن السجل يبقى محفوظاً مع تاريخ ساعات العمل.")) return;
     try {
       const res = await fetch(`/api/swimming-slots/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("فشل");
-      toast.success("تم حذف الحصة");
+      toast.success("تم تعطيل الحصة — السجل محفوظ");
       invalidateSwimConfig();
     } catch {
-      toast.error("فشل الحذف");
+      toast.error("فشل التعطيل");
     }
   };
 

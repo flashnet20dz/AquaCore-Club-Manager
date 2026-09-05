@@ -176,10 +176,12 @@ export async function POST(req: NextRequest) {
       }
 
       // 5c. أنشئ اشتراكاً جديداً
+      // (currentUser.clubId و verification.plan مضمّنان بحرس أعلى الدالة —
+      //  TS يفقد الـ narrowing داخل callback المعاملة، لذا نستخدم !)
       const newSub = await tx.clubSubscription.create({
         data: {
-          clubId: currentUser.clubId,
-          type: verification.plan,
+          clubId: currentUser.clubId!,
+          type: verification.plan!,
           startDate: now,
           endDate: newEndDate,
           status: "active",
@@ -201,7 +203,7 @@ export async function POST(req: NextRequest) {
 
       // 5d. حدّث حالة النادي (نشط + فترة سماح + بصمة الجهاز)
       await tx.club.update({
-        where: { id: currentUser.clubId },
+        where: { id: currentUser.clubId! },
         data: {
           status: "active",
           graceEndDate: newGraceEnd,
@@ -212,7 +214,7 @@ export async function POST(req: NextRequest) {
       // 5e. سجّل نشاطاً
       await tx.activity.create({
         data: {
-          clubId: currentUser.clubId,
+          clubId: currentUser.clubId!,
           type: "create",
           description: `تم تفعيل اشتراك ${planDef.label} (${verification.durationDays} يوم) بكود ${code.substring(0, 14)}... — ينتهي في ${newEndDate.toLocaleDateString("ar-DZ")}`,
         },

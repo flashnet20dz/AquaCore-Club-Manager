@@ -85,7 +85,7 @@ export function AnalyticsCharts() {
             <YAxis tick={{ fontSize: 12 }} orientation="right" />
             <Tooltip
               contentStyle={{ direction: "rtl", borderRadius: "12px", border: "1px solid #e5e7eb" }}
-              formatter={(v: number) => [`${v.toLocaleString()} دج`, "الإيرادات"]}
+              formatter={(v) => [`${v?.toLocaleString()} دج`, "الإيرادات"]}
             />
             <Area type="monotone" dataKey="revenue" stroke="#0d9488" strokeWidth={2} fill="url(#revGradient)" />
           </AreaChart>
@@ -110,7 +110,7 @@ export function AnalyticsCharts() {
               <YAxis tick={{ fontSize: 12 }} orientation="right" allowDecimals={false} />
               <Tooltip
                 contentStyle={{ direction: "rtl", borderRadius: "12px" }}
-                formatter={(v: number) => [`${v} منخرط`, "الحاضرون"]}
+                formatter={(v) => [`${v} منخرط`, "الحاضرون"]}
               />
               <Bar dataKey="count" fill="#8b5cf6" radius={[8, 8, 0, 0]} />
             </BarChart>
@@ -184,7 +184,7 @@ export function AnalyticsCharts() {
               <YAxis tick={{ fontSize: 11 }} orientation="right" />
               <Tooltip
                 contentStyle={{ direction: "rtl", borderRadius: "12px" }}
-                formatter={(v: number) => [`${v.toLocaleString()} دج`, "الإيراد"]}
+                formatter={(v) => [`${v?.toLocaleString()} دج`, "الإيراد"]}
               />
               <Bar dataKey="revenue" radius={[8, 8, 0, 0]}>
                 {data.revenueByType.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}

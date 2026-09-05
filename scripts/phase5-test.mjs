@@ -84,8 +84,19 @@ async function main() {
 
   // ═══ تنظيف متبقيات تشغيلات سابقة (إلغاء ناعم فقط — بلا فقدان بيانات) ═══
   {
+    // ★ التدقيق النهائي: إلغاء كل السجلات النشطة على تواريخ الاختبار الثلاثة
+    //   وليس فقط الموسومة TEST-P5 — لأن phase4 (الذي يسبق هذا الاختبار في نفس
+    //   البيئة) ينشئ سجلات approved على 2026-01-04 دون وسم، وتنظيفه لا يحذف
+    //   المعتمد (منع الحذف الفعلي للمعتمد بالتصميم) فيحجب فحص التكرار هنا.
+    const TEST_DATES = [new Date("2026-01-04T00:00:00.000Z"), new Date("2026-01-11T00:00:00.000Z"), new Date("2026-01-18T00:00:00.000Z")];
     const leftovers = await prisma.workHours.findMany({
-      where: { note: { contains: "TEST-P5" }, status: { in: ["approved", "pending"] } },
+      where: {
+        status: { in: ["approved", "pending"] },
+        OR: [
+          { note: { contains: "TEST-P5" } },
+          { date: { in: TEST_DATES } },
+        ],
+      },
       select: { id: true },
     });
     for (const row of leftovers) {

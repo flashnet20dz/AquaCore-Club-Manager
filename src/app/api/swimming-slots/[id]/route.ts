@@ -4,10 +4,12 @@ import { getCurrentUser } from "@/lib/session";
 import { ensureRuntimeColumns } from "@/lib/runtime-schema";
 
 /**
- * swimming-slots/[id] — تعديل/حذف حصة سباحة (admin/superadmin فقط)
+ * swimming-slots/[id] — تعديل/تعطيل حصة سباحة (admin/superadmin فقط)
  * ───────────────────────────────────────────────────────────────
  * فحص الملكية: الحصة يجب أن تنتمي لنادي المستخدم (clubId) — 404 خلاف ذلك.
  * dayOfWeek: مفتاح يوم (sat..fri) أو null (عامة). الأوقات نصوص "HH:mm" حرفية.
+ * ★ التدقيق النهائي: لا حذف فعلي أبداً — DELETE = تعطيل (active=false)
+ *   مع بقاء الحصة وسجلات ساعات العمل المرتبطة بها محفوظة للتاريخ.
  */
 
 const DAY_KEYS = ["sat", "sun", "mon", "tue", "wed", "thu", "fri"] as const;
@@ -139,8 +141,20 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     if (!existing) {
       return NextResponse.json({ error: "الحصة غير موجودة" }, { status: 404 });
     }
-    await db.swimmingTimeSlot.delete({ where: { id } });
-    return NextResponse.json({ success: true });
+    // ★ تعطيل ناعم — الحصة وسجلات الساعات المرتبطة بها تبقى محفوظة (لا حذف فعلي)
+    await db.swimmingTimeSlot.update({ where: { id }, data: { active: false } });
+    await db.auditLog.create({
+      data: {
+        clubId: user.clubId,
+        userId: user.id,
+        action: "swimming_slot_deactivate",
+        entityType: "SwimmingTimeSlot",
+        entityId: id,
+        description: `تعطيل حصة السباحة «${existing.name}» — السجل محفوظ بدون حذف`,
+        metadata: JSON.stringify({ oldValue: { name: existing.name, startTime: existing.startTime, endTime: existing.endTime, active: existing.active } }),
+      },
+    }).catch(() => undefined);
+    return NextResponse.json({ success: true, archived: true });
   } catch (e) {
     console.error("DELETE swimming-slots/[id]:", e);
     return NextResponse.json({ error: "Internal" }, { status: 500 });

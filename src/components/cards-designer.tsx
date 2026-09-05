@@ -1338,7 +1338,7 @@ function generatePrintHTML(subscribers: SubscriberWithComputed[], design: CardDe
       if (el.type === "logo") return `<div style="${base}"><img src="/images/rcs-logo-official.png" style="width:100%;height:100%;object-fit:contain;" onerror="this.style.display='none'" /></div>`;
       if (el.type === "uploadedImage" && el.imageData) return `<div style="${base}"><img src="${el.imageData}" style="width:100%;height:100%;object-fit:contain;" /></div>`;
       if (el.type === "photo") {
-        const photoSrc = sub.photoPath ? `${window.location.origin}/api/subscribers/${sub.id}/photo?size=cropped&raw=1` : "";
+        const photoSrc = sub?.photoPath ? `${window.location.origin}/api/subscribers/${sub.id}/photo?size=cropped&raw=1` : "";
         const br = el.shapeKind === "circle" ? "50%" : (el.borderRadius || 8) + "px";
         const phStyle = `width:100%;height:100%;background:#e5e7eb;border-radius:${br};display:flex;align-items:center;justify-content:center;font-size:8px;color:#999;`;
         const imgStyle = `position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:${br};`;
@@ -1346,7 +1346,7 @@ function generatePrintHTML(subscribers: SubscriberWithComputed[], design: CardDe
       }
       if (el.type === "shape") return `<div style="${base}"></div>`;
       const content = getContent(el, sub); const label = el.showLabel ? (el.labelText || "") : "";
-      return `<div style="${base}"><span style="font-family:${el.fontFamily},Arial,sans-serif;font-size:${(el.fontSize * 0.265).toFixed(1)}mm;font-weight:${el.fontWeight};color:${el.color};text-align:${el.textAlign};width:100%;line-height:1.3;word-break:break-word;">${escapeHtml(label + content)}</span></div>`;
+      return `<div style="${base}"><span style="font-family:${el.fontFamily},Arial,sans-serif;font-size:${((el.fontSize || 10) * 0.265).toFixed(1)}mm;font-weight:${el.fontWeight};color:${el.color};text-align:${el.textAlign};width:100%;line-height:1.3;word-break:break-word;">${escapeHtml(label + content)}</span></div>`;
     }).join("");
     const gradDir = config.gradientDirection === "horizontal" ? "to right" : config.gradientDirection === "vertical" ? "to bottom" : "to bottom right";
     const bgStyle = config.bgImage
@@ -1396,7 +1396,7 @@ function generatePrint8HTML(subscribers: SubscriberWithComputed[], design: CardD
       }
       if (el.type === "shape") return `<div style="${base}"></div>`;
       const content = getContent(el, sub); const label = el.showLabel ? (el.labelText || "") : "";
-      return `<div style="${base}"><span style="font-family:${el.fontFamily},Arial,sans-serif;font-size:${(el.fontSize * 0.265).toFixed(1)}mm;font-weight:${el.fontWeight};color:${el.color};text-align:${el.textAlign};width:100%;line-height:1.3;word-break:break-word;">${escapeHtml(label + content)}</span></div>`;
+      return `<div style="${base}"><span style="font-family:${el.fontFamily},Arial,sans-serif;font-size:${((el.fontSize || 10) * 0.265).toFixed(1)}mm;font-weight:${el.fontWeight};color:${el.color};text-align:${el.textAlign};width:100%;line-height:1.3;word-break:break-word;">${escapeHtml(label + content)}</span></div>`;
     }).join("");
     const gradDir = config.gradientDirection === "horizontal" ? "to right" : config.gradientDirection === "vertical" ? "to bottom" : "to bottom right";
     const bgStyle = config.gradientEnabled
@@ -1432,7 +1432,7 @@ function generateWordHTML(subscribers: SubscriberWithComputed[], design: CardDes
       }
       if (el.type === "shape") return `<div style="${base}"></div>`;
       const content = getContent(el, sub); const label = el.showLabel ? (el.labelText || "") : "";
-      return `<div style="${base}"><span style="font-family:${el.fontFamily},Arial,sans-serif;font-size:${(el.fontSize * 0.265).toFixed(1)}mm;font-weight:${el.fontWeight};color:${el.color};text-align:${el.textAlign};width:100%;line-height:1.3;">${escapeHtml(label + content)}</span></div>`;
+      return `<div style="${base}"><span style="font-family:${el.fontFamily},Arial,sans-serif;font-size:${((el.fontSize || 10) * 0.265).toFixed(1)}mm;font-weight:${el.fontWeight};color:${el.color};text-align:${el.textAlign};width:100%;line-height:1.3;">${escapeHtml(label + content)}</span></div>`;
     }).join("");
     const logoWatermark = side === "back" ? `<img src="/images/rcs-logo-official.png" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);height:75%;width:75%;object-fit:contain;opacity:0.1;" onerror="this.style.display='none'" />` : "";
     return `<div style="width:${config.width}cm;height:${config.height}cm;background-color:${config.bgColor};border:${config.borderWidth}px ${config.borderStyle} ${config.borderColor};border-radius:${config.borderRadius}px;position:relative;overflow:hidden;direction:rtl;box-sizing:border-box;display:inline-block;margin:5mm;">${logoWatermark}${elsHTML}</div>`;

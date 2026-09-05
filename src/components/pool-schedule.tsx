@@ -265,15 +265,15 @@ export function PoolSchedule({ role }: { role?: string }) {
   };
 
   const handleSlotDelete = async (id: string) => {
-    if (!confirm("حذف هذه الحصة؟ سيُحذف أيضاً تعيين عمالها وتختفي من كل الصفحات (سجلات ساعات العمل القديمة محفوظة بأوقاتها).")) return;
+    if (!confirm("تعطيل هذه الحصة؟ ستُخفى من كل الصفحات لكن السجل يبقى محفوظاً مع سجلات ساعات العمل القديمة بأوقاتها.")) return;
     try {
       const res = await fetch(`/api/swimming-slots/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("فشل");
-      toast.success("تم حذف الحصة");
+      toast.success("تم تعطيل الحصة — السجل محفوظ");
       invalidateSwimConfig();
       fetchAssignments();
     } catch {
-      toast.error("فشل الحذف");
+      toast.error("فشل التعطيل");
     }
   };
 

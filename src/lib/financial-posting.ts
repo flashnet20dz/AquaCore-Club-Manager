@@ -55,6 +55,12 @@ export interface PostedEntry {
   duplicate: boolean;
 }
 
+export interface BatchPostResult {
+  posted: number;
+  duplicates: number;
+  entries: PostedEntry[];
+}
+
 /** خطأ مرجع مكرر ملغى (لا يُنشأ قيد جديد إلا عن إعادة عملية مشروعة عبر التمرير الصريح) */
 export class DuplicateReferenceError extends Error {
   constructor(public reference: string) {
@@ -176,6 +182,143 @@ export async function postLedgerEntry(tx: PrismaTx, data: LedgerEntryInput): Pro
   });
 
   return { id: entryId, seq, number: financialNumber(seq, data.date ?? new Date()), duplicate: false };
+}
+
+/**
+ * النواة الجماعية (Batch Kernel) — ترحيل عدة قيود دفعة واحدة داخل المعاملة الحالية.
+ * ═══════════════════════════════════════════════════════════
+ * نفس ضمانات postLedgerEntry بالضبط (idempotency بالمرجع + seq فريد لكل نادي
+ * + رصيد ذرّي بخرائط الفئات + lastTransaction) لكن بعدد استعلامات شبه ثابت
+ * بغض النظر عن حجم الدفعة (مئات وآلاف) — للعمليات الجماعية كالتأمين الجماعي.
+ *
+ * قيود الاستخدام:
+ *  - كل العناصر لنادي واحد (clubId) — العمليات متعددة النوادي تُجمَّع عند المستدعي.
+ *  - يُستدعى داخل db.$transaction (نفس ذرّية العملية الأصلية).
+ *  - عند أي تعارض فريد نادر (سباق seq أو مرجع) يتراجع تلقائياً للترحيل الفردي
+ *    عبر postLedgerEntry (idempotent — لا ازدواج ولا فقدان).
+ */
+export async function postLedgerEntriesBatchTx(
+  tx: PrismaTx,
+  clubId: string,
+  items: LedgerEntryInput[]
+): Promise<BatchPostResult> {
+  if (items.length === 0) return { posted: 0, duplicates: 0, entries: [] };
+
+  const normalized = items.map((it) => ({ ...it, clubId, amount: Math.round(Number(it.amount)) }));
+
+  // 1) Idempotency استباقية جماعية — قيد نشط بنفس المرجع = نفس العملية (لا ازدواج)
+  const refs = [...new Set(normalized.map((it) => it.reference?.trim() || "").filter(Boolean))];
+  const existingActive = refs.length
+    ? await tx.financialTransaction.findMany({
+        where: { clubId, reference: { in: refs }, status: "active" },
+        select: { id: true, reference: true, seq: true, date: true },
+      })
+    : [];
+  const refToExisting = new Map<string, (typeof existingActive)[number]>(
+    existingActive.flatMap((e) => (e.reference ? [[e.reference, e] as const] : []))
+  );
+
+  const entries: PostedEntry[] = [];
+  const fresh: typeof normalized = [];
+  const seenLocalRefs = new Set<string>();
+  let duplicates = 0;
+
+  for (const it of normalized) {
+    const ref = it.reference?.trim() || null;
+    const dbDup = ref ? refToExisting.get(ref) : undefined;
+    if (dbDup) {
+      duplicates++;
+      entries.push({ id: dbDup.id, seq: dbDup.seq, number: financialNumber(dbDup.seq, dbDup.date), duplicate: true });
+      continue;
+    }
+    // ازدواج داخل نفس الدفعة (نفس المرجع مرتين) — الأولى تحسم الباقية
+    if (ref) {
+      if (seenLocalRefs.has(ref)) { duplicates++; continue; }
+      seenLocalRefs.add(ref);
+    }
+    fresh.push(it);
+  }
+
+  if (fresh.length > 0) {
+    const baseDate = new Date();
+    try {
+      // 2) seq متسلسل من أعلى رقم حالي — سباق نادر → fallback فردي أدناه
+      const maxAgg = await tx.financialTransaction.aggregate({
+        where: { clubId },
+        _max: { seq: true },
+      });
+      const startSeq = (maxAgg._max.seq || 0) + 1;
+      let seq = startSeq;
+      await tx.financialTransaction.createMany({
+        data: fresh.map((it) => ({
+          clubId,
+          type: it.type,
+          category: it.category,
+          amount: it.amount,
+          date: it.date ?? baseDate,
+          paymentMethod: it.paymentMethod || "cash",
+          payeeName: it.payeeName ?? null,
+          payeeId: it.payeeId ?? null,
+          subscriberId: it.subscriberId ?? null,
+          employeeId: it.employeeId ?? null,
+          staffCompensationId: it.staffCompensationId ?? null,
+          closureId: it.closureId ?? null,
+          reference: it.reference?.trim() || null,
+          note: it.note ?? null,
+          createdById: it.createdById ?? null,
+          seq: seq++,
+        })),
+      });
+      const endSeq = seq - 1;
+
+      // 3) استرجاع المُرحَّل لبناء النتيجة (createMany لا يعيد الصفوف)
+      const createdRows = await tx.financialTransaction.findMany({
+        where: { clubId, status: "active", seq: { gte: startSeq, lte: endSeq } },
+        select: { id: true, seq: true, date: true },
+        orderBy: { seq: "asc" },
+      });
+      for (const row of createdRows) {
+        entries.push({ id: row.id, seq: row.seq, number: financialNumber(row.seq, row.date), duplicate: false });
+      }
+
+      // 4) الرصيد: تجميع حسب (type, category) ثم تحديث ذرّي واحد لكل فئة
+      const perCategory = new Map<string, number>();
+      for (const it of fresh) {
+        const key = `${it.type}|${it.category}`;
+        perCategory.set(key, (perCategory.get(key) || 0) + it.amount);
+      }
+      for (const [key, amount] of perCategory) {
+        const [type, category] = key.split("|") as ["income" | "expense", string];
+        await applyBalanceDelta(tx, clubId, type, category, amount);
+      }
+
+      // 5) lastTransaction = آخر قيد مُرحَّل في الدفعة
+      const last = createdRows[createdRows.length - 1];
+      if (last) {
+        await tx.financialBalance.updateMany({
+          where: { clubId },
+          data: { lastTransactionId: last.id, lastTransactionDate: last.date },
+        });
+      }
+    } catch (e) {
+      // P2002 = سباق نادر (مرجع أو seq) — التراجع للترحيل الفردي idempotent
+      if ((e as { code?: string })?.code !== "P2002") throw e;
+      let fallbackPosted = 0;
+      for (const it of fresh) {
+        const posted = await postLedgerEntry(tx, it);
+        if (posted.duplicate) duplicates++;
+        else { fallbackPosted++; entries.push(posted); }
+      }
+      // أعد بناء posted بعد الـ fallback (entries تتضمن القديمة + الجديدة)
+      return { posted: fallbackPosted, duplicates, entries };
+    }
+  }
+
+  return {
+    posted: entries.filter((e) => !e.duplicate).length,
+    duplicates,
+    entries,
+  };
 }
 
 /**

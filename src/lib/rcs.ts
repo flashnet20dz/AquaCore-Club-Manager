@@ -163,6 +163,8 @@ export interface SubscriberWithComputed {
   renewalStatus: string;
   // ★ EXEMPT flag — true when paymentStatus is "معفى"
   isExempt: boolean;
+  // مسار الصورة الشخصية (عمود Prisma المضاف) — اختياري لأن الكائنات تُبنى من استجابة الـ API مباشرة
+  photoPath?: string | null;
 }
 
 // ════════════ EXEMPT ("معفى") helpers ════════════
@@ -358,7 +360,9 @@ export function calculateRenewalStatus(
  */
 export function computeSubscriberFieldsDynamic<T extends {
   birthDate: Date;
-  paymentStatus: PaymentStatus;
+  // ★ widened to string: Prisma stores paymentStatus as plain String —
+  //   normalized once below before reaching the PaymentStatus-typed helpers
+  paymentStatus: string;
   subscriptionType: SubscriptionType;
   lastPaymentDate: Date | null;
 }>(sub: T, typeConfig?: SubscriptionTypeConfig): {
@@ -372,14 +376,17 @@ export function computeSubscriberFieldsDynamic<T extends {
   isExempt: boolean;
 } {
   const config = typeConfig || getTypeConfig(sub.subscriptionType as string);
+  // ★ normalize once — valid statuses pass through unchanged; invalid ones keep
+  //   their previous (undefined-behavior) raw value via the fallback cast
+  const paymentStatus = normalizePaymentStatus(sub.paymentStatus) ?? (sub.paymentStatus as PaymentStatus);
   const age = calculateAge(sub.birthDate);
   const expiryDate = calculateExpiryDate(sub.lastPaymentDate, config.durationDays);
   // 🔑 حساب الرسوم حسب العمر: ≥ 14 = 1500، < 14 = 1300
-  const subscriptionFee = calculateSubscriptionFeeDynamic(sub.paymentStatus, config, age);
-  const insuranceFee = calculateInsuranceFeeDynamic(sub.paymentStatus, config);
-  const compoundRights = calculateCompoundRightsDynamic(sub.paymentStatus, config);
-  const totalAmount = calculateTotalAmountDynamic(sub.paymentStatus, subscriptionFee, insuranceFee);
-  const renewalStatus = calculateRenewalStatus(sub.paymentStatus, expiryDate);
+  const subscriptionFee = calculateSubscriptionFeeDynamic(paymentStatus, config, age);
+  const insuranceFee = calculateInsuranceFeeDynamic(paymentStatus, config);
+  const compoundRights = calculateCompoundRightsDynamic(paymentStatus, config);
+  const totalAmount = calculateTotalAmountDynamic(paymentStatus, subscriptionFee, insuranceFee);
+  const renewalStatus = calculateRenewalStatus(paymentStatus, expiryDate);
   // ★ EXEMPT flag for easy UI/API usage
   const isExempt = isExemptStatus(sub.paymentStatus);
 
@@ -429,7 +436,8 @@ export function calculateTotalAmount(
 
 export function computeSubscriberFields<T extends {
   birthDate: Date;
-  paymentStatus: PaymentStatus;
+  // ★ widened to string (Prisma String) — PaymentStatus callers still compile
+  paymentStatus: string;
   subscriptionType: SubscriptionType;
   lastPaymentDate: Date | null;
 }>(sub: T): ReturnType<typeof computeSubscriberFieldsDynamic<T>> {

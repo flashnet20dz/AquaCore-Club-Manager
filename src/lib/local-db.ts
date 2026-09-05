@@ -15,6 +15,21 @@
 const DB_NAME = "rcs-club-local";
 const DB_VERSION = 1;
 
+// `done` on IDBTransaction is a non-standard WebKit/WebKit-Browser-engine extension
+// missing from TS lib types. This cast keeps runtime behavior identical (await
+// undefined on Chromium — same as today).
+type TxWithDone = IDBTransaction & { done?: Promise<void> };
+
+// IndexedDB requests (IDBRequest) are NOT promise-like per spec — awaiting one
+// resolves to the request object itself, not its result. Resolve explicitly
+// from request.result on the success event instead.
+function requestAsPromise<T>(req: IDBRequest<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
 let dbPromise: Promise<IDBDatabase> | null = null;
 
 function openDB(): Promise<IDBDatabase> {
@@ -63,7 +78,7 @@ export async function cacheSubscribers(subs: any[]): Promise<void> {
     // Clear + bulk insert
     store.clear();
     for (const s of list) store.put(s);
-    await tx.done;
+    await (tx as TxWithDone).done;
   } catch (e) {
     console.error("cacheSubscribers:", e);
   }
@@ -74,7 +89,7 @@ export async function getCachedSubscribers(): Promise<any[]> {
     const db = await openDB();
     const tx = db.transaction("subscribers", "readonly");
     const store = tx.objectStore("subscribers");
-    return await store.getAll();
+    return await requestAsPromise(store.getAll());
   } catch {
     return [];
   }
@@ -95,7 +110,7 @@ export async function addToOutbox(entry: Omit<OutboxEntry, "id" | "createdAt">):
     const db = await openDB();
     const tx = db.transaction("outbox", "readwrite");
     tx.objectStore("outbox").add({ ...entry, createdAt: Date.now() });
-    await tx.done;
+    await (tx as TxWithDone).done;
   } catch (e) {
     console.error("addToOutbox:", e);
   }
@@ -105,7 +120,7 @@ export async function getOutbox(): Promise<OutboxEntry[]> {
   try {
     const db = await openDB();
     const tx = db.transaction("outbox", "readonly");
-    return await tx.objectStore("outbox").getAll();
+    return await requestAsPromise(tx.objectStore("outbox").getAll());
   } catch {
     return [];
   }
@@ -116,7 +131,7 @@ export async function removeFromOutbox(id: number): Promise<void> {
     const db = await openDB();
     const tx = db.transaction("outbox", "readwrite");
     tx.objectStore("outbox").delete(id);
-    await tx.done;
+    await (tx as TxWithDone).done;
   } catch (e) {
     console.error("removeFromOutbox:", e);
   }
@@ -127,7 +142,7 @@ export async function clearOutbox(): Promise<void> {
     const db = await openDB();
     const tx = db.transaction("outbox", "readwrite");
     tx.objectStore("outbox").clear();
-    await tx.done;
+    await (tx as TxWithDone).done;
   } catch {}
 }
 
@@ -138,7 +153,7 @@ export async function setMeta(key: string, value: any): Promise<void> {
     const db = await openDB();
     const tx = db.transaction("meta", "readwrite");
     tx.objectStore("meta").put({ key, value });
-    await tx.done;
+    await (tx as TxWithDone).done;
   } catch {}
 }
 
@@ -146,7 +161,7 @@ export async function getMeta(key: string): Promise<any> {
   try {
     const db = await openDB();
     const tx = db.transaction("meta", "readonly");
-    const result = await tx.objectStore("meta").get(key);
+    const result = await requestAsPromise(tx.objectStore("meta").get(key));
     return result?.value ?? null;
   } catch {
     return null;

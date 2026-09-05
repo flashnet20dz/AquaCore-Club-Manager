@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { auditLogWithRequest } from "@/lib/audit";
@@ -79,7 +80,9 @@ export async function POST(req: NextRequest) {
       where: { featureId, scope, clubId, clubGroupId },
     });
 
-    const data: Record<string, unknown> = {
+    // Explicitly typed to match FeatureAccess columns in prisma/schema.prisma
+    // (featureId/scope/clubId/clubGroupId/updatedById + boolean overrides)
+    const data: Prisma.FeatureAccessUncheckedCreateInput = {
       featureId, scope, clubId, clubGroupId,
       updatedById: currentUser.id,
       ...overrides,

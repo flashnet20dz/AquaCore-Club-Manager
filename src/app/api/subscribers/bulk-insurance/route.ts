@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
-import { applyBalanceDelta, recomputeBalanceTx } from "@/lib/financial-posting";
+import { postLedgerEntriesBatchTx, cancelLedgerByReferencesTx } from "@/lib/financial-posting";
 import { ensureRuntimeColumns, ensureFinancialIndexes } from "@/lib/runtime-schema";
 
 /**
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
     // من لديهم دفعة تأمين حالياً (نشطة فقط — الملغاة لا تعني تأميناً قائماً)
     const existing = await db.payment.findMany({
       where: { subscriberId: { in: subs.map((s) => s.id) }, category: "insurance", status: { not: "cancelled" }, ...(clubId ? { clubId } : {}) },
-      select: { id: true, subscriberId: true },
+      select: { id: true, subscriberId: true, clubId: true },
     });
     const insuredSet = new Set(
       existing.map((p) => p.subscriberId).filter((x): x is string => Boolean(x))
@@ -80,29 +80,33 @@ export async function POST(req: NextRequest) {
               userId: user.id,
             })),
           });
-          // ★ ترحيل جماعي للدفتر المالي — مرجع قابل للتتبع bulk-ins:{subscriberId}
-          await tx.financialTransaction.createMany({
-            data: toInsure.map((s) => ({
-              clubId: s.clubId,
-              type: "income",
-              category: "insurance",
-              amount: feeByName.get(s.subscriptionType) ?? 500,
-              date: new Date(),
-              paymentMethod: "cash",
-              payeeName: `${s.lastName} ${s.firstName}`.trim(),
-              subscriberId: s.id,
-              reference: `bulk-ins:${s.id}`,
-              note: "تأمين منخرط — ترحيل جماعي",
-              createdById: user.id,
-            })),
-          });
-          // تحديث رصيد كل نادي متأثر (superadmin قد يمس عدة نوادٍ)
-          const perClub = new Map<string, number>();
+          // ★ النواة الجماعية الموحّدة (Batch Kernel) — نفس ضمانات postLedgerEntry:
+          // idempotency بالمرجع bulk-ins:{subscriberId} + seq فريد + رصيد ذرّي + lastTransaction
+          // التجميع حسب النادي (superadmin قد يمس عدة نوادٍ) — كل دفعة لنادي واحد
+          const byClub = new Map<string, typeof toInsure>();
           for (const s of toInsure) {
-            perClub.set(s.clubId, (perClub.get(s.clubId) || 0) + (feeByName.get(s.subscriptionType) ?? 500));
+            const list = byClub.get(s.clubId) || [];
+            list.push(s);
+            byClub.set(s.clubId, list);
           }
-          for (const [clubId, total] of perClub) {
-            await applyBalanceDelta(tx, clubId, "income", "insurance", total);
+          for (const [cid, list] of byClub) {
+            await postLedgerEntriesBatchTx(
+              tx,
+              cid,
+              list.map((s) => ({
+                clubId: cid,
+                type: "income" as const,
+                category: "insurance",
+                amount: feeByName.get(s.subscriptionType) ?? 500,
+                date: new Date(),
+                paymentMethod: "cash",
+                payeeName: `${s.lastName} ${s.firstName}`.trim(),
+                subscriberId: s.id,
+                reference: `bulk-ins:${s.id}`,
+                note: "تأمين منخرط — ترحيل جماعي",
+                createdById: user.id,
+              }))
+            );
           }
           await tx.activity.createMany({
             data: toInsure.map((s) => ({
@@ -137,34 +141,24 @@ export async function POST(req: NextRequest) {
               cancellationReason: "إلغاء تأمين جماعي",
             },
           });
-          // ★ إلغاء القيود المرحّلة ناعماً (فردي payment: أو جماعي bulk-ins:)
-          // الملغاة تبقى في سجل الدفتر بوضع «ملغاة» ولا تدخل في الرصيد
-          const refs = paymentsToDelete.flatMap((p) => {
-            const r = [`payment:${p.id}`];
+          // ★ إلغاء القيود المرحّلة عبر النواة الموحّدة — مراجع فردي payment: أو جماعي bulk-ins:
+          // الملغاة تبقى في سجل الدفتر بوضع «ملغاة» ولا تدخل في الرصيد، والرصيد يُعاد حسابه من الدفتر
+          const refsByClub = new Map<string, string[]>();
+          for (const p of paymentsToDelete) {
+            const refs: string[] = [`payment:${p.id}`];
             if (p.subscriberId) {
-              r.push(`bulk-ins:${p.subscriberId}`);
-              r.push(`subscriber:${p.subscriberId}:insurance`);
+              refs.push(`bulk-ins:${p.subscriberId}`);
+              refs.push(`subscriber:${p.subscriberId}:insurance`);
             }
-            return r;
-          });
-          const cancelled = await tx.financialTransaction.updateMany({
-            where: { reference: { in: refs }, category: "insurance", type: "income", status: "active" },
-            data: {
-              status: "cancelled",
-              cancelledAt: new Date(),
+            const list = refsByClub.get(p.clubId) || [];
+            list.push(...refs);
+            refsByClub.set(p.clubId, list);
+          }
+          for (const [cid, refs] of refsByClub) {
+            await cancelLedgerByReferencesTx(tx, cid, refs, {
               cancelledById: user.id,
-              cancellationReason: "إلغاء تأمين جماعي",
-            },
-          });
-          if (cancelled.count > 0) {
-            const clubs = await tx.financialTransaction.findMany({
-              where: { reference: { in: refs }, category: "insurance" },
-              select: { clubId: true },
-              distinct: ["clubId"],
+              reason: "إلغاء تأمين جماعي",
             });
-            for (const { clubId } of clubs) {
-              await recomputeBalanceTx(tx, clubId);
-            }
           }
           await tx.activity.createMany({
             data: paymentsToDelete

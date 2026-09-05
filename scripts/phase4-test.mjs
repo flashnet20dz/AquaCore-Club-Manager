@@ -73,6 +73,25 @@ async function main() {
   const workerA = users.find((u) => u.id !== adminId) || users[0]; // «أحمد»
   const workerB = users.find((u) => u.id !== adminId && u.id !== workerA?.id) || users[1] || workerA; // «محمد»
 
+  // ═══ تنظيف متبقيات تشغيلات سابقة على تاريخ الاختبار (إلغاء ناعم فقط) ═══
+  // ★ التدقيق النهائي: التشغيلات المتكررة (phase4 قبل/بعد phase5 على نفس البيئة)
+  //   تترك سجلات معتمدة على TEST_DATE لا يحذفها تنظيف phase4 (منع حذف المعتمد
+  //   بالتصميم) فيحجب فحص التكرار — نلغيها ناعماً قبل البدء (بلا فقدان بيانات)
+  {
+    const preRes = await api("/api/workhours?month=2026-01");
+    const preLeft = (preRes.data?.workHours || []).filter(
+      (w) => new Date(w.date).toISOString().slice(0, 10) === "2026-01-04"
+        && [workerA.id, workerB.id].includes(w.userId)
+        && w.status !== "cancelled"
+    );
+    for (const w of preLeft) {
+      await api(`/api/workhours/${w.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "cancelled", reason: "تنظيف متبقيات اختبار سابق" }),
+      });
+    }
+  }
+
   // ═══ 1) Settings: تفعيل يوم الأحد ═══
   console.log("\n📋 1) Settings — أيام التشغيل");
   const settingsRes = await api("/api/settings");
@@ -146,7 +165,7 @@ async function main() {
   const TEST_DATE = "2026-01-04"; // الأحد
   const bulk1 = await api("/api/workhours/bulk", {
     method: "POST",
-    body: JSON.stringify({ userId: workerA.id, date: TEST_DATE, slotIds: [slotIds[0], slotIds[1]] }),
+    body: JSON.stringify({ userId: workerA.id, date: TEST_DATE, slotIds: [slotIds[0], slotIds[1]], note: TEST_TAG }),
   });
   ok("bulk 201", bulk1.status === 201, JSON.stringify({ created: bulk1.data?.created, skipped: bulk1.data?.skipped?.length }));
   ok("سجلّان أُنشئا", bulk1.data?.created === 2);
@@ -170,8 +189,11 @@ async function main() {
   // ═══ 12) Timezone ═══
   console.log("\n📋 12) Timezone — 09:00 تبقى 09:00");
   const whRes = await api("/api/workhours?month=2026-01");
+  // ★ التدقيق النهائي: نقيّد سجلاتنا الموسومة فقط — phase5 ينشئ سجلات ملغاة على
+  //   نفس الشهر/المستخدم تبقى في القاعدة بالتصميم (إلغاء ناعم) فلا تُحسب هنا
   const myRecords = (whRes.data?.workHours || []).filter(
     (w) => w.userId === workerA.id && new Date(w.date).toISOString().slice(0, 10) === TEST_DATE
+      && w.note?.includes(TEST_TAG)
   );
   ok("سجلّان موجودان", myRecords.length === 2, `${myRecords.length}`);
   const starts = myRecords.map((w) => wallTime(w.startTime)).sort();
@@ -180,11 +202,12 @@ async function main() {
 
   // ═══ 13) الأجر: ساعات × سعر ═══
   console.log("\n📋 13) Wage calculation — hours × rate");
-  const rate = myRecords[0]?.user?.hourlyRate || 200;
   const wagesRes = await api("/api/wages?from=2026-01-01&to=2026-01-31");
   const wageRow = (wagesRes.data?.workers || []).find((w) => w.userId === workerA.id);
   ok("ساعات العامل = 2", wageRow?.totalHours === 2, `totalHours=${wageRow?.totalHours}`);
-  ok("الإجمالي = ساعات × السعر", wageRow?.gross === Math.round(2 * rate), `gross=${wageRow?.gross} (rate=${rate})`);
+  // ★ §23: الإجمالي من لقطة السعر في السجل (rateSnapshot أسبق من السعر الحالي)
+  const snapRate = myRecords[0]?.rateSnapshot ?? myRecords[0]?.user?.hourlyRate ?? 200;
+  ok("الإجمالي = ساعات × لقطة السعر (§23)", wageRow?.gross === Math.round(2 * snapRate), `gross=${wageRow?.gross} (snapshot=${snapRate})`);
   ok("المتبقي = الإجمالي", wageRow?.remaining === wageRow?.gross);
 
   // ═══ 14) دفع جزئي ═══
@@ -275,7 +298,7 @@ async function main() {
   ok("تعديل الجلسة 200", editSlot.status === 200);
   const whAfterEdit = await api("/api/workhours?month=2026-01");
   const myAfterEdit = (whAfterEdit.data?.workHours || []).find(
-    (w) => w.userId === workerA.id && new Date(w.startTime).toISOString().includes("T09:00:00")
+    (w) => w.userId === workerA.id && w.note?.includes(TEST_TAG) && new Date(w.startTime).toISOString().includes("T09:00:00")
   );
   ok("السجل القديم احتفظ بـ 09:00", Boolean(myAfterEdit), myAfterEdit && wallTime(myAfterEdit.startTime));
   // استرجاع وقت الجلسة الأصلي

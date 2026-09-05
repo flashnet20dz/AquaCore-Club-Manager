@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser, hasPermission } from "@/lib/session";
+import { ensureRuntimeColumns } from "@/lib/runtime-schema";
 
 /**
  * GET /api/staff-compensations
@@ -13,6 +14,7 @@ import { getCurrentUser, hasPermission } from "@/lib/session";
  */
 export async function GET(req: NextRequest) {
   try {
+    await ensureRuntimeColumns();
     const currentUser = await getCurrentUser();
     if (!currentUser || !hasPermission(currentUser.role, "staffCompensations")) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
@@ -26,12 +28,15 @@ export async function GET(req: NextRequest) {
     const month = url.searchParams.get("month"); // "YYYY-MM"
     const year = url.searchParams.get("year");
     const employeeId = url.searchParams.get("employeeId");
+    // ★ الأرشفة الناعمة: المؤرشف خارج القوائم والإحصاءات افتراضياً — ?includeArchived=true لعرضه
+    const includeArchived = url.searchParams.get("includeArchived") === "true";
 
     // Build where clause
     const isSuperadmin = currentUser.role === "superadmin";
     const clubFilter = isSuperadmin ? {} : { clubId: currentUser.clubId! };
 
     const where: Record<string, unknown> = { ...clubFilter };
+    if (!includeArchived) where.archivedAt = null;
 
     // ★ Lifeguards can only see their own compensations
     if (currentUser.role === "lifeguard") {
@@ -74,10 +79,11 @@ export async function GET(req: NextRequest) {
       db.staffCompensation.count({ where }),
     ]);
 
-    // ★ Compute stats
+    // ★ Compute stats — المؤرشف خارج الإحصاءات دائماً (أرقام نشطة فقط)
+    const statWhere = { ...clubFilter, archivedAt: null };
     const allForStats = isSuperadmin
-      ? await db.staffCompensation.findMany({ where: {}, select: { totalAmount: true, paymentStatus: true } })
-      : await db.staffCompensation.findMany({ where: { clubId: currentUser.clubId! }, select: { totalAmount: true, paymentStatus: true } });
+      ? await db.staffCompensation.findMany({ where: statWhere, select: { totalAmount: true, paymentStatus: true } })
+      : await db.staffCompensation.findMany({ where: statWhere, select: { totalAmount: true, paymentStatus: true } });
 
     const stats = {
       totalRecords: allForStats.length,
