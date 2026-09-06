@@ -900,3 +900,18 @@ Files modified:
 - src/app/api/workhours/bulk/route.ts
 - src/app/api/workhours/route.ts
 - src/app/api/workhours/approve/route.ts
+
+---
+Task ID: deploy-a196fed
+Agent: main
+Task: نشر إصلاح P2028 (تسجيل الحصص) إلى الإنتاج
+
+Work Log:
+- الدمج: cherry-pick نظيف لإصلاح dd0968e (من lineage التطوير المحلي) فوق 26313b8 — 0 تعارضات محتوى (فروق الأوضاع 755/644 فقط) + دمج worklog بلا فقد أي سطر أصلي (تحقق آلي diff=0)
+- Push: 26313b8..a196fed → main
+- Vercel: pending ×4 (~80s) → success «Deployment has completed»
+- فحص دخاني: home=200 / login=200 / api/financial/dashboard=403 مجهول (ensureRuntimeColumns اشتغل بلا أخطاء → فهرس Neon الفريد الجزئي يُنشأ ذاتياً عند أول طلب) / POST workhours/bulk مجهول=403 «غير مصرح» (المسار الجديد حي ويرد بلا انهيار)
+- ملاحظة: حذف .zscripts/dev.pid من التتبع + إضافة .zscripts/ إلى .gitignore
+
+Stage Summary:
+- الإصلاح حي على الإنتاج a196fed: runTx (maxWait=10s + retry على P2028 + تشخيص) + WAL لسطح المكتب + إعادة فحص التكرار داخل المعاملة + قيد فريد جزئي DB-level (migration + self-heal) — تسجيل 4 حصص = 4 سجلات/4 ساعات/لا ازدواج/لا قيد مالي
