@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser, hasPermission } from "@/lib/session";
-import { parseWallDateTime, utcMonthStart, utcMonthEnd } from "@/lib/wall-clock";
+import { parseWallDateTime, utcMonthStart, utcMonthEnd, durationHours } from "@/lib/wall-clock";
 import { checkContractAllowsWork } from "@/lib/work-contract-guard";
 import { ensureRuntimeColumns } from "@/lib/runtime-schema";
 import { runTx, ensureSqliteConcurrency } from "@/lib/tx-safe";
@@ -79,7 +79,77 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    return NextResponse.json({ workHours: enriched });
+    // ═══ 🔑 ملخص الساعات والأجور — يُحسب في الخادم (المصدر الواحد — رقم واحد §27) ═══
+    // ★ القاعدة الموحّدة لإلغاء ساعات العمل (قرار التدقيق):
+    //   pending/approved (نشط)  → يدخل في الساعات والأجور وكل الحسابات التشغيلية
+    //   rejected/cancelled      → لا يدخل في أي حساب — يبقى في القائمة للتاريخ والتدقيق فقط
+    // الاستبعاد هنا بفلتر DB صريح (status notIn) — ليس إخفاءً في الواجهة:
+    // القائمة تعرض كل السجلات (بما فيها الملغى بشارة «ملغى») لكن الإجماليات
+    // (صفوف العمال + تذييل الجدول) تُبنى من هذا الملخص النشط حصراً.
+    const summaryWhere: Record<string, unknown> = {
+      ...(currentUser.role === "superadmin" ? {} : { clubId: currentUser.clubId! }),
+      status: { notIn: ["rejected", "cancelled"] },
+    };
+    if (currentUser.role === "lifeguard") summaryWhere.userId = currentUser.id;
+    if (month) summaryWhere.date = { gte: utcMonthStart(month), lte: utcMonthEnd(month) };
+
+    const activeRows = await db.workHours.findMany({
+      where: summaryWhere,
+      select: { userId: true, startTime: true, endTime: true, note: true, rateSnapshot: true },
+    });
+
+    type UserAgg = { rawHours: number; overtime: number; presentSessions: number; absentDays: number; grossBySnapshot: number };
+    const agg = new Map<string, UserAgg>();
+    for (const r of activeRows) {
+      let breakMinutes = 0;
+      let workStatus = "present";
+      try {
+        if (r.note && r.note.startsWith("{")) {
+          const meta = JSON.parse(r.note);
+          breakMinutes = meta.breakMinutes || 0;
+          workStatus = meta.workStatus || "present";
+        }
+      } catch {}
+      const a = agg.get(r.userId) || { rawHours: 0, overtime: 0, presentSessions: 0, absentDays: 0, grossBySnapshot: 0 };
+      if (workStatus === "present") {
+        const h = durationHours(r.startTime, r.endTime, breakMinutes);
+        a.rawHours += h;
+        a.overtime += Math.max(0, h - 8);
+        a.presentSessions += 1;
+        // ★ لقطة السعر أسبق (§23 — نفس قاعدة wage-core): الأجر من لحظة التسجيل
+        //   لا من سعر اليوم — صفحة الساعات وصفحة الأجور يعرضان رقماً واحداً
+        a.grossBySnapshot += h * (r.rateSnapshot ?? empMap.get(r.userId)?.hourlyRate ?? 0);
+      } else if (workStatus === "absent") {
+        a.absentDays += 1;
+      }
+      agg.set(r.userId, a);
+    }
+
+    // نفس دلالات الواجهة السابقة حرفياً (ساعات مقرّبة 1 عشري، أجر مقرّب صحيح)
+    // — الفرق الوحيد: الملغى/المرفوض مستثنى من المصدر (الاستعلام) لا من العرض
+    const perUser = [...agg.entries()].map(([userIdKey, a]) => {
+      return {
+        userId: userIdKey,
+        presentDays: a.presentSessions,
+        absentDays: a.absentDays,
+        totalHours: Math.round(a.rawHours * 10) / 10,
+        overtime: Math.round(a.overtime * 10) / 10,
+        totalWage: Math.round(a.grossBySnapshot),
+      };
+    });
+    const summary = {
+      rule: "active-only", // pending/approved تُحسب — rejected/cancelled لا
+      perUser,
+      totals: {
+        totalHours: Math.round(perUser.reduce((s, x) => s + x.totalHours, 0) * 10) / 10,
+        overtime: Math.round(perUser.reduce((s, x) => s + x.overtime, 0) * 10) / 10,
+        totalWage: perUser.reduce((s, x) => s + x.totalWage, 0),
+        presentDays: perUser.reduce((s, x) => s + x.presentDays, 0),
+        absentDays: perUser.reduce((s, x) => s + x.absentDays, 0),
+      },
+    };
+
+    return NextResponse.json({ workHours: enriched, summary });
   } catch (e) {
     console.error("GET workhours:", e);
     return NextResponse.json({ error: "Internal" }, { status: 500 });

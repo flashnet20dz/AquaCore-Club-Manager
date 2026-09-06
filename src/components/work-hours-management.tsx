@@ -62,6 +62,33 @@ interface StaffUser {
   avatar: string | null;
 }
 
+// ★ ملخص الخادم: يُحسب في GET /api/workhours بفلتر DB صريح
+//   status notIn (rejected, cancelled) — القاعدة الموحّدة:
+//   الملغى/المرفوض لا يدخل في أي حساب تشغيلي (يبقى للعرض والتدقيق فقط)
+interface SummaryRow {
+  userId: string;
+  presentDays: number;
+  absentDays: number;
+  totalHours: number;
+  overtime: number;
+  totalWage: number;
+}
+interface MonthSummary {
+  rule: string;
+  perUser: SummaryRow[];
+  totals: {
+    totalHours: number;
+    overtime: number;
+    totalWage: number;
+    presentDays: number;
+    absentDays: number;
+  };
+}
+
+// ★ القاعدة الموحّدة: السجل النشط (pending/approved) يدخل في الحسابات —
+//   الملغى/المرفوض لا يدخل إطلاقاً (مطابق لفلتر الخادم — نفس الدلالة في المكانين)
+const isActiveRecord = (w: { status: string }) => w.status !== "cancelled" && w.status !== "rejected";
+
 const STATUS_LABELS: Record<string, string> = {
   present: "حاضر",
   absent: "غائب",
@@ -120,6 +147,7 @@ export function WorkHoursManagement({ role }: { role?: string }) {
   // ★ دور المستخدم يُمرَّر من page.tsx (sessionUser.role) — قسم المسبح للمدير فقط
   const isAdmin = role === "admin" || role === "superadmin";
   const [workHours, setWorkHours] = useState<WorkHour[]>([]);
+  const [monthSummary, setMonthSummary] = useState<MonthSummary | null>(null);
   const [staff, setStaff] = useState<StaffUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -174,6 +202,7 @@ export function WorkHoursManagement({ role }: { role?: string }) {
       if (res.ok) {
         const data = await res.json();
         setWorkHours(data.workHours || []);
+        setMonthSummary(data.summary || null);
       }
     } catch {
       toast.error("تعذر تحميل البيانات");
@@ -230,17 +259,22 @@ export function WorkHoursManagement({ role }: { role?: string }) {
   // Stats
   const stats = useMemo(() => {
     const today = toLocalYMD();
-    const todayRecords = workHours.filter((w) => new Date(w.date).toISOString().split("T")[0] === today);
+    // ★ الملغى/المرفوض لا يحسب حاضراً/غائباً اليوم (سجل لغاء = سجل معدوم تشغيلياً)
+    const todayRecords = workHours.filter(
+      (w) => isActiveRecord(w) && new Date(w.date).toISOString().split("T")[0] === today
+    );
     const presentToday = todayRecords.filter((w) => w.workStatus === "present").length;
     const absentToday = todayRecords.filter((w) => w.workStatus === "absent").length;
-    const totalHoursMonth = workHours
-      .filter((w) => w.workStatus === "present")
+    // ★ الماليات من ملخص الخادم (محسوب بفلتر DB — الملغى/المرفوض مستثنى من الاستعلام)
+    //   والاحتياط (استجابة قديمة بلا ملخص) بنفس القاعدة يدوياً — نفس الدلالة
+    const fbHours = workHours
+      .filter((w) => isActiveRecord(w) && w.workStatus === "present")
       .reduce((sum, w) => sum + calcWorkHours(w.startTime, w.endTime, w.breakMinutes), 0);
-    const totalWages = workHours
-      .filter((w) => w.workStatus === "present" && w.user.hourlyRate > 0)
+    const fbWages = workHours
+      .filter((w) => isActiveRecord(w) && w.workStatus === "present" && w.user.hourlyRate > 0)
       .reduce((sum, w) => sum + calcWorkHours(w.startTime, w.endTime, w.breakMinutes) * w.user.hourlyRate, 0);
-    const overtimeHours = workHours
-      .filter((w) => w.workStatus === "present")
+    const fbOvertime = workHours
+      .filter((w) => isActiveRecord(w) && w.workStatus === "present")
       .reduce((sum, w) => {
         const hours = calcWorkHours(w.startTime, w.endTime, w.breakMinutes);
         return sum + Math.max(0, hours - 8);
@@ -250,12 +284,12 @@ export function WorkHoursManagement({ role }: { role?: string }) {
       totalStaff: staff.length,
       presentToday,
       absentToday,
-      totalHoursMonth: Math.round(totalHoursMonth),
-      totalWages: Math.round(totalWages),
-      overtimeHours: Math.round(overtimeHours),
-      absentDays: workHours.filter((w) => w.workStatus === "absent").length,
+      totalHoursMonth: Math.round(monthSummary?.totals.totalHours ?? fbHours),
+      totalWages: Math.round(monthSummary?.totals.totalWage ?? fbWages),
+      overtimeHours: Math.round(monthSummary?.totals.overtime ?? fbOvertime),
+      absentDays: monthSummary?.totals.absentDays ?? workHours.filter((w) => isActiveRecord(w) && w.workStatus === "absent").length,
     };
-  }, [workHours, staff]);
+  }, [workHours, staff, monthSummary]);
 
   // Filtered records
   const filtered = useMemo(() => {
@@ -558,9 +592,26 @@ export function WorkHoursManagement({ role }: { role?: string }) {
   };
 
   // 🔑 جدول ملخص ساعات العمل والراتب لكل عامل
+  // ★ المصدر الوحيد: ملخص الخادم (GET /api/workhours?month=) — محسوب بفلتر DB
+  //   status notIn(rejected, cancelled): إلغاء سجل يُسقطه من الإجمالي فوراً
+  //   14س/5600 دج → إلغاء 1س/400 → 13س/5200 دج (السجل الملغى يبقى معروضاً بالأعلى)
   const staffSummary = useMemo(() => {
     return staff.map((s) => {
-      const records = workHours.filter((w) => w.userId === s.id && w.workStatus === "present");
+      const row = monthSummary?.perUser.find((x) => x.userId === s.id);
+      if (row) {
+        return {
+          ...s,
+          totalHours: row.totalHours,
+          overtime: row.overtime,
+          totalWage: row.totalWage,
+          presentDays: row.presentDays,
+          absentDays: row.absentDays,
+        };
+      }
+      // احتياط (استجابة قديمة بلا ملخص) — نفس قاعدة الخادم يدوياً
+      const records = workHours.filter(
+        (w) => w.userId === s.id && isActiveRecord(w) && w.workStatus === "present"
+      );
       const totalHours = records.reduce((sum, w) => sum + calcWorkHours(w.startTime, w.endTime, w.breakMinutes), 0);
       const overtime = records.reduce((sum, w) => {
         const h = calcWorkHours(w.startTime, w.endTime, w.breakMinutes);
@@ -568,7 +619,9 @@ export function WorkHoursManagement({ role }: { role?: string }) {
       }, 0);
       const totalWage = totalHours * (s.hourlyRate || 0);
       const presentDays = records.length;
-      const absentDays = workHours.filter((w) => w.userId === s.id && w.workStatus === "absent").length;
+      const absentDays = workHours.filter(
+        (w) => w.userId === s.id && isActiveRecord(w) && w.workStatus === "absent"
+      ).length;
       return {
         ...s,
         totalHours: Math.round(totalHours * 10) / 10,
@@ -578,7 +631,7 @@ export function WorkHoursManagement({ role }: { role?: string }) {
         absentDays,
       };
     });
-  }, [staff, workHours]);
+  }, [staff, workHours, monthSummary]);
 
   const goToPrevMonth = () => {
     const [y, m] = currentMonth.split("-").map(Number);

@@ -124,6 +124,24 @@ async function main() {
     if (leftovers.length || leftPayments.length) {
       console.log(`  🧹 تنظيف متبقيات: ${leftovers.length} سجل عمل + ${leftPayments.length} تسديد`);
     }
+    // ★ بقايا بلا وسم في نفس شهر الاختبار (يناير 2026 بيئة اختبار لهذين العاملين):
+    //   سجلات phase4 (لا تحمل TEST-P5) وسجلات timezone §26 من تشغيلات منهارة —
+    //   بدون هذا كان gross §11 و created=5 §26 يتأثرون ببقايا نشطة
+    const unlabeled = await prisma.workHours.findMany({
+      where: {
+        userId: { in: [workerA.id, workerB.id] },
+        date: { gte: new Date("2026-01-01T00:00:00.000Z"), lte: new Date("2026-01-31T23:59:59.999Z") },
+        status: { in: ["approved", "pending"] },
+      },
+      select: { id: true },
+    });
+    for (const row of unlabeled) {
+      await prisma.workHours.update({
+        where: { id: row.id },
+        data: { status: "cancelled", rejectionReason: "تنظيف متبقيات اختبار سابق" },
+      });
+    }
+    if (unlabeled.length) console.log(`  🧹 تنظيف بقايا بلا وسم: ${unlabeled.length} سجل`);
     // جلسات اختبارية متبقية من تشغيلات سابقة
     const oldSlots = await prisma.swimmingTimeSlot.findMany({ where: { name: { contains: "TEST-P5" } }, select: { id: true } });
     for (const s of oldSlots) await prisma.swimmingTimeSlot.delete({ where: { id: s.id } }).catch(() => undefined);
@@ -460,14 +478,16 @@ async function main() {
   ok("عقد الحماية أُنشئ (ينتهي 20/01)", guardContract.status === 201, guardContract.data?.contract?.contractNumber);
   const guardBlocked = await api("/api/workhours", {
     method: "POST",
-    body: JSON.stringify({ date: "2026-01-25", startTime: "09:00", endTime: "10:00", targetUserId: workerA.id, note: TEST_TAG }),
+    // ★ 06:00 — خارج أوقات حصص timezone §26 (هناك workerB قد يساوي workerA محلياً)،
+    //   والإلغاء الناعم بعدها قد يصطدم بحماية الأجر المدفوع (wp2 نشط حتى §28)
+    body: JSON.stringify({ date: "2026-01-25", startTime: "06:00", endTime: "07:00", targetUserId: workerA.id, note: TEST_TAG }),
   });
   ok("§24 رفض بعد endDate (409 contractGuard)", guardBlocked.status === 409 && guardBlocked.data?.contractGuard === true,
      `HTTP ${guardBlocked.status}`);
   ok("الرسالة واضحة", typeof guardBlocked.data?.error === "string" && guardBlocked.data.error.includes("عقد"), guardBlocked.data?.error?.slice(0, 60));
   const guardOverride = await api("/api/workhours", {
     method: "POST",
-    body: JSON.stringify({ date: "2026-01-25", startTime: "09:00", endTime: "10:00", targetUserId: workerA.id, note: TEST_TAG, allowAfterContractEnd: true }),
+    body: JSON.stringify({ date: "2026-01-25", startTime: "06:00", endTime: "07:00", targetUserId: workerA.id, note: TEST_TAG, allowAfterContractEnd: true }),
   });
   ok("تجاوز المدير الصريح → 201", guardOverride.status === 201, `HTTP ${guardOverride.status}`);
   if (guardOverride.data?.workHour?.id) {
