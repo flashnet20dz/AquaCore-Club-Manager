@@ -4,6 +4,7 @@ import { getCurrentUser, hasPermission } from "@/lib/session";
 import { parseWallDateTime, utcMonthStart, utcMonthEnd } from "@/lib/wall-clock";
 import { checkContractAllowsWork } from "@/lib/work-contract-guard";
 import { ensureRuntimeColumns } from "@/lib/runtime-schema";
+import { runTx, ensureSqliteConcurrency } from "@/lib/tx-safe";
 
 export async function GET(req: NextRequest) {
   try {
@@ -87,6 +88,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    ensureSqliteConcurrency(); // WAL + busy_timeout (جذر تزامن سطح المكتب — إصلاح P2028)
     await ensureRuntimeColumns();
     const currentUser = await getCurrentUser();
     if (!currentUser || !hasPermission(currentUser.role, "workHours")) {
@@ -126,34 +128,38 @@ export async function POST(req: NextRequest) {
     });
 
     if (isAbsence) {
-      const workHour = await db.workHours.create({
-        data: {
-          clubId: currentUser.clubId!,
-          userId: targetUserId || currentUser.id,
-          date: parseWallDateTime(date, "00:00"),
-          startTime: parseWallDateTime(date, "00:00"),
-          endTime: parseWallDateTime(date, "00:00"),
-          note: noteMeta,
-          status: currentUser.role === "admin" || currentUser.role === "superadmin" ? "approved" : "pending",
-          approvedById: (currentUser.role === "admin" || currentUser.role === "superadmin") ? currentUser.id : null,
-          approvedAt: (currentUser.role === "admin" || currentUser.role === "superadmin") ? new Date() : null,
-          rateSnapshot,
+      // الغياب: إنشاء + تدقيق في معاملة واحدة ذرّية (runTx — تحمّل P2028 العابر)
+      const workHour = await runTx(
+        async (tx) => {
+          const wh = await tx.workHours.create({
+            data: {
+              clubId: currentUser.clubId!,
+              userId: targetUserId || currentUser.id,
+              date: parseWallDateTime(date, "00:00"),
+              startTime: parseWallDateTime(date, "00:00"),
+              endTime: parseWallDateTime(date, "00:00"),
+              note: noteMeta,
+              status: currentUser.role === "admin" || currentUser.role === "superadmin" ? "approved" : "pending",
+              approvedById: (currentUser.role === "admin" || currentUser.role === "superadmin") ? currentUser.id : null,
+              approvedAt: (currentUser.role === "admin" || currentUser.role === "superadmin") ? new Date() : null,
+              rateSnapshot,
+            },
+          });
+          await tx.auditLog.create({
+            data: {
+              clubId: currentUser.clubId,
+              userId: currentUser.id,
+              action: "work_hour_create",
+              entityType: "WorkHours",
+              entityId: wh.id,
+              description: `تسجيل غياب/عطلة للعامل (${workStatus}) بتاريخ ${date}`,
+              metadata: JSON.stringify({ workStatus, date }),
+            },
+          }).catch(() => undefined); // التدقيق اختياري — لا يفشل التسجيل
+          return wh;
         },
-        include: {
-          user: { select: { id: true, name: true, email: true, role: true } },
-        },
-      });
-      await db.auditLog.create({
-        data: {
-          clubId: currentUser.clubId,
-          userId: currentUser.id,
-          action: "work_hour_create",
-          entityType: "WorkHours",
-          entityId: workHour.id,
-          description: `تسجيل غياب/عطلة للعامل (${workStatus}) بتاريخ ${date}`,
-          metadata: JSON.stringify({ workStatus, date }),
-        },
-      }).catch(() => undefined);
+        "workhours-absence"
+      );
       return NextResponse.json({ workHour }, { status: 201 });
     }
 
@@ -216,37 +222,51 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "الفرق بين وقت البداية والنهاية قليل جداً" }, { status: 400 });
     }
 
-    const workHour = await db.workHours.create({
-      data: {
-        clubId: currentUser.clubId!,
-        userId: targetUserId || currentUser.id,
-        date: parseWallDateTime(date, "00:00"),
-        startTime: startDate,
-        endTime: endDate,
-        note: noteMeta,
-        status: currentUser.role === "admin" || currentUser.role === "superadmin" ? "approved" : "pending",
-        approvedById: (currentUser.role === "admin" || currentUser.role === "superadmin") ? currentUser.id : null,
-        approvedAt: (currentUser.role === "admin" || currentUser.role === "superadmin") ? new Date() : null,
-        rateSnapshot,
-      },
-      include: {
-        user: { select: { id: true, name: true, email: true, role: true } },
-      },
-    });
-
-    await db.auditLog.create({
-      data: {
-        clubId: currentUser.clubId,
-        userId: currentUser.id,
-        action: "work_hour_create",
-        entityType: "WorkHours",
-        entityId: workHour.id,
-        description: `تسجيل ساعة عمل ${startTime}→${endTime} بتاريخ ${date}`,
-        metadata: JSON.stringify({ startTime, endTime, date, rateSnapshot }),
-      },
-    }).catch(() => undefined);
-
-    return NextResponse.json({ workHour }, { status: 201 });
+    // ★ المعاملة الذرّية: إنشاء + تدقيق معاً (runTx — maxWait مُبرَّر + تحمّل P2028 العابر).
+    // P2002 (فهرس WorkHours_active_user_date_start_key) = سباق تكرار متزامن →
+    // استجابة 409 واضحة تحدد الحصة المكررة — لا ازدواج على مستوى القاعدة.
+    try {
+      const workHour = await runTx(
+        async (tx) => {
+          const wh = await tx.workHours.create({
+            data: {
+              clubId: currentUser.clubId!,
+              userId: targetUserId || currentUser.id,
+              date: parseWallDateTime(date, "00:00"),
+              startTime: startDate,
+              endTime: endDate,
+              note: noteMeta,
+              status: currentUser.role === "admin" || currentUser.role === "superadmin" ? "approved" : "pending",
+              approvedById: (currentUser.role === "admin" || currentUser.role === "superadmin") ? currentUser.id : null,
+              approvedAt: (currentUser.role === "admin" || currentUser.role === "superadmin") ? new Date() : null,
+              rateSnapshot,
+            },
+          });
+          await tx.auditLog.create({
+            data: {
+              clubId: currentUser.clubId,
+              userId: currentUser.id,
+              action: "work_hour_create",
+              entityType: "WorkHours",
+              entityId: wh.id,
+              description: `تسجيل ساعة عمل ${startTime}→${endTime} بتاريخ ${date}`,
+              metadata: JSON.stringify({ startTime, endTime, date, rateSnapshot }),
+            },
+          }).catch(() => undefined); // التدقيق اختياري — لا يفشل التسجيل
+          return wh;
+        },
+        "workhours-single"
+      );
+      return NextResponse.json({ workHour }, { status: 201 });
+    } catch (e) {
+      if ((e as { code?: string })?.code === "P2002") {
+        return NextResponse.json(
+          { error: `سجل مكرر — نفس العامل مسجّل في نفس اليوم ونفس وقت البداية (${startTime})`, duplicate: true, startTime },
+          { status: 409 }
+        );
+      }
+      throw e;
+    }
   } catch (e) {
     console.error("POST workhours:", e);
     return NextResponse.json({ error: e instanceof Error ? e.message : "Internal" }, { status: 500 });

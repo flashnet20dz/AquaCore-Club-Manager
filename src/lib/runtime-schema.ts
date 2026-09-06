@@ -141,6 +141,20 @@ export async function ensureRuntimeColumns(): Promise<void> {
       await db.$executeRawUnsafe(idx).catch(() => undefined);
     }
   } catch { /* الفهرس اختياري — التحقق الاستباقي داخل المعاملة يغطي */ }
+
+  // ★ إصلاح P2028/التكرار: فريد جزئي على سجل العمل النشط
+  //   (club + worker + day + start-time) — منع الازدواج على مستوى القاعدة
+  //   (سباق النقر المزدوج/طلبان متزامنان = P2002 يُعالَج كاستجابة «مكرر» نظيفة
+  //   لا 8 سجلات). الملغى/المرفوض مستثنون → إعادة التسجيل بعد الإلغاء تبقى
+  //   مشروعة (سلوك المرحلة 5 — notIn rejected+cancelled). جزئي → مدعوم
+  //   على PostgreSQL وSQLite معاً بنفس الصيغة.
+  try {
+    if (!(await indexExists(db, "WorkHours_active_user_date_start_key"))) {
+      const idx = `CREATE UNIQUE INDEX IF NOT EXISTS "WorkHours_active_user_date_start_key" ON "WorkHours"("clubId", "userId", "date", "startTime") WHERE "status" NOT IN ('rejected', 'cancelled')`;
+      await db.$executeRawUnsafe(idx).catch(() => undefined);
+    }
+  } catch { /* الفهرس اختياري — التحقق داخل المعاملة يغطي */ }
+
   runtimeDdlDone = true;
 }
 

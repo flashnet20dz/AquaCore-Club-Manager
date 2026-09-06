@@ -23,6 +23,22 @@ export const db =
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
 
+// 🛡️ إصلاح «Unable to start a transaction in the given time» على SQLite (Desktop):
+// journal_mode=delete يجعل القراءات الطويلة (مزامنة المنخرطين، لوحة المالية)
+// تحجب الكاتب فجوع BEGIN لمعاملة التسجيل → P2028. WAL يفصل القراء عن الكاتب
+// (قارئ واحد+كاتب متزامنين) — يُحفظ في ملف القاعدة فلا يحتاج إعادة، وidempotent.
+// PostgreSQL (الويب) غير متأثر — الفحص يعزل البيئتين.
+if ((process.env.DATABASE_URL || '').startsWith('file:')) {
+  void db
+    .$queryRawUnsafe<unknown[]>('PRAGMA journal_mode=WAL')
+    .then((m) => {
+      const mode = Array.isArray(m) && m[0] && typeof m[0] === 'object' ? String((m[0] as Record<string, unknown>).journal_mode) : '؟';
+      console.log('[db] sqlite journal_mode=' + mode);
+      return db.$queryRawUnsafe('PRAGMA busy_timeout=8000');
+    })
+    .catch((e) => console.warn('[db] sqlite WAL setup skipped:', e instanceof Error ? e.message.slice(0, 120) : e));
+}
+
 /**
  * هل نحن في وضع Desktop (SQLite)؟
  */
