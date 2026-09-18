@@ -40,6 +40,9 @@ next-env.d.ts
 # Database
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
+*.bak
 db/
 
 # IDE

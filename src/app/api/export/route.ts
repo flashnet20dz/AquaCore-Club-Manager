@@ -228,8 +228,35 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
     const format = url.searchParams.get("format") || "xlsx";
     const type = url.searchParams.get("type") || "subscribers";
+    const requestedTitle = url.searchParams.get("title");
     const sigs = url.searchParams.get("sigs")?.split(",").filter(Boolean) || [];
     const origin = url.origin;
+
+    // ── استخراج العنوان الفعلي (من الرابط أو من إعدادات قاعدة البيانات) ──
+    let effectiveTitle = requestedTitle?.trim();
+    if (!effectiveTitle && currentUser.clubId) {
+      try {
+        const prefSetting = await db.setting.findFirst({
+          where: { clubId: currentUser.clubId, key: "pageNavPreferences" },
+        });
+        if (prefSetting?.value) {
+          const prefs = JSON.parse(prefSetting.value) as Record<string, { id: string; customLabel?: string; customExportTitle?: string }>;
+          for (const p of Object.values(prefs)) {
+            if (p.customExportTitle && (type.includes(p.id) || p.id.includes(type))) {
+              effectiveTitle = p.customExportTitle;
+              break;
+            }
+            if (p.customLabel && (type.includes(p.id) || p.id.includes(type))) {
+              effectiveTitle = p.customLabel;
+              break;
+            }
+          }
+        }
+      } catch {}
+    }
+    if (!effectiveTitle) {
+      effectiveTitle = FULL_TITLE_MAP[type] || type;
+    }
 
     // ── New filter params: ids (subscriber selection) + from/to (date range) ──
     const ids = url.searchParams.get("ids")?.split(",").filter(Boolean) || [];
@@ -265,11 +292,11 @@ export async function GET(req: NextRequest) {
     const enteteConfig = await loadEnteteConfig(currentUser.clubId ?? null);
 
     if (format === "xlsx" || format === "excel") {
-      return await exportExcel(type, filters, { year: compoundYear, month: compoundMonth });
+      return await exportExcel(type, filters, { year: compoundYear, month: compoundMonth }, effectiveTitle);
     } else if (format === "pdf") {
-      return await exportPdf(type, sigs, enteteConfig, origin, filters, { year: compoundYear, month: compoundMonth });
+      return await exportPdf(type, sigs, enteteConfig, origin, filters, { year: compoundYear, month: compoundMonth }, effectiveTitle);
     } else if (format === "word" || format === "doc") {
-      return await exportWord(type, sigs, enteteConfig, origin, filters, { year: compoundYear, month: compoundMonth });
+      return await exportWord(type, sigs, enteteConfig, origin, filters, { year: compoundYear, month: compoundMonth }, effectiveTitle);
     }
 
     return NextResponse.json({ error: "Invalid format" }, { status: 400 });
@@ -279,22 +306,28 @@ export async function GET(req: NextRequest) {
   }
 }
 
-async function exportExcel(type: string, filters: ExportFilters = { club: {}, sub: {}, att: {}, ren: {} }, compoundParams?: { year?: string | null; month?: string | null }) {
+async function exportExcel(
+  type: string,
+  filters: ExportFilters = { club: {}, sub: {}, att: {}, ren: {} },
+  compoundParams?: { year?: string | null; month?: string | null },
+  customTitle?: string
+) {
   const queryType = TYPE_ALIASES[type] || type;
   const wb = XLSX.utils.book_new();
   const today = formatDate(new Date());
+  const effectiveTitle = customTitle || FULL_TITLE_MAP[type] || type;
 
   // En-tête data (top rows in each sheet)
   const headerRows: (string | number)[][] = [
     ["نادي RCS للسباحة - RCS Club"],
     [`الرقم: . . ./ن.ر.ه.ر.س ${new Date().getFullYear()}`],
     [`سعيدة في: ${today}`],
-    [FULL_TITLE_MAP[type] || type],
+    [effectiveTitle],
     [],
   ];
 
   let dataRows: Record<string, unknown>[] = [];
-  let sheetName = "البيانات";
+  let sheetName = effectiveTitle.replace(/[\\/*?[\]:]/g, "").slice(0, 31) || "البيانات";
 
   if (queryType === "subscribers") {
     const subs = await db.subscriber.findMany({ where: filters.sub, orderBy: { createdAt: "asc" } });
@@ -520,20 +553,32 @@ async function exportExcel(type: string, filters: ExportFilters = { club: {}, su
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
 
   const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
-  const filename = `RCS_${type}_${new Date().toISOString().split("T")[0]}.xlsx`;
+  const cleanTitle = (customTitle || FULL_TITLE_MAP[type] || type).replace(/[\\/:*?"<>|]/g, "_").trim();
+  const dateStr = new Date().toISOString().split("T")[0];
+  const asciiFallback = `AquaCore_${type}_${dateStr}.xlsx`;
+  const utf8Filename = `AquaCore_${cleanTitle}_${dateStr}.xlsx`;
+
   return new NextResponse(buf, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Disposition": `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(utf8Filename)}`,
     },
   });
 }
 
-async function exportPdf(type: string, _sigs: string[], _enteteConfig: EnteteConfig, _origin: string, filters: ExportFilters = { club: {}, sub: {}, att: {}, ren: {} }, compoundParams?: { year?: string | null; month?: string | null }) {
+async function exportPdf(
+  type: string,
+  _sigs: string[],
+  _enteteConfig: EnteteConfig,
+  _origin: string,
+  filters: ExportFilters = { club: {}, sub: {}, att: {}, ren: {} },
+  compoundParams?: { year?: string | null; month?: string | null },
+  customTitle?: string
+) {
   const queryType = TYPE_ALIASES[type] || type;
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
 
-  const title = FULL_TITLE_MAP[type] || type;
+  const title = customTitle || FULL_TITLE_MAP[type] || type;
   const startY = drawEnTete(doc, title);
 
   let head: string[] = [];
@@ -682,11 +727,15 @@ async function exportPdf(type: string, _sigs: string[], _enteteConfig: EnteteCon
   });
 
   const buf = doc.output("arraybuffer");
-  const filename = `RCS_${type}_${new Date().toISOString().split("T")[0]}.pdf`;
+  const cleanTitle = (customTitle || title).replace(/[\\/:*?"<>|]/g, "_").trim();
+  const dateStr = new Date().toISOString().split("T")[0];
+  const asciiFallback = `AquaCore_${type}_${dateStr}.pdf`;
+  const utf8Filename = `AquaCore_${cleanTitle}_${dateStr}.pdf`;
+
   return new NextResponse(buf, {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Disposition": `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(utf8Filename)}`,
     },
   });
 }
@@ -824,13 +873,21 @@ function generateEnteteHTML(title: string, config: EnteteConfig, origin: string)
   `;
 }
 
-async function exportWord(type: string, sigs: string[] = [], enteteConfig: EnteteConfig = DEFAULT_ENTETE_CONFIG, origin: string = "", filters: ExportFilters = { club: {}, sub: {}, att: {}, ren: {} }, compoundParams?: { year?: string | null; month?: string | null }) {
+async function exportWord(
+  type: string,
+  sigs: string[] = [],
+  enteteConfig: EnteteConfig = DEFAULT_ENTETE_CONFIG,
+  origin: string = "",
+  filters: ExportFilters = { club: {}, sub: {}, att: {}, ren: {} },
+  compoundParams?: { year?: string | null; month?: string | null },
+  customTitle?: string
+) {
   const queryType = TYPE_ALIASES[type] || type;
   const today = new Date();
   const year = today.getFullYear();
   const dateStr = formatDate(today);
 
-  const title = FULL_TITLE_MAP[type] || type;
+  const title = customTitle || FULL_TITLE_MAP[type] || type;
 
   let tableHeaders = "";
   let tableRows = "";
@@ -1035,14 +1092,18 @@ ${sigsHTML}
 </body>
 </html>`;
 
-  const filename = `RCS_${type}_${new Date().toISOString().split("T")[0]}.doc`;
+  const cleanTitle = title.replace(/[\\/:*?"<>|]/g, "_").trim();
+  const fileDateStr = new Date().toISOString().split("T")[0];
+  const asciiFallback = `AquaCore_${type}_${fileDateStr}.doc`;
+  const utf8Filename = `AquaCore_${cleanTitle}_${fileDateStr}.doc`;
+
   return new NextResponse(html, {
     headers: {
       // ★ application/msword is the correct MIME for HTML-based .doc files
       // (the previous .docx MIME caused Word to render the file as empty
       // because .docx is a ZIP-based format, not HTML)
       "Content-Type": "application/msword; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Disposition": `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(utf8Filename)}`,
     },
   });
 }

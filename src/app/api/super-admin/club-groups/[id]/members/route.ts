@@ -25,12 +25,14 @@ export async function POST(
     }
 
     // إضافة (تجاهل الموجود بالفعل)
-    const created = await db.clubGroupMember.createMany({
+    const isSqlite = (process.env.DATABASE_URL || "").startsWith("file:");
+    const createArgs: any = {
       data: clubIds.map((clubId: string) => ({ groupId: id, clubId })),
-      // SQLite-generated client omits skipDuplicates from its types (and rejects it at runtime);
-      // production PostgreSQL client supports it — `as never` keeps runtime unchanged.
-      skipDuplicates: true as never,
-    });
+    };
+    if (!isSqlite) {
+      createArgs.skipDuplicates = true;
+    }
+    const created = await db.clubGroupMember.createMany(createArgs);
 
     await auditLogWithRequest(req, currentUser, {
       action: "update", entityType: "club_group", entityId: id,

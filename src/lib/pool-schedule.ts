@@ -108,11 +108,13 @@ export function sessionsForDay(
     .sort((a, b) => a.startTime.localeCompare(b.startTime) || (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 }
 
-/** هل المسبح مفتوح في يوم معيّن حسب إعداد أيام الاستغلال؟ (غياب الإعداد = كل الأيام) */
+/** هل المسبح مفتوح في يوم معيّن حسب إعداد أيام الاستغلال؟ (يدعم المفاتيح النصية sat-fri والرقمية 0-6) */
 export function isOperatingDay(operatingDays: string[] | null | undefined, dayKey: string | null | undefined): boolean {
   if (!dayKey) return false;
   if (!operatingDays || operatingDays.length === 0) return true; // الإعداد الافتراضي: كل الأيام
-  return operatingDays.includes(dayKey);
+  const match = POOL_DAYS.find((d) => d.key === dayKey);
+  const jsDayStr = match !== undefined ? String(match.jsDay) : null;
+  return operatingDays.includes(dayKey) || (jsDayStr !== null && operatingDays.includes(jsDayStr));
 }
 
 /** مجموع ساعات قائمة جلسات (wall-clock) */
@@ -131,4 +133,72 @@ export function slotLabel(s: Pick<PoolSlot, "startTime" | "endTime">): string {
  */
 export function slotSnapshot(s: PoolSlot): { slotId: string; name: string; startTime: string; endTime: string } {
   return { slotId: s.id, name: s.name, startTime: s.startTime, endTime: s.endTime };
+}
+
+// ─── تصنيف الفترات الزمنية لليوم (الصباحية / الظهيرة / المسائية / الليلية) ───
+export type DayPeriodKey = "morning" | "midday" | "evening" | "night";
+
+export interface PeriodInfo {
+  key: DayPeriodKey;
+  label: string;
+  sublabel: string;
+  range: string;
+  badgeColor: string;
+}
+
+export const DAY_PERIODS: Record<DayPeriodKey, PeriodInfo> = {
+  morning: {
+    key: "morning",
+    label: "الفترة الصباحية",
+    sublabel: "جلسات الصباح والتدريب المبكر",
+    range: "06:00 - 12:00",
+    badgeColor: "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30",
+  },
+  midday: {
+    key: "midday",
+    label: "فترة الظهيرة",
+    sublabel: "حصص منتصف اليوم والاستراحة",
+    range: "12:00 - 15:00",
+    badgeColor: "bg-sky-500/15 text-sky-700 dark:text-sky-400 border-sky-500/30",
+  },
+  evening: {
+    key: "evening",
+    label: "الفترة المسائية",
+    sublabel: "حصص ذروة الإقبال وما بعد الدوام",
+    range: "15:00 - 19:00",
+    badgeColor: "bg-teal-500/15 text-teal-700 dark:text-teal-400 border-teal-500/30",
+  },
+  night: {
+    key: "night",
+    label: "الفترة الليلية",
+    sublabel: "جلسات السباحة الحرة والتدريب الليلي",
+    range: "19:00 - 23:59",
+    badgeColor: "bg-indigo-500/15 text-indigo-700 dark:text-indigo-400 border-indigo-500/30",
+  },
+};
+
+/** تحديد الفترة الزمنية لحصة معينة حسب وقت بدايتها (HH:mm) */
+export function getSlotPeriod(startTime: string): DayPeriodKey {
+  if (!startTime) return "morning";
+  const hour = parseInt(startTime.split(":")[0], 10) || 0;
+  if (hour < 12) return "morning";
+  if (hour < 15) return "midday";
+  if (hour < 19) return "evening";
+  return "night";
+}
+
+/** العثور على الفوج المزدوج الذي يتبعه يوم معين */
+export function findGroupByDayKey<T extends { dayKeys: number[] }>(
+  groups: T[],
+  dayKey: string | null | undefined
+): T | undefined {
+  if (!dayKey) return undefined;
+  const match = POOL_DAYS.find((d) => d.key === dayKey);
+  if (!match) return undefined;
+  // البحث أولاً عن الأفواج المزدوجة المحددة (ليست الشاملة لكل الأيام)
+  const specificGroup = groups.find(
+    (g) => g.dayKeys.length <= 3 && g.dayKeys.includes(match.jsDay)
+  );
+  if (specificGroup) return specificGroup;
+  return groups.find((g) => g.dayKeys.includes(match.jsDay));
 }

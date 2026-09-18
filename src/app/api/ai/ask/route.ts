@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/session";
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
 import ZAI from "z-ai-web-dev-sdk";
 import { parseSwimmingDays } from "@/lib/rcs";
+import { generateLocalAIResponse } from "@/lib/local-ai-engine";
 
 /**
  * POST /api/ai/ask
@@ -202,18 +203,28 @@ export async function POST(req: NextRequest) {
       JSON.stringify(metrics, null, 2),
     ].join("\n");
 
-    const zai = await ZAI.create();
-    const completion = await zai.chat.completions.create({
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...history.map((m) => ({ role: m.role, content: m.content })),
-      ],
-      thinking: { type: "disabled" },
-    });
+    const lastUserMsg = history[history.length - 1]?.content || "";
+    let answer: string | undefined;
 
-    const answer = completion.choices[0]?.message?.content;
+    // 1) محاولة الاستعلام عبر ZAI إن كان مهيأً
+    try {
+      const zai = await ZAI.create();
+      const completion = await zai.chat.completions.create({
+        messages: [
+          { role: "system", content: systemPrompt },
+          ...history.map((m) => ({ role: m.role, content: m.content })),
+        ],
+        thinking: { type: "disabled" },
+      });
+      answer = completion.choices[0]?.message?.content;
+    } catch (zaiErr) {
+      // في حال عدم توفر اتصال أو مفتاح ZAI خارجي، نعتمد المحرك المحلي الذكي دون انقطاع
+      console.warn("ZAI not available or unconfigured, utilizing embedded local AI engine:", zaiErr);
+    }
+
+    // 2) في حال عدم توفر أو تعثر ZAI الخارجي، نعتمد على محرك الذكاء الاصطناعي التحليلي الفوري
     if (!answer || !answer.trim()) {
-      return NextResponse.json({ error: "لم يصل رد من المساعد — أعد المحاولة" }, { status: 502 });
+      answer = generateLocalAIResponse(lastUserMsg, metrics as any);
     }
 
     return NextResponse.json({ answer });

@@ -8,38 +8,23 @@ import { ensureRuntimeColumns } from "@/lib/runtime-schema";
 import { runTx, ensureSqliteConcurrency } from "@/lib/tx-safe";
 
 /**
- * POST /api/workhours/bulk — تسجيل عدة حصص دفعة واحدة (المرحلة 4 — §11)
- * ═══════════════════════════════════════════════════════════════════════
- * Body: { userId, date: "YYYY-MM-DD", slotIds: string[], note?, breakMinutes? }
- *
- * - الحصص تُقرأ من إعدادات المسبح (SwimmingTimeSlot) — المصدر الموحّد.
- *   لا يُقبل slotId لا ينتمي للنادي أو معطّل.
- * - لكل حصة يُنشأ سجل WorkHours مستقل بأوقاتها الحرفية (wall-clock UTC)
- *   مع لقطة {slotId, name, startTime, endTime} في note JSON (§27 تاريخية)
- *   وربط slotId + لقطة سعر الساعة rateSnapshot (المرحلة 5: §6/§23).
- * - الحصص المكررة (نفس العامل+اليوم+نفس وقت البداية) تُتخطى ولا تفشل العملية (§13).
- * - المسبح المغلق في ذلك اليوم يرفض الطلب كله (نفس قاعدة /api/workhours).
- * - ★ المرحلة 5 (§24): عقد منتهٍ يرفض الطلب (تجاوز المدير allowAfterContractEnd=true).
- * - كل شيء داخل معاملة واحدة: إما كل الحصص غير المكررة تُسجَّل أو لا شيء.
- *
- * ★ إصلاح «Unable to start a transaction in the given time» (P2028) + التكرار:
- *  - معمارية القراءة الواحدة + الكتابة الذرّية واحدة محفوظة كما هي (لا معاملة
- *    لكل حصة، ولا رفع مهلة لإخفاء السبب — بل غلاف runTx المُبرَّر أدناه).
- *  - المعاملة عبر runTx: maxWait=10s (صحوة Neon الباردة/طابور الاتصالات على
- *    الويب — وبديل WAL على سطح المكتب) + إعادة محاولة على فشل البدء العابر
- *    (P2028 = لم يُنفَّذ شيء → إعادة آمنة) + تسجيل تشخيصي.
- *  - إعادة فحص التكرار داخل المعاملة نفسها (يغلق نافذة السباق بين الطلبين).
- *  - فريد جزئي DB-level (WorkHours_active_user_date_start_key): السباق
- *    المتزامن الحقيقي يوقفه الفهرس (P2002) → محاولة كاملة واحدة إضافية ترى
- *    صفوف الطلب الآخر → استجابة «مكرر» نظيفة. لا 8 سجلات أبداً.
- *
- * Response: { created, skipped, totalHours, records: [...] }
+ * POST /api/workhours/bulk — تسجيل ساعات عمل لعمال متعددين وحصص متعددة دفعة واحدة
+ * ═════════════════════════════════════════════════════════════════════════════════
+ * يدعم:
+ * 1) اختيار عامل واحد أو عدة عمال: userIds: string[] (أو userId للتوافق القديم)
+ * 2) اختيار حصة واحدة أو عدة حصص: slotIds: string[]
+ * 3) عملية ذرّية حقيقية (Atomic - All or Nothing):
+ *    إما يتم تسجيل كل السجلات لجميع العمال والحصص بنجاح، أو لا يُنشأ أي سجل إطلاقاً.
+ * 4) منع التكرار الصارم على مستوى الخادم وقاعدة البيانات:
+ *    (نفس النادي + نفس العامل + نفس التاريخ + نفس الحصة أو نفس وقت البدء)
+ * 5) لا تنشئ أي عملية مالية (WorkHours = ساعات مستحقة فقط، الدفع الفعلي يتم لاحقاً عبر المركز المالي والأجور)
  */
 
 export async function POST(req: NextRequest) {
   try {
-    ensureSqliteConcurrency(); // WAL + busy_timeout (جذر تزامن سطح المكتب)
+    ensureSqliteConcurrency(); // WAL + busy_timeout للتزامن
     await ensureRuntimeColumns();
+
     const currentUser = await getCurrentUser();
     if (!currentUser || !hasPermission(currentUser.role, "workHours")) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
@@ -50,23 +35,45 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "بيانات غير صالحة" }, { status: 400 });
     }
 
-    const userId: string =
-      typeof body.userId === "string" && body.userId
-        ? body.userId
-        : typeof body.targetUserId === "string" && body.targetUserId
-          ? body.targetUserId
-          : currentUser.id;
-    const date: string = typeof body.date === "string" ? body.date : "";
-    const rawSlotIds: unknown = body.slotIds ?? body.slotId;
-    const slotIds: string[] = Array.isArray(rawSlotIds)
-      ? rawSlotIds.filter((x): x is string => typeof x === "string" && Boolean(x))
-      : typeof rawSlotIds === "string" && rawSlotIds
-        ? [rawSlotIds]
-        : [];
+    // 1) استخراج قائمة العمال (دعم الاختيار المتعدد مع التوافق التام مع المفرد القديم)
+    const rawUserIds: unknown = body.userIds ?? body.targetUserIds ?? body.userId ?? body.targetUserId;
+    const userIds: string[] = Array.from(
+      new Set(
+        (Array.isArray(rawUserIds)
+          ? rawUserIds
+          : typeof rawUserIds === "string" && rawUserIds
+            ? [rawUserIds]
+            : [currentUser.id]
+        ).filter((x): x is string => typeof x === "string" && Boolean(x.trim()))
+      )
+    );
 
+    if (userIds.length === 0) {
+      return NextResponse.json({ error: "اختر عاملاً واحداً على الأقل" }, { status: 400 });
+    }
+    if (userIds.length > 50) {
+      return NextResponse.json({ error: "عدد العمال كبير جداً (الحد الأقصى 50)" }, { status: 400 });
+    }
+
+    // 2) استخراج وتدقيق التاريخ
+    const date: string = typeof body.date === "string" ? body.date : "";
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return NextResponse.json({ error: "التاريخ مطلوب بصيغة YYYY-MM-DD" }, { status: 400 });
     }
+
+    // 3) استخراج وتدقيق الحصص
+    const rawSlotIds: unknown = body.slotIds ?? body.slotId;
+    const slotIds: string[] = Array.from(
+      new Set(
+        (Array.isArray(rawSlotIds)
+          ? rawSlotIds
+          : typeof rawSlotIds === "string" && rawSlotIds
+            ? [rawSlotIds]
+            : []
+        ).filter((x): x is string => typeof x === "string" && Boolean(x.trim()))
+      )
+    );
+
     if (slotIds.length === 0) {
       return NextResponse.json({ error: "اختر حصة واحدة على الأقل" }, { status: 400 });
     }
@@ -77,40 +84,51 @@ export async function POST(req: NextRequest) {
     const allowAfterContractEnd = body?.allowAfterContractEnd === true;
     const isAdminRole = currentUser.role === "admin" || currentUser.role === "superadmin";
 
-    // ★ المرحلة 5 (§24): حماية العقد — لا تسجيل بعد انتهاء العقد إلا بتجاوز صريح
+    // 4) التحقق من وجود جميع العمال داخل النادي
+    const workers = await db.user.findMany({
+      where: { id: { in: userIds }, clubId },
+      select: { id: true, name: true, role: true },
+    });
+    if (workers.length !== userIds.length) {
+      const foundIds = new Set(workers.map((w) => w.id));
+      const missing = userIds.filter((id) => !foundIds.has(id));
+      return NextResponse.json({ error: `بعض العمال المحددين غير موجودين: ${missing.join(", ")}` }, { status: 404 });
+    }
+    const workerMap = new Map(workers.map((w) => [w.id, w]));
+
+    // 5) فحص حماية العقود لكل عامل إن لم يكن هناك تجاوز صريح من المدير
     if (!allowAfterContractEnd) {
-      const guard = await checkContractAllowsWork(clubId, userId, date);
-      if (!guard.ok) {
-        return NextResponse.json(
-          { error: guard.message, contractGuard: true },
-          { status: isAdminRole ? 409 : 403 }
-        );
+      for (const uid of userIds) {
+        const guard = await checkContractAllowsWork(clubId, uid, date);
+        if (!guard.ok) {
+          const wName = workerMap.get(uid)?.name || uid;
+          return NextResponse.json(
+            { error: `العامل ${wName}: ${guard.message}`, contractGuard: true, userId: uid },
+            { status: isAdminRole ? 409 : 403 }
+          );
+        }
       }
     }
 
-    // ★ المرحلة 5 (§23): لقطة سعر الساعة وقت التسجيل (لكل السجلات المُنشأة الآن)
-    const empForRate = await db.employee.findFirst({
-      where: { clubId, userId, status: { not: "ARCHIVED" } },
-      orderBy: { createdAt: "desc" },
-      select: { hourRate: true },
+    // 6) جلب لقطات سعر الساعة لكل عامل (من بطاقة الموظف أو الإعداد الافتراضي)
+    const empRecords = await db.employee.findMany({
+      where: { clubId, userId: { in: userIds }, status: { not: "ARCHIVED" } },
+      select: { userId: true, hourRate: true },
     });
-    let rateSnapshot: number | null = empForRate?.hourRate ?? null;
-    if (rateSnapshot === null) {
-      const defRate = await db.setting.findFirst({ where: { clubId, key: "workHourRate" } });
-      rateSnapshot = parseInt(defRate?.value || "200") || 200;
+    const empRateMap = new Map(empRecords.map((e) => [e.userId, e.hourRate]));
+    const defRateSetting = await db.setting.findFirst({ where: { clubId, key: "workHourRate" } });
+    const defaultRate = parseInt(defRateSetting?.value || "200") || 200;
+
+    const rateByUserId = new Map<string, number>();
+    for (const uid of userIds) {
+      rateByUserId.set(uid, empRateMap.get(uid) ?? defaultRate);
     }
 
     const breakMinutes = Number.isFinite(+body.breakMinutes) ? Math.max(0, Math.floor(+body.breakMinutes)) : 0;
     const textNote = typeof body.note === "string" ? body.note.trim() : "";
+    const requestedWorkStatus = typeof body.workStatus === "string" && body.workStatus ? body.workStatus : "present";
 
-    // العامل داخل النادي
-    const worker = await db.user.findFirst({
-      where: { id: userId, clubId },
-      select: { id: true, name: true },
-    });
-    if (!worker) return NextResponse.json({ error: "العامل غير موجود" }, { status: 404 });
-
-    // ★ حارس يوم الاستغلال (نفس منطق /api/workhours POST)
+    // 7) فحص يوم تشغيل واستغلال المسبح
     const recordDayKey = dayKeyFromDate(date);
     const opDaysRaw = await db.setting.findFirst({ where: { clubId, key: "poolOperatingDays" } });
     if (opDaysRaw?.value && recordDayKey) {
@@ -122,10 +140,12 @@ export async function POST(req: NextRequest) {
             { status: 400 }
           );
         }
-      } catch { /* إعداد تالف → نتجاهل */ }
+      } catch {
+        /* تجاهل في حال كان الإعداد تالفاً */
+      }
     }
 
-    // الحصص المطلوبة — من الإعدادات فقط، نشطة، ولهذا اليوم أو عامة
+    // 8) جلب الحصص المحددة من جدول المسبح
     const slots = await db.swimmingTimeSlot.findMany({
       where: { clubId, id: { in: slotIds }, active: true },
     });
@@ -143,151 +163,218 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // حصص العامل المسجّلة مسبقاً في نفس اليوم (منع التكرار على وقت البداية)
-    const dayStart = parseWallDateTime(date, "00:00");
-    const existing = await db.workHours.findMany({
-      where: {
-        clubId,
-        userId,
-        date: dayStart,
-        status: { notIn: ["rejected", "cancelled"] },
-      },
-      select: { startTime: true },
-    });
-    const takenStarts = new Set(existing.map((e) => new Date(e.startTime).getTime()));
-
-    const skipped: Array<{ slotId: string; name: string; reason: "duplicate" }> = [];
-
     const sortedSlots = slotIds
       .map((id) => slotMap.get(id)!)
       .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
-    // بناء الصفوف: غير المكررة فقط (فحص تمهيدي سريع — الفحص الحاسم داخل المعاملة)
-    const toCreate: Array<{
-      clubId: string; userId: string; date: Date; startTime: Date; endTime: Date;
-      note: string; status: string; approvedById: string | null; approvedAt: Date | null;
-      slotId: string; rateSnapshot: number | null; hours: number;
-    }> = [];
-
-    for (const s of sortedSlots) {
-      const startDt = parseWallDateTime(date, s.startTime);
-      if (takenStarts.has(startDt.getTime())) {
-        skipped.push({ slotId: s.id, name: s.name, reason: "duplicate" });
-        continue;
-      }
-      takenStarts.add(startDt.getTime());
-      let endDt = parseWallDateTime(date, s.endTime);
-      if (endDt <= startDt) endDt = new Date(endDt.getTime() + 86_400_000);
-
-      const meta = {
-        breakMinutes,
-        workStatus: "present",
-        absenceReason: null,
-        textNote: textNote,
-        session: { slotId: s.id, name: s.name, startTime: s.startTime, endTime: s.endTime },
-      };
-
-      const isAdmin = currentUser.role === "admin" || currentUser.role === "superadmin";
-      toCreate.push({
+    // 9) فحص التكرار الاستباقي الصارم (Atomic: إن وجد أي تكرار لأي عامل وحصة، تفشل العملية بالكامل)
+    const dayStart = parseWallDateTime(date, "00:00");
+    const existing = await db.workHours.findMany({
+      where: {
         clubId,
-        userId,
+        userId: { in: userIds },
         date: dayStart,
-        startTime: startDt,
-        endTime: endDt,
-        note: JSON.stringify(meta),
-        status: isAdmin ? "approved" : "pending",
-        approvedById: isAdmin ? currentUser.id : null,
-        approvedAt: isAdmin ? new Date() : null,
-        slotId: s.id,
-        rateSnapshot,
-        hours: Math.max(0, slotDurationHours(s.startTime, s.endTime) - breakMinutes / 60),
-      });
+        status: { notIn: ["rejected", "cancelled"] },
+      },
+      select: { userId: true, startTime: true, slotId: true },
+    });
+
+    const takenStartsByUser = new Set(existing.map((e) => `${e.userId}:${new Date(e.startTime).getTime()}`));
+    const takenSlotsByUser = new Set(existing.filter((e) => e.slotId).map((e) => `${e.userId}:${e.slotId}`));
+
+    const conflicts: Array<{ userId: string; workerName: string; slotId: string; slotName: string; time: string }> = [];
+
+    for (const uid of userIds) {
+      const wName = workerMap.get(uid)?.name || uid;
+      for (const s of sortedSlots) {
+        const startDt = parseWallDateTime(date, s.startTime);
+        const keyTime = `${uid}:${startDt.getTime()}`;
+        const keySlot = `${uid}:${s.id}`;
+        if (takenStartsByUser.has(keyTime) || takenSlotsByUser.has(keySlot)) {
+          conflicts.push({
+            userId: uid,
+            workerName: wName,
+            slotId: s.id,
+            slotName: s.name,
+            time: `${s.startTime} - ${s.endTime}`,
+          });
+        }
+      }
     }
 
-    if (toCreate.length === 0) {
+    if (conflicts.length > 0) {
+      const firstConflict = conflicts[0];
       return NextResponse.json(
         {
-          created: 0,
-          skipped,
-          totalHours: 0,
-          message: "كل الحصص المختارة مسجّلة مسبقاً لهذا العامل في هذا التاريخ",
+          error: `تعذر التسجيل: الحصة (${firstConflict.slotName} ${firstConflict.time}) مسجّلة مسبقاً للعامل ${firstConflict.workerName} في هذا التاريخ`,
+          conflict: true,
+          conflicts,
         },
-        { status: 200 }
+        { status: 409 }
       );
     }
 
-    // ─── المعاملة الذرّية الواحدة (قراءة واحدة + كتابة واحدة — لا معاملة لكل حصة) ───
-    // السباق المتزامن الحقيقي: الفهرس الفريد الجزئي يرفض الازدواج (P2002) →
-    // محاولة كاملة واحدة إضافية ترى صفوف الطلب الآخر → استجابة «مكرر» نظيفة.
-    interface BulkOutcome {
-      rows: Array<{ id: string; startTime: Date; endTime: Date }>;
-      skippedInTx: Array<{ slotId: string; name: string; reason: "duplicate" }>;
-      hours: number;
-    }
-    let outcome: BulkOutcome | null = null;
-    for (let flowAttempt = 0; flowAttempt < 2 && !outcome; flowAttempt++) {
-      try {
-        outcome = await runTx<BulkOutcome>(
-          async (tx) => {
-            // ★ إعادة فحص التكرار داخل المعاملة (يغلق نافذة السباق TOCTOU)
-            const fresh = await tx.workHours.findMany({
-              where: { clubId, userId, date: dayStart, status: { notIn: ["rejected", "cancelled"] } },
-              select: { startTime: true },
-            });
-            const freshTaken = new Set(fresh.map((e) => new Date(e.startTime).getTime()));
+    // 10) تجهيز سجلات الإدراج لجميع العمال والحصص
+    const toCreate: Array<{
+      id: string;
+      clubId: string;
+      userId: string;
+      date: Date;
+      startTime: Date;
+      endTime: Date;
+      note: string;
+      status: string;
+      approvedById: string | null;
+      approvedAt: Date | null;
+      slotId: string;
+      rateSnapshot: number;
+    }> = [];
 
-            const rows: Array<{ id: string; startTime: Date; endTime: Date }> = [];
-            const skippedInTx: Array<{ slotId: string; name: string; reason: "duplicate" }> = [];
-            let hours = 0;
-            for (const data of toCreate) {
-              if (freshTaken.has(data.startTime.getTime())) {
-                skippedInTx.push({
-                  slotId: data.slotId,
-                  name: slotMap.get(data.slotId)?.name || data.slotId,
-                  reason: "duplicate",
-                });
-                continue;
-              }
-              freshTaken.add(data.startTime.getTime());
-              // hours حقل حسابي داخلي — يُستبعد قبل تمرير الصف إلى Prisma
-              const { hours: rowHours, ...rowData } = data;
-              const r = await tx.workHours.create({
-                data: rowData,
-                select: { id: true, startTime: true, endTime: true },
-              });
-              rows.push(r);
-              hours += rowHours;
-            }
-            return { rows, skippedInTx, hours };
-          },
-          "workhours-bulk"
-        );
-      } catch (e) {
-        const isUniqueRace = (e as { code?: string })?.code === "P2002";
-        if (isUniqueRace && flowAttempt === 0) {
-          console.warn("workhours/bulk: سباق فريد متزامن (P2002) — إعادة فحص كاملة واحدة");
-          await new Promise((r) => setTimeout(r, 150));
-          continue; // المحاولة الثانية ترى صفوف الطلب الآخر → تخطٍّ نظيف
-        }
-        throw e;
+    let totalDurationHoursPerWorker = 0;
+    for (const s of sortedSlots) {
+      totalDurationHoursPerWorker += Math.max(0, slotDurationHours(s.startTime, s.endTime) - breakMinutes / 60);
+    }
+
+    const userBreakdown: Array<{
+      userId: string;
+      name: string;
+      hourlyRate: number;
+      sessionsCount: number;
+      hours: number;
+      expectedWage: number;
+    }> = [];
+
+    for (const uid of userIds) {
+      const w = workerMap.get(uid)!;
+      const rate = rateByUserId.get(uid) ?? defaultRate;
+      const hours = Math.round(totalDurationHoursPerWorker * 100) / 100;
+      const expectedWage = Math.round(hours * rate);
+
+      userBreakdown.push({
+        userId: uid,
+        name: w.name,
+        hourlyRate: rate,
+        sessionsCount: sortedSlots.length,
+        hours,
+        expectedWage,
+      });
+
+      for (const s of sortedSlots) {
+        const startDt = parseWallDateTime(date, s.startTime);
+        let endDt = parseWallDateTime(date, s.endTime);
+        if (endDt <= startDt) endDt = new Date(endDt.getTime() + 86_400_000);
+
+        const meta = {
+          breakMinutes,
+          workStatus: requestedWorkStatus,
+          absenceReason: null,
+          textNote,
+          session: { slotId: s.id, name: s.name, startTime: s.startTime, endTime: s.endTime },
+        };
+
+        const isAdmin = currentUser.role === "admin" || currentUser.role === "superadmin";
+
+        toCreate.push({
+          id: crypto.randomUUID(),
+          clubId,
+          userId: uid,
+          date: dayStart,
+          startTime: startDt,
+          endTime: endDt,
+          note: JSON.stringify(meta),
+          status: isAdmin ? "approved" : "pending",
+          approvedById: isAdmin ? currentUser.id : null,
+          approvedAt: isAdmin ? new Date() : null,
+          slotId: s.id,
+          rateSnapshot: rate,
+        });
       }
     }
 
-    if (!outcome) {
-      return NextResponse.json({ error: "تعذر إتمام التسجيل — أعد المحاولة" }, { status: 409 });
-    }
+    // 11) المعاملة الذرّية الواحدة السريعة (Atomic Transaction)
+    // غلاف runTx يضمن إتمام العملية دفعة واحدة أو التراجع التام في حال أي خطأ/تعارض
+    await runTx(
+      async (tx) => {
+        // التحقق الذري الحاسم داخل المعاملة (إغلاق نافذة السباق تماماً)
+        const fresh = await tx.workHours.findMany({
+          where: {
+            clubId,
+            userId: { in: userIds },
+            date: dayStart,
+            status: { notIn: ["rejected", "cancelled"] },
+          },
+          select: { userId: true, startTime: true, slotId: true },
+        });
+
+        const freshStarts = new Set(fresh.map((e) => `${e.userId}:${new Date(e.startTime).getTime()}`));
+        const freshSlots = new Set(fresh.filter((e) => e.slotId).map((e) => `${e.userId}:${e.slotId}`));
+
+        for (const item of toCreate) {
+          const keyTime = `${item.userId}:${item.startTime.getTime()}`;
+          const keySlot = `${item.userId}:${item.slotId}`;
+          if (freshStarts.has(keyTime) || freshSlots.has(keySlot)) {
+            const wName = workerMap.get(item.userId)?.name || item.userId;
+            throw new Error(`تعارض متزامن: الحصة مسجلة مسبقاً للعامل ${wName}`);
+          }
+        }
+
+        // إدراج جميع السجلات دفعة واحدة (Bulk createMany)
+        try {
+          await tx.workHours.createMany({
+            data: toCreate,
+          });
+        } catch (createManyErr) {
+          // بديل متوافق لبعض محركات SQLite إن لم تدعم createMany على المعاملة
+          await Promise.all(toCreate.map((row) => tx.workHours.create({ data: row })));
+        }
+
+        // تسجيل حدث التدقيق للعملية المجمعة
+        await tx.auditLog.create({
+          data: {
+            clubId,
+            userId: currentUser.id,
+            action: "work_hours_bulk_create",
+            entityType: "WorkHours",
+            description: `تسجيل جماعي لـ ${userIds.length} عمال × ${sortedSlots.length} حصص = ${toCreate.length} سجلاً بتاريخ ${date}`,
+            metadata: JSON.stringify({
+              date,
+              workersCount: userIds.length,
+              slotsCount: sortedSlots.length,
+              totalRecords: toCreate.length,
+              totalHours: Math.round(totalDurationHoursPerWorker * userIds.length * 10) / 10,
+              totalExpectedWage: userBreakdown.reduce((sum, u) => sum + u.expectedWage, 0),
+            }),
+          },
+        }).catch(() => undefined);
+      },
+      "workhours-multi-worker-bulk"
+    );
+
+    const totalHoursCombined = Math.round(totalDurationHoursPerWorker * userIds.length * 100) / 100;
+    const totalExpectedWageCombined = userBreakdown.reduce((sum, u) => sum + u.expectedWage, 0);
 
     return NextResponse.json(
       {
-        created: outcome.rows.length,
-        skipped: [...skipped, ...outcome.skippedInTx],
-        totalHours: Math.round(outcome.hours * 100) / 100,
-        records: outcome.rows.map((r) => ({ id: r.id, startTime: r.startTime, endTime: r.endTime })),
+        success: true,
+        created: toCreate.length,
+        totalWorkers: userIds.length,
+        totalSlotsPerWorker: sortedSlots.length,
+        totalHours: totalHoursCombined,
+        totalExpectedWage: totalExpectedWageCombined,
+        breakdown: userBreakdown,
+        message: `تم تسجيل ${toCreate.length} سجل عمل بنجاح لـ ${userIds.length} عمال`,
       },
       { status: 201 }
     );
   } catch (e) {
-    console.error("POST workhours/bulk:", e);
-    return NextResponse.json({ error: e instanceof Error ? e.message : "Internal" }, { status: 500 });
+    console.error("POST workhours/bulk error:", e);
+    const msg = e instanceof Error ? e.message : "Internal Error";
+    if ((e as { code?: string })?.code === "P2002" || msg.includes("Unique constraint")) {
+      return NextResponse.json(
+        { error: "سجل مكرر: إحدى الحصص مسجّلة مسبقاً لعامل محدد في هذا اليوم", duplicate: true },
+        { status: 409 }
+      );
+    }
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

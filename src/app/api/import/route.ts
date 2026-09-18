@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser, hasPermission } from "@/lib/session";
 import { computeSubscriberFields, computeSubscriberFieldsDynamic, type Gender, type BloodType, type SubscriptionType, type PaymentStatus, type SwimmingDays, type TimeSlot, type SubscriptionTypeConfig, DEFAULT_TYPES_MAP, normalizePaymentStatus, isExemptStatus } from "@/lib/rcs";
+import { postLedgerEntriesBatchTx, type LedgerEntryInput } from "@/lib/financial-posting";
 import * as XLSX from "xlsx";
 
 // Parse dates in multiple formats:
@@ -22,7 +23,6 @@ function parseDate(value: unknown): Date | null {
   // Number — Excel serial date (days since 1899-12-30)
   if (typeof value === "number") {
     if (value > 25569 && value < 60000) {
-      // Excel serial date
       const ms = (value - 25569) * 86400 * 1000;
       const d = new Date(ms);
       return isNaN(d.getTime()) ? null : d;
@@ -31,12 +31,25 @@ function parseDate(value: unknown): Date | null {
   }
 
   if (typeof value !== "string") return null;
-  const str = value.trim();
+  // Convert Eastern Arabic numerals (٠-٩) to Western (0-9)
+  let str = value.trim().replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString());
   if (!str) return null;
 
-  // Try DD/MM/YYYY or DD-MM-YYYY (Arabic/French format — preferred)
-  // Format: day/month/year
-  const dmyMatch = str.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+  // If numeric string representing Excel serial date (e.g. "44927")
+  if (/^\d{5}$/.test(str)) {
+    const num = parseInt(str, 10);
+    if (num > 25569 && num < 60000) {
+      const ms = (num - 25569) * 86400 * 1000;
+      const d = new Date(ms);
+      return isNaN(d.getTime()) ? null : d;
+    }
+  }
+
+  // Strip time part if present (e.g. "18/02/2013 00:00:00" or "2013-02-18T00:00:00.000Z")
+  const dateOnly = str.split(/[T\s]/)[0].trim();
+
+  // Try DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
+  const dmyMatch = dateOnly.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
   if (dmyMatch) {
     const [, d, m, y] = dmyMatch;
     const day = parseInt(d, 10);
@@ -48,9 +61,8 @@ function parseDate(value: unknown): Date | null {
     }
   }
 
-  // Try YYYY/MM/DD or YYYY-MM-DD (ISO format)
-  // Format: year/month/day
-  const ymdMatch = str.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/);
+  // Try YYYY/MM/DD or YYYY-MM-DD or YYYY.MM.DD
+  const ymdMatch = dateOnly.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/);
   if (ymdMatch) {
     const [, y, m, d] = ymdMatch;
     const year = parseInt(y, 10);
@@ -63,7 +75,7 @@ function parseDate(value: unknown): Date | null {
   }
 
   // Try DD/MM/YY (2-digit year)
-  const dmy2Match = str.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2})$/);
+  const dmy2Match = dateOnly.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2})$/);
   if (dmy2Match) {
     const [, d, m, y] = dmy2Match;
     const day = parseInt(d, 10);
@@ -137,105 +149,179 @@ export async function POST(req: NextRequest) {
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: "array", cellDates: true });
 
-    // Find the data sheet (first sheet or sheet named "بيانات")
-    const sheetName = wb.SheetNames.find((n) => n.includes("بيانات")) || wb.SheetNames[0];
-    const ws = wb.Sheets[sheetName];
-    if (!ws) {
-      return NextResponse.json({ error: "تعذر العثور على ورقة البيانات" }, { status: 400 });
+    if (wb.SheetNames.length === 0) {
+      return NextResponse.json({ error: "ملف Excel لا يحتوي على أي ورقة عمل" }, { status: 400 });
     }
 
-    // Convert to JSON (header row detection)
-    // The Excel file has a title in row 1, headers in row 2, data from row 3
-    // sheet_to_json with header:1 returns array of arrays — we find the header row
-    const allRows = XLSX.utils.sheet_to_json<unknown[]>(ws, { defval: "", raw: true, header: 1 });
+    // ═══ كاشف أوراق العمل الذكي ═══
+    // فحص جميع أوراق العمل لاختيار الورقة التي تحتوي على بيانات المنخرطين الفعلية
+    const priorityKeywords = ["منخرط", "مشترك", "بيانات", "سجل", "قائمة", "adherent", "membre", "donnee", "data"];
+    const sortedSheetNames = [...wb.SheetNames].sort((a, b) => {
+      const aLower = a.toLowerCase();
+      const bLower = b.toLowerCase();
+      const aPrio = priorityKeywords.some((k) => aLower.includes(k)) ? 1 : 0;
+      const bPrio = priorityKeywords.some((k) => bLower.includes(k)) ? 1 : 0;
+      return bPrio - aPrio;
+    });
 
-    if (allRows.length === 0) {
-      return NextResponse.json({ error: "الملف فارغ" }, { status: 400 });
-    }
+    let chosenSheetName = "";
+    let chosenHeaderRowIndex = -1;
+    let chosenHeaders: string[] = [];
+    let chosenRows: Record<string, unknown>[] = [];
+    let maxSubscribersFound = -1;
 
-    // Find the header row — it's the row containing "اللقب" and "الاسم"
-    let headerRowIndex = -1;
-    for (let i = 0; i < Math.min(5, allRows.length); i++) {
-      const row = allRows[i].map((c) => String(c || "").trim().replace(/\r?\n/g, " ").replace(/\s+/g, " "));
-      if (row.some((c) => c === "اللقب") && row.some((c) => c === "الاسم")) {
-        headerRowIndex = i;
-        break;
+    for (const name of sortedSheetNames) {
+      const ws = wb.Sheets[name];
+      if (!ws) continue;
+      const allRows = XLSX.utils.sheet_to_json<unknown[]>(ws, { defval: "", raw: true, header: 1 });
+      if (allRows.length < 2) continue;
+
+      let hIdx = -1;
+      for (let i = 0; i < Math.min(10, allRows.length); i++) {
+        const row = allRows[i].map((c) => String(c || "").trim().replace(/\r?\n/g, " ").replace(/\s+/g, " "));
+        const hasLastName = row.some((c) => ["اللقب", "لقب", "Nom", "nom"].includes(c));
+        const hasFirstName = row.some((c) => ["الاسم", "اسم", "Prénom", "prenom", "Prenom"].includes(c));
+        const hasFullName = row.some((c) => ["الاسم واللقب", "اللقب والاسم", "الاسم الكامل", "Nom et Prénom", "Nom Prénom"].some((k) => c.includes(k)));
+        if ((hasLastName && hasFirstName) || hasFullName) {
+          hIdx = i;
+          break;
+        }
+      }
+
+      if (hIdx !== -1) {
+        const headerRow = allRows[hIdx].map((c) =>
+          String(c || "").trim().replace(/\r?\n/g, " ").replace(/\s+/g, " ")
+        );
+        const dataRows: Record<string, unknown>[] = [];
+        for (let i = hIdx + 1; i < allRows.length; i++) {
+          const row = allRows[i];
+          if (!row || row.every((c) => !c || String(c).trim() === "")) continue;
+          const obj: Record<string, unknown> = {};
+          for (let j = 0; j < headerRow.length; j++) {
+            if (headerRow[j]) obj[headerRow[j]] = row[j];
+          }
+          dataRows.push(obj);
+        }
+
+        if (dataRows.length > maxSubscribersFound) {
+          maxSubscribersFound = dataRows.length;
+          chosenSheetName = name;
+          chosenHeaderRowIndex = hIdx;
+          chosenHeaders = headerRow;
+          chosenRows = dataRows;
+        }
       }
     }
 
-    if (headerRowIndex === -1) {
-      return NextResponse.json({
-        error: "تعذر العثور على صف العناوين. تأكد من وجود أعمدة 'اللقب' و 'الاسم'.",
-      }, { status: 400 });
-    }
-
-    // Build headers from the header row
-    const headerRow = allRows[headerRowIndex].map((c) =>
-      String(c || "").trim().replace(/\r?\n/g, " ").replace(/\s+/g, " ")
-    );
-
-    // Build rows as objects keyed by header
-    const rows: Record<string, unknown>[] = [];
-    for (let i = headerRowIndex + 1; i < allRows.length; i++) {
-      const row = allRows[i];
-      if (!row || row.every((c) => !c || String(c).trim() === "")) continue;
-      const obj: Record<string, unknown> = {};
-      for (let j = 0; j < headerRow.length; j++) {
-        if (headerRow[j]) obj[headerRow[j]] = row[j];
+    // في حال عدم العثور عبر الفحص الذكي، نرجع لأول ورقة كإجراء احتياطي
+    if (chosenHeaderRowIndex === -1 || chosenRows.length === 0) {
+      const fallbackSheetName = wb.SheetNames[0];
+      const ws = wb.Sheets[fallbackSheetName];
+      if (!ws) {
+        return NextResponse.json({ error: "تعذر العثور على ورقة البيانات في ملف Excel" }, { status: 400 });
       }
-      rows.push(obj);
+      const allRows = XLSX.utils.sheet_to_json<unknown[]>(ws, { defval: "", raw: true, header: 1 });
+      if (allRows.length === 0) {
+        return NextResponse.json({ error: "الملف فارغ" }, { status: 400 });
+      }
+      let hIdx = -1;
+      for (let i = 0; i < Math.min(10, allRows.length); i++) {
+        const row = allRows[i].map((c) => String(c || "").trim().replace(/\r?\n/g, " ").replace(/\s+/g, " "));
+        if (row.some((c) => c === "اللقب") || row.some((c) => c === "الاسم") || row.some((c) => c.includes("الاسم واللقب"))) {
+          hIdx = i;
+          break;
+        }
+      }
+      if (hIdx === -1) {
+        return NextResponse.json({
+          error: "تعذر العثور على صف العناوين في ملف Excel. تأكد من وجود أعمدة 'اللقب' و 'الاسم'.",
+        }, { status: 400 });
+      }
+      chosenSheetName = fallbackSheetName;
+      chosenHeaderRowIndex = hIdx;
+      chosenHeaders = allRows[hIdx].map((c) => String(c || "").trim().replace(/\r?\n/g, " ").replace(/\s+/g, " "));
+      for (let i = hIdx + 1; i < allRows.length; i++) {
+        const row = allRows[i];
+        if (!row || row.every((c) => !c || String(c).trim() === "")) continue;
+        const obj: Record<string, unknown> = {};
+        for (let j = 0; j < chosenHeaders.length; j++) {
+          if (chosenHeaders[j]) obj[chosenHeaders[j]] = row[j];
+        }
+        chosenRows.push(obj);
+      }
     }
 
+    const rows = chosenRows;
     if (rows.length === 0) {
-      return NextResponse.json({ error: "الملف فارغ" }, { status: 400 });
+      return NextResponse.json({ error: `لا توجد صفوف بيانات صالحة في الورقة المختارة (${chosenSheetName})` }, { status: 400 });
     }
 
-    // Detect column names (handle various Arabic headers from Excel)
+    // Detect column names (handle various Arabic & French headers from Excel)
     const findKey = (row: Record<string, unknown>, candidates: string[]): string | null => {
       const keys = Object.keys(row);
+      // 1. Exact match first across all candidates
       for (const candidate of candidates) {
-        // Match exact or contains (normalize whitespace)
         const found = keys.find((k) => {
-          const normalized = k.trim().replace(/\s+/g, " ");
-          return normalized === candidate || normalized.includes(candidate);
+          const normalized = k.trim().replace(/\s+/g, " ").toLowerCase();
+          return normalized === candidate.toLowerCase();
+        });
+        if (found) return found;
+      }
+      // 2. Contains match only if candidate is longer than 2 characters
+      for (const candidate of candidates) {
+        if (candidate.length < 3) continue;
+        const found = keys.find((k) => {
+          const normalized = k.trim().replace(/\s+/g, " ").toLowerCase();
+          return normalized.includes(candidate.toLowerCase());
         });
         if (found) return found;
       }
       return null;
     };
 
-    const firstRow = rows[0];
-    const lastNameKey = findKey(firstRow, ["اللقب"]);
-    const firstNameKey = findKey(firstRow, ["الاسم"]);
-    const birthDateKey = findKey(firstRow, ["تاريخ الميلاد", "الميلاد"]);
-    const genderKey = findKey(firstRow, ["الجنس"]);
-    const bloodTypeKey = findKey(firstRow, ["فصيلة الدم", "فصيلة", "الدم"]);
-    const subscriptionTypeKey = findKey(firstRow, ["نوع الاشتراك", "الاشتراك"]);
-    const lastPaymentKey = findKey(firstRow, ["تاريخ آخر دفعة", "آخر دفعة", "الدفعة"]);
-    const paymentStatusKey = findKey(firstRow, ["حالة الدفع"]);
-    const swimmingDaysKey = findKey(firstRow, ["أيام السباحة", "الأيام"]);
-    const timeSlotKey = findKey(firstRow, ["التوقيت"]);
-    const phoneKey = findKey(firstRow, ["الهاتف", "هاتف", "رقم الهاتف"]);
-    // 🔑 دعم استيراد رقم الملف من Excel مباشرةً
-    const fileNumberKey = findKey(firstRow, ["رقم الملف", "رقم", "الملف"]);
+    const firstRow = rows[0] || {};
+    const lastNameKey = findKey(firstRow, ["اللقب", "لقب", "Nom", "nom"]);
+    const firstNameKey = findKey(firstRow, ["الاسم", "اسم", "Prénom", "prenom", "Prenom"]);
+    const fullNameKey = findKey(firstRow, ["الاسم واللقب", "اللقب والاسم", "الاسم الكامل", "Nom et Prénom", "Nom Prénom"]);
+    const birthDateKey = findKey(firstRow, ["تاريخ الميلاد", "الميلاد", "تاريخ الازدياد", "الازدياد", "تاريخ الولادة", "الولادة", "ت.الميلاد", "ت.الازدياد", "Date de naissance", "Date naissance", "dnaiss", "Date Naiss"]);
+    const ageKey = findKey(firstRow, ["العمر", "السن", "age", "Age"]);
+    const genderKey = findKey(firstRow, ["الجنس", "النوع", "Sexe", "sexe", "Gender", "gender"]);
+    const bloodTypeKey = findKey(firstRow, ["فصيلة الدم", "فصيلة", "الدم", "Groupe sanguin", "Groupe Sanguin", "GS"]);
+    const subscriptionTypeKey = findKey(firstRow, ["نوع الاشتراك", "نوع", "الاشتراك", "الصيغة", "Type d'abonnement", "Formule"]);
+    const lastPaymentKey = findKey(firstRow, ["تاريخ آخر دفعة", "آخر دفعة", "الدفعة", "تاريخ الدفع", "Date de paiement"]);
+    const paymentStatusKey = findKey(firstRow, ["حالة الدفع", "الحالة", "الوضعية", "Statut"]);
+    const swimmingDaysKey = findKey(firstRow, ["أيام السباحة", "الأيام", "الايام", "Jours"]);
+    const timeSlotKey = findKey(firstRow, ["التوقيت", "الوقت", "الفوج", "Horaire", "Créneau"]);
+    const phoneKey = findKey(firstRow, ["رقم الهاتف", "الهاتف", "هاتف", "الجوال", "المحمول", "تلفون", "واتساب", "Telephone", "Téléphone", "Tel", "Tél"]);
+    const fileNumberKey = findKey(firstRow, ["رقم الملف", "رقم العضوية", "رقم القيد", "رقم الانخراط", "الملف", "رقم", "N° Dossier", "Dossier", "Matricule", "N°"]);
+    const feeKey = findKey(firstRow, ["رسوم الاشتراك", "رسوم", "الرسوم", "سعر الاشتراك", "مبلغ الاشتراك"]);
+    const insuranceFeeKey = findKey(firstRow, ["مصاريف التأمين", "التأمين", "مصاريف", "مبلغ التأمين"]);
+    const totalAmountKey = findKey(firstRow, ["المبلغ الإجمالي", "الإجمالي", "المبلغ", "المجموع", "Total"]);
+    const compoundRightsKey = findKey(firstRow, ["حقوق المركب", "المركب"]);
 
-    if (!lastNameKey || !firstNameKey) {
+    if ((!lastNameKey || !firstNameKey) && !fullNameKey) {
       return NextResponse.json({
         error: "تعذر العثور على أعمدة اللقب والاسم. تأكد من أن الصف الأول يحتوي على العناوين الصحيحة.",
       }, { status: 400 });
     }
 
+    // دالة مساعدة لتحليل المبالغ المالية
+    const parseAmount = (val: unknown): number => {
+      if (typeof val === "number") return isNaN(val) ? 0 : val;
+      if (!val) return 0;
+      const cleaned = String(val).replace(/[^\d.-]/g, "").trim();
+      const n = parseFloat(cleaned);
+      return isNaN(n) ? 0 : n;
+    };
+
     // Valid values
     const validGenders = ["ذكر", "أنثى"];
-    // ★ validPaymentStatuses now includes "معفى" — the import accepts it directly
-    // Also accepts via normalization: معفاة, EXEMPT, EXEMPTED (any case)
     const validPaymentStatuses = ["مدفوع", "لم يدفع", "تأمين فقط", "اشتراك 300", "معفى"];
-    // جلب جميع أنواع الاشتراك من قاعدة البيانات (نشطة وغير نشطة)
     const dbSubTypesAll = await db.subscriptionType.findMany({
       where: { clubId: targetClubId },
       select: { code: true, name: true, active: true, givesMembershipNumber: true, numberingGroup: true },
     });
-    const validSubscriptionTypes = dbSubTypesAll.filter(t => t.active).map((t) => t.code);
+    const validSubscriptionTypes = dbSubTypesAll.filter((t) => t.active).map((t) => t.code);
     const validBloodTypes = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"];
 
     interface ParsedRow {
@@ -253,16 +339,18 @@ export async function POST(req: NextRequest) {
       swimmingDays: string | null;
       timeSlot: string | null;
       phone: string | null;
-      fileNumber: string | null;  // 🔑 رقم الملف من Excel (إن وُجد)
+      fileNumber: string | null;
+      sourceFee: number | null;
+      sourceInsurance: number | null;
+      sourceTotal: number | null;
       errors: string[];
-      // ─── تفاصيل الأخطاء المنظمة لكل صف ───
       errorDetails: Array<{
         type: "critical" | "warning";
         message: string;
-        column: string;        // اسم العمود
-        columnLabel: string;   // اسم العمود بالعربية
-        value: string;         // القيمة الموجودة
-        expected?: string;     // القيمة المتوقعة
+        column: string;
+        columnLabel: string;
+        value: string;
+        expected?: string;
       }>;
     }
 
@@ -271,10 +359,29 @@ export async function POST(req: NextRequest) {
     let warnings = 0;
 
     rows.forEach((row, idx) => {
+      let lastName = lastNameKey ? String(row[lastNameKey] || "").trim() : "";
+      let firstName = firstNameKey ? String(row[firstNameKey] || "").trim() : "";
+
+      // استخراج الاسم واللقب من عمود الاسم الكامل إن وُجد
+      if ((!lastName || !firstName) && fullNameKey && row[fullNameKey]) {
+        const full = String(row[fullNameKey]).trim();
+        const parts = full.split(/\s+/);
+        if (parts.length > 1) {
+          if (!lastName) lastName = parts[0];
+          if (!firstName) firstName = parts.slice(1).join(" ");
+        } else if (parts.length === 1 && parts[0]) {
+          if (!lastName) lastName = parts[0];
+          if (!firstName) firstName = "—";
+        }
+      }
+
+      if (!lastName && firstName) lastName = "—";
+      if (!firstName && lastName) firstName = "—";
+
       const r: ParsedRow = {
         row: idx + 2,
-        lastName: String(row[lastNameKey] || "").trim(),
-        firstName: String(row[firstNameKey] || "").trim(),
+        lastName,
+        firstName,
         birthDate: null,
         birthDateRaw: "",
         gender: null,
@@ -287,6 +394,9 @@ export async function POST(req: NextRequest) {
         timeSlot: null,
         phone: null,
         fileNumber: null,
+        sourceFee: feeKey ? parseAmount(row[feeKey]) : null,
+        sourceInsurance: insuranceFeeKey ? parseAmount(row[insuranceFeeKey]) : null,
+        sourceTotal: totalAmountKey ? parseAmount(row[totalAmountKey]) : null,
         errors: [],
         errorDetails: [],
       };
@@ -298,26 +408,41 @@ export async function POST(req: NextRequest) {
         if (type === "warning") warnings++;
       };
 
-      if (!r.lastName || !r.firstName) {
-        const missing: string[] = [];
-        if (!r.lastName) missing.push("اللقب");
-        if (!r.firstName) missing.push("الاسم");
-        addError("critical", `${missing.join(" و")} فارغ`, missing[0] === "اللقب" ? "lastName" : "firstName", missing.join(" / "), "—", "قيمة غير فارغة");
+      if (!r.lastName || !r.firstName || (r.lastName === "—" && r.firstName === "—")) {
+        addError("critical", "اللقب والاسم فارغان", "lastName", "اللقب والاسم", "—", "قيمة غير فارغة");
       }
 
-      // Parse birth date
-      if (birthDateKey) {
+      // Parse birth date مع دعم ذكي لاستنتاج تاريخ الميلاد من العمر
+      let birthDate: Date | null = null;
+      let birthDateRaw = "";
+
+      if (birthDateKey && row[birthDateKey]) {
         const bd = row[birthDateKey];
-        r.birthDateRaw = bd ? String(bd) : "";
-        r.birthDate = parseDate(bd);
-        if (r.birthDate === null && bd && String(bd).trim()) {
-          addError("critical", `تاريخ ميلاد غير صالح: "${bd}"`, "birthDate", "تاريخ الميلاد", String(bd), "DD/MM/YYYY أو YYYY/MM/DD");
-        } else if (!bd || !String(bd).trim()) {
-          addError("critical", "تاريخ الميلاد فارغ", "birthDate", "تاريخ الميلاد", "—", "تاريخ صالح");
-        }
-      } else {
-        addError("critical", "عمود تاريخ الميلاد غير موجود", "birthDate", "تاريخ الميلاد", "—", "العمود مطلوب");
+        birthDateRaw = String(bd).trim();
+        birthDate = parseDate(bd);
       }
+
+      // إذا لم يتوفر تاريخ ميلاد صالح، نحاول استنتاجه من عمود العمر إن وُجد
+      if (!birthDate && ageKey && row[ageKey]) {
+        const rawAge = String(row[ageKey]).replace(/[^\d]/g, "");
+        const ageNum = parseInt(rawAge, 10);
+        if (!isNaN(ageNum) && ageNum > 0 && ageNum < 120) {
+          const currentYear = new Date().getFullYear();
+          const inferredYear = currentYear - ageNum;
+          birthDate = new Date(inferredYear, 0, 1);
+          birthDateRaw = `${ageNum} سنة`;
+          addError("warning", `تم استنتاج تاريخ الميلاد من العمر (${ageNum} سنة): 01/01/${inferredYear}`, "birthDate", "تاريخ الميلاد", `${ageNum} سنة`);
+        }
+      }
+
+      // إذا تعذر تحديد تاريخ الميلاد، نضع تاريخاً افتراضياً مع تحذير (بدلاً من استبعاد المشترك)
+      if (!birthDate) {
+        birthDate = new Date(2000, 0, 1);
+        addError("warning", "تاريخ الميلاد غير متوفر — تم تعيين تاريخ افتراضي (01/01/2000) لتفادي استبعاد المنخرط", "birthDate", "تاريخ الميلاد", "—", "تاريخ صالح");
+      }
+
+      r.birthDate = birthDate;
+      r.birthDateRaw = birthDateRaw;
 
       // Gender — اختياري، افتراضي "ذكر"
       if (genderKey) {
@@ -325,26 +450,22 @@ export async function POST(req: NextRequest) {
         if (validGenders.includes(g)) {
           r.gender = g;
         } else if (g) {
-          addError("critical", `جنس غير صالح: "${g}"`, "gender", "الجنس", g, "ذكر / أنثى");
+          addError("warning", `جنس غير قياسي: "${g}" — تم تعيين "ذكر"`, "gender", "الجنس", g, "ذكر / أنثى");
+          r.gender = "ذكر";
         } else {
-          // فارغ = افتراضي ذكر (لا تحذير)
           r.gender = "ذكر";
         }
       } else {
         r.gender = "ذكر";
       }
 
-      // Blood type (اختياري تماماً — لا يؤثر على صلاحية الصف ولا يُصنف كتحذير)
+      // Blood type (اختياري تماماً)
       if (bloodTypeKey) {
         const b = String(row[bloodTypeKey] || "").trim();
-        if (b === "" || b === "/") {
-          r.bloodType = null;
-          // لا نضيف أي تحذير — فصيلة الدم اختيارية
-        } else if (validBloodTypes.includes(b)) {
+        if (validBloodTypes.includes(b)) {
           r.bloodType = b;
         } else {
           r.bloodType = null;
-          // لا نضيف أي تحذير — فقط نتجاهل القيمة غير الصالحة
         }
       }
 
@@ -354,7 +475,6 @@ export async function POST(req: NextRequest) {
         if (t === "" || t === "/" || validSubscriptionTypes.includes(t)) {
           r.subscriptionType = t || "/";
         } else {
-          // النوع غير معروف — استخدم "/" كافتراضي بدلاً من خطأ حرج
           r.subscriptionType = "/";
           addError("warning", `نوع اشتراك غير معروف "${t}" — تم استخدام "/"`, "subscriptionType", "نوع الاشتراك", t, "/, " + validSubscriptionTypes.join(", "));
         }
@@ -362,25 +482,22 @@ export async function POST(req: NextRequest) {
         r.subscriptionType = "/";
       }
 
-      // Last payment date — اختياري (لا تحذير عند الفشل)
+      // Last payment date
       if (lastPaymentKey) {
         const lp = row[lastPaymentKey];
         r.lastPaymentRaw = lp ? String(lp) : "";
         if (lp && String(lp).trim()) {
           r.lastPaymentDate = parseDate(lp);
-          // إذا فشل التحليل، نتجاهل بهدوء (لا تحذير)
         }
       }
 
-      // Payment status — افتراضي "مدفوع" إذا كانت القيمة غير صالحة
-      // ★ Accepts معفى/معفاة/EXEMPT/EXEMPTED → normalizes to "معفى"
+      // Payment status
       if (paymentStatusKey) {
         const p = String(row[paymentStatusKey] || "").trim();
         const normalized = normalizePaymentStatus(p);
         if (normalized) {
           r.paymentStatus = normalized;
         } else if (p) {
-          // قيمة غير معروفة — استخدم "مدفوع" كافتراضي (لا خطأ حرج)
           r.paymentStatus = "مدفوع";
         } else {
           r.paymentStatus = "لم يدفع";
@@ -389,23 +506,23 @@ export async function POST(req: NextRequest) {
         r.paymentStatus = "لم يدفع";
       }
 
-      // Swimming days — اختياري تماماً (لا تحذير)
+      // Swimming days
       if (swimmingDaysKey) {
         r.swimmingDays = String(row[swimmingDaysKey] || "").trim() || null;
       }
 
-      // Time slot — اختياري تماماً (لا تحذير)
+      // Time slot
       if (timeSlotKey) {
         r.timeSlot = String(row[timeSlotKey] || "").trim() || null;
       }
 
-      // Phone — اختياري تماماً (لا تحذير)
+      // Phone
       if (phoneKey) {
         const ph = String(row[phoneKey] || "").trim();
         r.phone = ph || null;
       }
 
-      // 🔑 رقم الملف من Excel (اختياري — إن وُجد يُستخدم مباشرة)
+      // رقم الملف من Excel إن وُجد
       if (fileNumberKey) {
         const fn = String(row[fileNumberKey] || "").trim();
         r.fileNumber = fn || null;
@@ -415,26 +532,13 @@ export async function POST(req: NextRequest) {
       parsed.push(r);
     });
 
-    // ════ صف صالح = لا أخطاء حرجة (التحذيرات لا تُستبعد الصف) ════
-    // سياسة الاستيراد: الصف صالح طالما لا يحتوي على أخطاء حرجة
-    // الحقول الاختيارية (هاتف، أيام سباحة، توقيت، جنس) لها قيم افتراضية
+    // ════ صف صالح = لا أخطاء حرجة ════
     const validRows = parsed.filter((r) => {
       const hasCritical = r.errorDetails.some((e) => e.type === "critical");
-      return !hasCritical &&
-        r.lastName &&
-        r.firstName &&
-        r.birthDate;
+      return !hasCritical && r.lastName && r.firstName && r.birthDate;
     });
 
-    // ════ التحقق المالي: مطابقة الرسوم مع ملف المصدر ════
-    // اقرأ أعمدة الرسوم من Excel إن وُجدت
-    const feeKey = findKey(firstRow, ["رسوم الاشتراك", "رسوم", "الرسوم"]);
-    const insuranceFeeKey = findKey(firstRow, ["مصاريف التأمين", "التأمين", "مصاريف"]);
-    const totalAmountKey = findKey(firstRow, ["المبلغ الإجمالي", "الإجمالي", "المبلغ"]);
-    const compoundRightsKey = findKey(firstRow, ["حقوق المركب", "المركب"]);
-
-    // Compute financial summary for valid rows (verification)
-    // ─── تحميل أنواع الاشتراك من قاعدة البيانات (خصائص ديناميكية) ───
+    // ════ التحقق المالي والمقارنة الاسترشادية ════
     const dbTypes = await db.subscriptionType.findMany({
       where: { clubId: targetClubId },
     });
@@ -454,7 +558,6 @@ export async function POST(req: NextRequest) {
         freeSubscription: t.freeSubscription,
       };
     }
-    // دالة مساعدة للحصول على إعداد النوع (من DB أو fallback)
     const getTypeConfigFor = (code: string): SubscriptionTypeConfig => {
       return typesMap[code] || DEFAULT_TYPES_MAP[code] || DEFAULT_TYPES_MAP["/"];
     };
@@ -469,31 +572,28 @@ export async function POST(req: NextRequest) {
       };
       const c = computeSubscriberFieldsDynamic(mockSub, typeConfig);
 
-      // ════ التحقق من تطابق الرسوم مع ملف المصدر ════
+      // مقارنة الرسوم بدقة من كائن الصف r مباشرة دون أخطاء فهرسة
       let feeMismatch: { sourceFee: number; computedFee: number; difference: number } | null = null;
-      if (feeKey) {
-        const sourceFee = Number(rows[validRows.indexOf(r)]?.[feeKey] || 0);
+      if (r.sourceFee !== null && r.sourceFee > 0) {
         const computedFee = c.subscriptionFee ?? 0;
-        if (sourceFee > 0 && sourceFee !== computedFee) {
-          feeMismatch = { sourceFee, computedFee, difference: sourceFee - computedFee };
+        if (r.sourceFee !== computedFee) {
+          feeMismatch = { sourceFee: r.sourceFee, computedFee, difference: r.sourceFee - computedFee };
         }
       }
 
       let insuranceMismatch: { sourceFee: number; computedFee: number; difference: number } | null = null;
-      if (insuranceFeeKey) {
-        const sourceIns = Number(rows[validRows.indexOf(r)]?.[insuranceFeeKey] || 0);
+      if (r.sourceInsurance !== null && r.sourceInsurance > 0) {
         const computedIns = c.insuranceFee ?? 0;
-        if (sourceIns > 0 && sourceIns !== computedIns) {
-          insuranceMismatch = { sourceFee: sourceIns, computedFee: computedIns, difference: sourceIns - computedIns };
+        if (r.sourceInsurance !== computedIns) {
+          insuranceMismatch = { sourceFee: r.sourceInsurance, computedFee: computedIns, difference: r.sourceInsurance - computedIns };
         }
       }
 
       let totalMismatch: { sourceTotal: number; computedTotal: number; difference: number } | null = null;
-      if (totalAmountKey) {
-        const sourceTotal = Number(rows[validRows.indexOf(r)]?.[totalAmountKey] || 0);
+      if (r.sourceTotal !== null && r.sourceTotal > 0) {
         const computedTotal = c.totalAmount ?? 0;
-        if (sourceTotal > 0 && sourceTotal !== computedTotal) {
-          totalMismatch = { sourceTotal, computedTotal, difference: sourceTotal - computedTotal };
+        if (r.sourceTotal !== computedTotal) {
+          totalMismatch = { sourceTotal: r.sourceTotal, computedTotal, difference: r.sourceTotal - computedTotal };
         }
       }
 
@@ -506,7 +606,6 @@ export async function POST(req: NextRequest) {
         rightsRule: typeConfig.freeSubscription
           ? "مجاني"
           : (typeConfig.requiresCompoundFee ? `${typeConfig.compoundRights} دج للديوان` : "مستثنى"),
-        // 🔑 تعارضات مالية
         feeMismatch,
         insuranceMismatch,
         totalMismatch,
@@ -514,21 +613,115 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    // ════ فصل الصفوف ذات التعارض المالي ════
     const conflictedRows = financialCheck.filter((r) => r.hasFinancialConflict);
-    const cleanRows = financialCheck.filter((r) => !r.hasFinancialConflict);
+
+    // ═══ مطابقة المنخرطين مع قاعدة البيانات لتصنيف (مشترك جديد vs تجديد اشتراك) ═══
+    const existingSubscribers = await db.subscriber.findMany({
+      where: { clubId: targetClubId },
+      select: { id: true, fileNumber: true, lastName: true, firstName: true, birthDate: true },
+    });
+
+    const existingByNameAndDate = new Map<string, typeof existingSubscribers[0]>();
+    const existingByFileNumber = new Map<string, typeof existingSubscribers[0]>();
+    for (const sub of existingSubscribers) {
+      const nameKey = `${sub.lastName.trim().toLowerCase()}|${sub.firstName.trim().toLowerCase()}|${new Date(sub.birthDate).toISOString().split("T")[0]}`;
+      existingByNameAndDate.set(nameKey, sub);
+      if (sub.fileNumber) {
+        existingByFileNumber.set(sub.fileNumber.trim().toLowerCase(), sub);
+      }
+    }
+
+    // تحليل المبالغ ومصدرها: اشتراكات جديدة vs تجديد اشتراك vs تأمين
+    let newSubsAmount = 0;
+    let newSubsCount = 0;
+    let renewalsAmount = 0;
+    let renewalsCount = 0;
+    let insuranceAmount = 0;
+    let insuranceCount = 0;
+    let compoundAmount = 0;
+
+    const classifiedCheck = financialCheck.map((r) => {
+      const nameKey = `${r.lastName.trim().toLowerCase()}|${r.firstName.trim().toLowerCase()}|${r.birthDate ? new Date(r.birthDate).toISOString().split("T")[0] : ""}`;
+      const fileKey = r.fileNumber ? r.fileNumber.trim().toLowerCase() : null;
+      const matched = (fileKey && existingByFileNumber.get(fileKey)) || existingByNameAndDate.get(nameKey);
+      const isExisting = !!matched;
+
+      const subFee = r.sourceFee !== null ? r.sourceFee : (r.computed.subscriptionFee ?? 0);
+      const insFee = r.sourceInsurance !== null ? r.sourceInsurance : (r.computed.insuranceFee ?? 0);
+      const cmpFee = r.computed.compoundRights ?? 0;
+      const isPaid = r.paymentStatus === "مدفوع";
+
+      if (isPaid) {
+        if (isExisting) {
+          if (subFee > 0) {
+            renewalsAmount += subFee;
+            renewalsCount++;
+          }
+        } else {
+          if (subFee > 0) {
+            newSubsAmount += subFee;
+            newSubsCount++;
+          }
+          if (insFee > 0) {
+            insuranceAmount += insFee;
+            insuranceCount++;
+          }
+          if (cmpFee > 0) {
+            compoundAmount += cmpFee;
+          }
+        }
+      }
+
+      return {
+        ...r,
+        isNewSubscriber: !isExisting,
+        originType: isExisting ? "renewal" : "new",
+        originLabel: isExisting ? "تجديد اشتراك" : "مشترك جديد",
+        matchedSubscriberId: matched ? matched.id : null,
+        feeBreakdown: {
+          subscription: isExisting ? 0 : subFee,
+          renewal: isExisting ? subFee : 0,
+          insurance: isExisting ? 0 : insFee,
+          compound: isExisting ? 0 : cmpFee,
+          total: isExisting ? subFee : (subFee + insFee + cmpFee),
+        },
+      };
+    });
+
+    const renewalAnalysis = analyzeRenewalSheet(wb);
+    let renewalSheetAmount = 0;
+    let renewalSheetCount = 0;
+    if (renewalAnalysis.found) {
+      for (const s of renewalAnalysis.sample) {
+        if (s.amount > 0 && (s.status === "مدفوع" || !s.status)) {
+          renewalSheetAmount += s.amount;
+          renewalSheetCount++;
+        }
+      }
+    }
+
+    const totalRenewalsAmount = renewalsAmount + renewalSheetAmount;
+    const totalRenewalsCount = renewalsCount + renewalSheetCount;
+    const grandTotalRevenue = newSubsAmount + insuranceAmount + totalRenewalsAmount + compoundAmount;
+
+    const financialBreakdownSummary = {
+      newSubscriptions: { count: newSubsCount, amount: newSubsAmount },
+      renewals: { count: totalRenewalsCount, amount: totalRenewalsAmount },
+      insurance: { count: insuranceCount, amount: insuranceAmount },
+      compound: { count: newSubsCount, amount: compoundAmount },
+      grandTotal: grandTotalRevenue,
+    };
 
     if (dryRun) {
-      // 🔑 بناء Map<row, validRow> لتسريع البحث (تجنب O(n²))
-      const financialCheckByRow = new Map(financialCheck.map(r => [r.row, r]));
-      // إرجاع جميع الصفوف للمراجعة الكاملة (وليس فقط عينة)
+      const financialCheckByRow = new Map(classifiedCheck.map((r) => [r.row, r]));
       return NextResponse.json({
         preview: true,
+        sheetName: chosenSheetName,
         totalRows: rows.length,
-        validRows: cleanRows.length,
+        validRows: validRows.length, // 🔑 يظهر للمستخدم كافة الصفوف الصالحة
         errorRows: errorCount,
         warnings,
-        conflictedCount: conflictedRows.length, // 🔑 عدد التعارضات المالية
+        conflictedCount: conflictedRows.length,
         financialConflicts: conflictedRows.map((r) => ({
           row: r.row,
           name: `${r.lastName} ${r.firstName}`,
@@ -551,15 +744,10 @@ export async function POST(req: NextRequest) {
           phone: phoneKey,
           fileNumber: fileNumberKey,
         },
-        // جميع الصفوف الصالحة (وليس عينة فقط)
-        sample: financialCheck,
-        // جميع الصفوف التي تحتوي على أخطاء
+        sample: classifiedCheck,
         errorSamples: parsed.filter((r) => r.errors.length > 0),
-        // جميع الصفوف مع حالة (صالح/تحذير/خطأ) للمراجعة الكاملة
         allRows: parsed.map((r) => {
-          // 🔑 O(1) lookup بدلاً من O(n)
           const validRow = financialCheckByRow.get(r.row);
-          // تحديد الحالة بناءً على errorDetails (critical = error, warning = warning)
           const hasCritical = r.errorDetails.some((e) => e.type === "critical");
           const hasWarning = r.errorDetails.some((e) => e.type === "warning");
           return {
@@ -569,8 +757,17 @@ export async function POST(req: NextRequest) {
             computed: validRow?.computed || { age: 0, subscriptionFee: null, insuranceFee: null, compoundRights: null, totalAmount: null },
             rightsRule: validRow?.rightsRule || "—",
             status: hasCritical ? "error" : (hasWarning ? "warning" : "valid"),
-            // الاحتفاظ بـ warnings قديم للتوافق
             warnings: r.errorDetails.filter((e) => e.type === "warning").map((e) => e.message),
+            isNewSubscriber: validRow?.isNewSubscriber ?? true,
+            originType: validRow?.originType ?? "new",
+            originLabel: validRow?.originLabel ?? "مشترك جديد",
+            feeBreakdown: validRow?.feeBreakdown || {
+              subscription: r.sourceFee || 0,
+              renewal: 0,
+              insurance: r.sourceInsurance || 0,
+              compound: 0,
+              total: r.sourceTotal || 0,
+            },
           };
         }),
         summary: {
@@ -578,11 +775,10 @@ export async function POST(req: NextRequest) {
           totalInsurance: financialCheck.reduce((s, r) => s + (r.computed.insuranceFee ?? 0), 0),
           totalCompound: financialCheck.reduce((s, r) => s + (r.computed.compoundRights ?? 0), 0),
           totalRevenue: financialCheck.reduce((s, r) => s + (r.computed.totalAmount ?? 0), 0),
-          // ★ Count exempt subscribers detected in the import preview
           exemptCount: financialCheck.filter((r) => isExemptStatus(r.paymentStatus)).length,
+          financialBreakdown: financialBreakdownSummary,
         },
-        // 🔑 معاينة ورقة التجديد
-        renewalPreview: analyzeRenewalSheet(wb),
+        renewalPreview: renewalAnalysis,
       });
     }
 
@@ -590,74 +786,50 @@ export async function POST(req: NextRequest) {
     const clubFilter = { clubId: targetClubId };
     const existingCount = await db.subscriber.count({ where: clubFilter });
 
-    // فلترة الصفوف الصالحة حسب التحديد (إن وجد) — تستبعد المتعارضة مالياً
+    // 🔑 استيراد كافة الصفوف الصالحة (مع مراعاة التحديد إن وجد)
     const rowsToImport = selectedRows
-      ? cleanRows.filter((r) => selectedRows.includes(r.row))
-      : cleanRows;
+      ? classifiedCheck.filter((r) => selectedRows.includes(r.row))
+      : classifiedCheck;
 
-    // ═══ منع التكرار: جلب جميع المنخرطين الحاليين للمقارنة ═══
-    const existingSubscribers = await db.subscriber.findMany({
-      where: { clubId: targetClubId },
-      select: { id: true, fileNumber: true, lastName: true, firstName: true, birthDate: true },
-    });
-
-    // إنشاء قائمة بمفاتيح فريدة للمقارنة (اللقب + الاسم + تاريخ الميلاد)
-    const existingKeys = new Set(
-      existingSubscribers.map(s =>
-        `${s.lastName.trim().toLowerCase()}|${s.firstName.trim().toLowerCase()}|${new Date(s.birthDate).toISOString().split("T")[0]}`
-      )
-    );
-    // أيضاً قائمة بأرقام الملفات الموجودة
-    const existingFileNumbers = new Set(existingSubscribers.map(s => s.fileNumber));
-
-    // تصفية الصفوف: استبعاد المكررين الموجودين مسبقاً
     const newRows: typeof rowsToImport = [];
     const duplicateRows: { row: number; name: string; reason: string }[] = [];
-    // 🔑 قائمة بالمنخرطين الموجودين مسبقاً لتحديثهم (upsert) بدلاً من تجاهلهم
     const existingToUpdate: { row: typeof rowsToImport[0]; existingId: string }[] = [];
+    const seenInFile = new Set<string>();
 
     for (const r of rowsToImport) {
-      const key = `${r.lastName.trim().toLowerCase()}|${r.firstName.trim().toLowerCase()}|${r.birthDate ? new Date(r.birthDate).toISOString().split("T")[0] : ""}`;
-      // 🔑 فحص تكرار رقم الملف — حدّث المنخرط الموجود بدلاً من تجاهله
-      if (r.fileNumber && existingFileNumbers.has(r.fileNumber.trim())) {
-        // ابحث عن ID المنخرط الموجود
-        const existingSub = existingSubscribers.find(s => s.fileNumber === (r.fileNumber?.trim() || ""));
-        if (existingSub) {
-          existingToUpdate.push({ row: r, existingId: existingSub.id });
-        } else {
-          duplicateRows.push({
-            row: r.row,
-            name: `${r.lastName} ${r.firstName}`,
-            reason: `رقم الملف "${r.fileNumber}" موجود مسبقاً`,
-          });
-        }
-      } else if (existingKeys.has(key)) {
+      const nameKey = `${r.lastName.trim().toLowerCase()}|${r.firstName.trim().toLowerCase()}|${r.birthDate ? new Date(r.birthDate).toISOString().split("T")[0] : ""}`;
+      const fileKey = r.fileNumber ? r.fileNumber.trim().toLowerCase() : null;
+
+      // مطابقة المنخرط مع قاعدة البيانات (برقم الملف أو الاسم وتاريخ الميلاد)
+      const matchedByFile = fileKey ? existingByFileNumber.get(fileKey) : null;
+      const matchedByName = existingByNameAndDate.get(nameKey);
+      const existingMatch = matchedByFile || matchedByName;
+
+      if (existingMatch) {
+        // المنخرط موجود مسبقاً في النادي — حدّث بياناته (upsert) بدلاً من استبعاده
+        existingToUpdate.push({ row: r, existingId: existingMatch.id });
+      } else if (seenInFile.has(nameKey)) {
+        // مكرر داخل نفس الملف المرفوع
         duplicateRows.push({
           row: r.row,
           name: `${r.lastName} ${r.firstName}`,
-          reason: "منخرط موجود مسبقاً (نفس الاسم وتاريخ الميلاد)",
+          reason: "مكرر داخل نفس الملف",
         });
       } else {
         newRows.push(r);
-        // إضافة المفتاح للقائمة لمنع التكرار داخل نفس الملف
-        existingKeys.add(key);
-        // 🔑 أضف رقم الملف أيضاً لمنع تكراره في نفس الملف
-        if (r.fileNumber) existingFileNumbers.add(r.fileNumber.trim());
+        seenInFile.add(nameKey);
       }
     }
 
-    // Build all records — استخدام numberingGroup للترقيم
-    // عداد مستقل لكل مجموعة
+    // Build all records — استخدام numberingGroup للترقيم وتفادي أي تعارض في أرقام الملفات
     const groupCounters: Record<string, number> = {};
-
-    // حساب العدادات الحالية من قاعدة البيانات لكل مجموعة
     for (const sub of existingSubscribers) {
       const match = sub.fileNumber.match(/^([A-Za-z*]+)/);
       if (match) {
         const prefix = match[1];
         const numMatch = sub.fileNumber.match(/(\d+)$/);
         if (numMatch) {
-          const num = parseInt(numMatch[1]);
+          const num = parseInt(numMatch[1], 10);
           if (!groupCounters[prefix] || groupCounters[prefix] < num) {
             groupCounters[prefix] = num;
           }
@@ -665,24 +837,39 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const assignedFileNumbers = new Set(existingSubscribers.map((s) => s.fileNumber.trim()));
     const records = newRows.map((r) => {
-      const typeConfig = dbSubTypesAll.find(t => t.code === r.subscriptionType);
+      const typeConfig = dbSubTypesAll.find((t) => t.code === r.subscriptionType);
       const givesMembership = typeConfig ? typeConfig.givesMembershipNumber : true;
 
       let fileNumber: string;
-      // 🔑 استخدم رقم الملف من Excel إن وُجد
       if (r.fileNumber && r.fileNumber.trim()) {
-        fileNumber = r.fileNumber.trim();
+        const rawFileNum = r.fileNumber.trim();
+        fileNumber = rawFileNum;
+        let suffix = 1;
+        while (assignedFileNumbers.has(fileNumber)) {
+          fileNumber = `${rawFileNum}-${suffix}`;
+          suffix++;
+        }
       } else if (typeConfig && !givesMembership) {
-        // النوع لا يمنح رقم عضوية — استخدم الكود نفسه (مثل MJ)
-        fileNumber = r.subscriptionType || "**";
+        const baseCode = r.subscriptionType || "**";
+        fileNumber = baseCode;
+        let counter = 1;
+        while (assignedFileNumbers.has(fileNumber)) {
+          fileNumber = `${baseCode}-${counter}`;
+          counter++;
+        }
       } else {
-        // النوع يمنح رقم عضوية — استخدم numberingGroup + عداد
         const group = typeConfig?.numberingGroup || "RCS";
         if (!groupCounters[group]) groupCounters[group] = 0;
         groupCounters[group]++;
         fileNumber = `${group}${String(groupCounters[group]).padStart(3, "0")}`;
+        while (assignedFileNumbers.has(fileNumber)) {
+          groupCounters[group]++;
+          fileNumber = `${group}${String(groupCounters[group]).padStart(3, "0")}`;
+        }
       }
+      assignedFileNumbers.add(fileNumber);
 
       return {
         clubId: targetClubId,
@@ -710,25 +897,24 @@ export async function POST(req: NextRequest) {
     // ═══ المرحلة 2: إنشاء المنخرطين — إدراج دفعة (batched createMany) ═══
     // 🔑 نستخدم createMany في دفعات من 100 صف لكل دفعة (بدلاً من إدراج فردي)
     // هذا يقلل عدد round-trips إلى DB بـ 100x، مما يسرّع الاستيراد بشكل كبير.
-    // skipDuplicates يضمن عدم فشل الدفعة بأكملها إذا كان هناك تكرار.
     const CREATE_BATCH_SIZE = 100;
+    const isSqlite = (process.env.DATABASE_URL || "").startsWith("file:");
     for (let i = 0; i < records.length; i += CREATE_BATCH_SIZE) {
       const batch = records.slice(i, i + CREATE_BATCH_SIZE);
       const batchRows = newRows.slice(i, i + CREATE_BATCH_SIZE);
       try {
-        const result = await db.subscriber.createMany({
-          data: batch as any,
-          // SQLite-generated client omits skipDuplicates from its types (and rejects it at runtime);
-          // production PostgreSQL client supports it — `as never` keeps runtime unchanged.
-          skipDuplicates: true as never,
-        });
+        const createArgs: any = { data: batch as any };
+        if (!isSqlite) {
+          createArgs.skipDuplicates = true;
+        }
+        const result = await db.subscriber.createMany(createArgs);
         imported += result.count;
         // ★ Count exempt imports in this batch
         for (const r of batchRows) {
           if (isExemptStatus(r.paymentStatus)) exemptImported++;
         }
       } catch (batchErr) {
-        // فشل الدفعة بأكملها — عدّها كأخطاء وواصل
+        // فشل الدفعة بأكملها — عدّها كأخطاء وواصل فردياً
         const errMsg = batchErr instanceof Error ? batchErr.message : "خطأ في الدفعة";
         for (let j = 0; j < batchRows.length; j++) {
           const r = batchRows[j];
@@ -794,36 +980,31 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ═══ المرحلة 3: انتظر حتى تُعكس المنخرطين في DB، ثم اجلب IDs ═══
-    // 🔑 نحتاج IDs الفعلية للمنخرطين المستوردين حديثاً لربط التجديدات
+    // ═══ المرحلة 3: جلب IDs المنخرطين لربط التجديدات والقيود المالية ═══
     let renewalsImported = 0;
     let renewalsSkipped = 0;
     const renewalErrors: { row: number; name: string; error: string }[] = [];
+    const renewalRecords: any[] = [];
+
+    const newFileNumbers = records.map((r) => r.fileNumber);
+    const newlyCreatedSubs = await db.subscriber.findMany({
+      where: {
+        clubId: targetClubId,
+        fileNumber: { in: newFileNumbers },
+      },
+      select: { id: true, fileNumber: true },
+    });
+    const fileNumberToId = new Map<string, string>();
+    for (const s of existingSubscribers) {
+      fileNumberToId.set(s.fileNumber, s.id);
+    }
+    for (const s of newlyCreatedSubs) {
+      fileNumberToId.set(s.fileNumber, s.id);
+    }
 
     const renewalSheetName = wb.SheetNames.find((n) => n.includes("التجديد"));
     if (renewalSheetName && imported > 0) {
       try {
-        // 🔑 لا حاجة لانتظار 500ms — createMany التزامني ينعكس فوراً في DB.
-
-        // 🔑 اجلب IDs للمنخرطين المستوردين حديثاً فقط (بأرقام ملفاتهم)
-        const newFileNumbers = records.map(r => r.fileNumber);
-        const newlyCreatedSubs = await db.subscriber.findMany({
-          where: {
-            clubId: targetClubId,
-            fileNumber: { in: newFileNumbers },
-          },
-          select: { id: true, fileNumber: true },
-        });
-        const fileNumberToId = new Map<string, string>();
-        // أضف الموجودين مسبقاً
-        for (const s of existingSubscribers) {
-          fileNumberToId.set(s.fileNumber, s.id);
-        }
-        // أضف المستوردين حديثاً
-        for (const s of newlyCreatedSubs) {
-          fileNumberToId.set(s.fileNumber, s.id);
-        }
-
         // اقرأ ورقة التجديد
         const renewalWs = wb.Sheets[renewalSheetName];
         const renewalAllRows = XLSX.utils.sheet_to_json<unknown[]>(renewalWs, { defval: "", raw: true, header: 1 });
@@ -871,7 +1052,6 @@ export async function POST(req: NextRequest) {
             const renewalStatusKey = findRenewalKey(firstRenewalRow, ["حالة التجديد", "الحالة"]);
 
             if (fnKey) {
-              const renewalRecords: any[] = [];
               for (let i = 0; i < renewalRows.length; i++) {
                 const row = renewalRows[i];
                 const fileNumber = String(row[fnKey] || "").trim();
@@ -883,7 +1063,6 @@ export async function POST(req: NextRequest) {
                   continue;
                 }
 
-                // 🔑 تأكد أن المنخرط موجود قبل إنشاء التجديد
                 const subId = fileNumberToId.get(fileNumber);
                 if (!subId) {
                   renewalsSkipped++;
@@ -917,11 +1096,22 @@ export async function POST(req: NextRequest) {
               for (let i = 0; i < renewalRecords.length; i += RENEWAL_BATCH_SIZE) {
                 const batch = renewalRecords.slice(i, i + RENEWAL_BATCH_SIZE);
                 try {
-                  const result = await db.renewal.createMany({ data: batch, skipDuplicates: true as never });
+                  const createArgs: any = { data: batch };
+                  if (!isSqlite) {
+                    createArgs.skipDuplicates = true;
+                  }
+                  const result = await db.renewal.createMany(createArgs);
                   renewalsImported += result.count;
                 } catch (e) {
-                  console.warn(`Renewal batch ${i / RENEWAL_BATCH_SIZE + 1} failed:`, e);
-                  renewalsSkipped += batch.length;
+                  console.warn(`Renewal batch failed, trying individual inserts:`, e);
+                  for (const rec of batch) {
+                    try {
+                      await db.renewal.create({ data: rec });
+                      renewalsImported++;
+                    } catch {
+                      renewalsSkipped++;
+                    }
+                  }
                 }
               }
             }
@@ -929,7 +1119,114 @@ export async function POST(req: NextRequest) {
         }
       } catch (renewalErr) {
         console.error("Renewal import error:", renewalErr);
-        // 🔑 لا نرجع 500 هنا — الاستيراد الرئيسي نجح، التجديدات فشلت جزئياً
+      }
+    }
+
+    // ═══ المرحلة 4: ترحيل المبالغ المالية إلى الدفتر المالي الموحد (Ledger Posting) ═══
+    const ledgerEntries: LedgerEntryInput[] = [];
+
+    let countNewSubs = 0;
+    let totalNewSubsFees = 0;
+    let countInsurance = 0;
+    let totalNewSubsInsurance = 0;
+
+    // 1) مبالغ المشتركين الجدد (اشتراكات + تأمين)
+    for (const r of newRows) {
+      if (r.paymentStatus !== "مدفوع") continue;
+      const subId = r.fileNumber ? fileNumberToId.get(r.fileNumber) : null;
+      const subFee = r.sourceFee !== null ? r.sourceFee : (r.computed.subscriptionFee ?? 0);
+      const insFee = r.sourceInsurance !== null ? r.sourceInsurance : (r.computed.insuranceFee ?? 0);
+      const paymentDate = r.lastPaymentDate || new Date();
+
+      if (subFee > 0) {
+        countNewSubs++;
+        totalNewSubsFees += subFee;
+        ledgerEntries.push({
+          clubId: targetClubId,
+          type: "income",
+          category: "subscription",
+          amount: subFee,
+          date: paymentDate,
+          subscriberId: subId,
+          payeeName: `${r.lastName} ${r.firstName}`,
+          reference: subId ? `import:sub:${subId}:subscription` : `import:row:${r.row}:subscription`,
+          note: `استيراد: اشتراك منخرط جديد - ${r.lastName} ${r.firstName} (${r.subscriptionType})`,
+        });
+      }
+
+      if (insFee > 0) {
+        countInsurance++;
+        totalNewSubsInsurance += insFee;
+        ledgerEntries.push({
+          clubId: targetClubId,
+          type: "income",
+          category: "insurance",
+          amount: insFee,
+          date: paymentDate,
+          subscriberId: subId,
+          payeeName: `${r.lastName} ${r.firstName}`,
+          reference: subId ? `import:sub:${subId}:insurance` : `import:row:${r.row}:insurance`,
+          note: `استيراد: تأمين منخرط جديد - ${r.lastName} ${r.firstName}`,
+        });
+      }
+    }
+
+    let countRenewals = 0;
+    let totalRenewalsFees = 0;
+
+    // 2) مبالغ تجديد المشتركين المحدثين (تجديدات)
+    for (const { row: r, existingId } of existingToUpdate) {
+      if (r.paymentStatus !== "مدفوع") continue;
+      const subFee = r.sourceFee !== null ? r.sourceFee : (r.computed.subscriptionFee ?? 0);
+      const paymentDate = r.lastPaymentDate || new Date();
+      if (subFee > 0) {
+        countRenewals++;
+        totalRenewalsFees += subFee;
+        ledgerEntries.push({
+          clubId: targetClubId,
+          type: "income",
+          category: "renewal",
+          amount: subFee,
+          date: paymentDate,
+          subscriberId: existingId,
+          payeeName: `${r.lastName} ${r.firstName}`,
+          reference: `import:renewal:${existingId}:${paymentDate.toISOString().slice(0, 10)}`,
+          note: `استيراد: تجديد اشتراك - ${r.lastName} ${r.firstName}`,
+        });
+      }
+    }
+
+    let liveRenewalSheetAmount = 0;
+
+    // 3) مبالغ ورقة التجديد إن وُجدت
+    for (const rec of renewalRecords) {
+      if (rec.amount > 0 && rec.paymentStatus === "مدفوع") {
+        liveRenewalSheetAmount += rec.amount;
+        ledgerEntries.push({
+          clubId: targetClubId,
+          type: "income",
+          category: "renewal",
+          amount: rec.amount,
+          date: rec.renewalDate || new Date(),
+          subscriberId: rec.subscriberId,
+          reference: `import:renewal-sheet:${rec.subscriberId}:${rec.renewalDate.toISOString().slice(0, 10)}`,
+          note: `استيراد: تجديد اشتراك من ورقة التجديد`,
+        });
+      }
+    }
+
+    const liveGrandTotalRevenue = totalNewSubsFees + totalNewSubsInsurance + totalRenewalsFees + liveRenewalSheetAmount;
+
+    // ترحيل كافة القيود دفعة واحدة إلى الدفتر المالي الموحد
+    let postedLedgerCount = 0;
+    if (ledgerEntries.length > 0) {
+      try {
+        const batchRes = await db.$transaction((tx) =>
+          postLedgerEntriesBatchTx(tx, targetClubId, ledgerEntries)
+        );
+        postedLedgerCount = batchRes.posted;
+      } catch (lErr) {
+        console.warn("Batch ledger posting error during import:", lErr);
       }
     }
 
@@ -938,7 +1235,7 @@ export async function POST(req: NextRequest) {
       data: {
         clubId: targetClubId,
         type: "import",
-        description: `تم استيراد ${imported} منخرط (${updated} محدّث) و ${renewalsImported} تجديد، ${duplicateRows.length} مكرر تم تجاهله`,
+        description: `تم استيراد ${imported} منخرط (${updated} محدّث) و ${renewalsImported} تجديد، وترحيل ${postedLedgerCount} قيد مالي للدفتر، ${duplicateRows.length} مكرر تم تجاهله`,
       },
     });
 
@@ -957,11 +1254,8 @@ export async function POST(req: NextRequest) {
       imported,
       updated,
       skipped,
-      // ★ Report exempt count in import results
       exemptImported,
       duplicates: duplicateRows.length,
-      duplicateDetails: duplicateRows.slice(0, 50),
-      // 🔑 التعارضات المالية (لم تُستورد — تحتاج مراجعة يدوية)
       conflictedCount: conflictedRows.length,
       financialConflicts: conflictedRows.map((r) => ({
         row: r.row,
@@ -970,12 +1264,19 @@ export async function POST(req: NextRequest) {
         insuranceMismatch: r.insuranceMismatch,
         totalMismatch: r.totalMismatch,
       })).slice(0, 50),
-      // 🔑 إحصائيات التجديدات
       renewalsImported,
       renewalsSkipped,
       renewalErrors: renewalErrors.slice(0, 50),
       totalRows: rows.length,
       errors: importErrors,
+      // ★ تفصيل المبالغ المالية ومصدرها
+      financialBreakdown: {
+        newSubscriptions: { count: countNewSubs, amount: totalNewSubsFees },
+        renewals: { count: countRenewals + renewalsImported, amount: totalRenewalsFees + liveRenewalSheetAmount },
+        insurance: { count: countInsurance, amount: totalNewSubsInsurance },
+        grandTotal: liveGrandTotalRevenue,
+        ledgerEntriesPosted: postedLedgerCount,
+      },
     });
   } catch (e) {
     console.error("Import error:", e);

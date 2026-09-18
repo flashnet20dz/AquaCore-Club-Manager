@@ -155,6 +155,15 @@ export async function ensureRuntimeColumns(): Promise<void> {
     }
   } catch { /* الفهرس اختياري — التحقق داخل المعاملة يغطي */ }
 
+  try {
+    if (!(await indexExists(db, "WorkHours_active_user_date_slot_key"))) {
+      const idx = `CREATE UNIQUE INDEX IF NOT EXISTS "WorkHours_active_user_date_slot_key" ON "WorkHours"("clubId", "userId", "date", "slotId") WHERE "status" NOT IN ('rejected', 'cancelled') AND "slotId" IS NOT NULL`;
+      await db.$executeRawUnsafe(idx).catch(() => undefined);
+    }
+  } catch { /* الفهرس اختياري */ }
+
+  await ensureSubscriberPerformanceIndexes().catch(() => undefined);
+
   runtimeDdlDone = true;
 }
 
@@ -203,4 +212,26 @@ export async function ensureFinancialIndexes(): Promise<void> {
     }
     financialIndexesDone = true;
   } catch { /* الفهرس موجود أو تعذر — postLedgerEntry يتحقق احتياطياً */ }
+}
+
+let subscriberIndexesDone = false;
+
+export async function ensureSubscriberPerformanceIndexes(): Promise<void> {
+  if (subscriberIndexesDone) return;
+  const { db } = await import("@/lib/db");
+  const indexes = [
+    { name: "Subscriber_clubId_fileNumber_idx", cols: `"clubId", "fileNumber"` },
+    { name: "Subscriber_clubId_createdAt_idx", cols: `"clubId", "createdAt"` },
+    { name: "Subscriber_clubId_lastPaymentDate_idx", cols: `"clubId", "lastPaymentDate"` },
+    { name: "Subscriber_clubId_names_idx", cols: `"clubId", "lastName", "firstName"` },
+    { name: "Subscriber_clubId_deletedAt_idx", cols: `"clubId", "deletedAt"` },
+  ];
+  for (const idx of indexes) {
+    try {
+      if (!(await indexExists(db, idx.name))) {
+        await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "${idx.name}" ON "Subscriber"(${idx.cols})`).catch(() => undefined);
+      }
+    } catch {}
+  }
+  subscriberIndexesDone = true;
 }

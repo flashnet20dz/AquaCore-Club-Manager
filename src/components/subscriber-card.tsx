@@ -77,8 +77,9 @@ export const SubscriberCard = memo(function SubscriberCard({
       transition={{ duration: 0.3, delay: Math.min(index * 0.03, 0.4) }}
       onClick={selectionMode ? () => onToggleSelect?.(subscriber.id) : () => { notifyClick(); onViewRecord?.(subscriber); }}
       className={cn(
-        "group relative overflow-hidden rounded-2xl border bg-card hover:shadow-xl transition-all duration-300 contain-content",
-        selectionMode ? "cursor-pointer" : "cursor-pointer border-border/60 hover:border-primary/40",
+        "group relative overflow-hidden rounded-2xl border bg-card transition-all duration-300 contain-content",
+        "shadow-xs hover:shadow-lg dark:shadow-[0_4px_20px_rgba(0,0,0,0.35)] dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)]",
+        selectionMode ? "cursor-pointer" : "cursor-pointer border-border/80 hover:border-primary/50",
         selected && "border-primary ring-2 ring-primary/30"
       )}
     >

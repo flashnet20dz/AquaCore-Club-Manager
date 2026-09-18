@@ -100,13 +100,12 @@ export async function POST(req: NextRequest) {
 
     if (records.length > 0) {
       try {
-        // إنشاء سجلات الحضور دفعة واحدة
-        const result = await db.attendance.createMany({
-          data: records,
-          // SQLite-generated client omits skipDuplicates from its types (and rejects it at runtime);
-          // production PostgreSQL client supports it — `as never` keeps runtime unchanged.
-          skipDuplicates: true as never,
-        });
+        const isSqlite = (process.env.DATABASE_URL || "").startsWith("file:");
+        const createArgs: any = { data: records };
+        if (!isSqlite) {
+          createArgs.skipDuplicates = true;
+        }
+        const result = await db.attendance.createMany(createArgs);
         checkedIn = result.count;
 
         // سجل نشاط واحد للتسجيل الجماعي (بدلاً من نشاط لكل منخرط)

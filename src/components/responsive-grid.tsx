@@ -44,7 +44,7 @@ export function ResponsiveGrid({
       className={className}
       style={{
         display: "grid",
-        gridTemplateColumns: `repeat(auto-fit, minmax(${minCardWidth}px, 1fr))`,
+        gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, ${minCardWidth}px), 1fr))`,
         gap: `${gap}px`,
         ...style,
       }}

@@ -25,6 +25,7 @@ import { motion } from "framer-motion";
 import {
   Landmark, LayoutDashboard, ArrowRightLeft, FileText, Wallet,
   RefreshCw, Loader2, AlertTriangle, Activity, ShieldCheck, ChevronDown,
+  Receipt, TrendingUp, TrendingDown, Banknote, PieChart,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -44,11 +45,26 @@ import { FinancialOverview, type OverviewNavSection, type PeriodKey } from "@/co
 import { DuesSection } from "@/components/financial/dues-section";
 import { FinancialPayments } from "@/components/financial-payments";
 import { FinancialReports } from "@/components/financial-reports";
+import { CashDrawerClosureDialog } from "@/components/financial/cash-drawer-closure-dialog";
+import { IncomesView } from "@/components/financial/incomes-view";
+import { ExpensesView } from "@/components/financial/expenses-view";
+import { WagesSection } from "@/components/wages/wages-section";
+import { FinancialAnalyticsView } from "@/components/financial/financial-analytics-view";
+import { AuditView } from "@/components/financial/audit-view";
 
 // ─────────────────────────────────────────────────────────────
-// Types
+// Types (The 9 Financial Center Core Tabs)
 // ─────────────────────────────────────────────────────────────
-type HubSection = OverviewNavSection | "dues";
+export type HubSection =
+  | "overview"
+  | "transactions"
+  | "incomes"
+  | "expenses"
+  | "wages"
+  | "dues"
+  | "analytics"
+  | "reports"
+  | "audit";
 
 interface HubSummary {
   balance: { totalIncome: number; totalExpense: number; balance: number };
@@ -114,13 +130,23 @@ function formatShort(n: number): string {
 export function FinancialHub({ role }: FinancialHubProps) {
   const perms = {
     overview: hasPermission(role, "financialDashboard"),
-    dues: hasPermission(role, "financialDashboard"),
     transactions: hasPermission(role, "financialPayments"),
+    incomes: hasPermission(role, "financialPayments") || hasPermission(role, "financialDashboard"),
+    expenses: hasPermission(role, "financialPayments") || hasPermission(role, "financialDashboard"),
+    wages: hasPermission(role, "financialPayments") || hasPermission(role, "financialDashboard") || hasPermission(role, "workHoursApproval"),
+    dues: hasPermission(role, "financialDashboard"),
+    analytics: hasPermission(role, "financialDashboard"),
     reports: hasPermission(role, "financialReports"),
+    audit: role === "admin" || role === "superadmin" || hasPermission(role, "financialDashboard"),
   };
 
   const firstAllowed: HubSection =
-    perms.overview ? "overview" : perms.transactions ? "transactions" : perms.reports ? "reports" : "overview";
+    perms.overview ? "overview"
+    : perms.transactions ? "transactions"
+    : perms.incomes ? "incomes"
+    : perms.expenses ? "expenses"
+    : perms.reports ? "reports"
+    : "overview";
 
   const [section, setSection] = useState<HubSection>(firstAllowed);
   const [summary, setSummary] = useState<HubSummary | null>(null);
@@ -135,6 +161,8 @@ export function FinancialHub({ role }: FinancialHubProps) {
   const [rangeNonce, setRangeNonce] = useState(0);
   /** نافذة فحص سلامة الحسابات (من «المزيد») */
   const [integrityOpen, setIntegrityOpen] = useState(false);
+  /** نافذة إقفال الصندوق اليومي (تقرير Z) */
+  const [closureOpen, setClosureOpen] = useState(false);
 
   const changeHubPeriod = useCallback((p: PeriodKey) => {
     setHubPeriod(p);
@@ -193,10 +221,15 @@ export function FinancialHub({ role }: FinancialHubProps) {
   };
 
   const SECTIONS: Array<{ id: HubSection; label: string; icon: typeof LayoutDashboard; hint: string; show: boolean }> = [
-    { id: "overview", label: "نظرة عامة", icon: LayoutDashboard, hint: "بطاقات الرصيد واللوحة التحليلية والمؤشرات", show: perms.overview },
-    { id: "dues", label: "المستحقات", icon: Wallet, hint: "التأمين وحقوق المركب وأجور العمال والديون — مع التسديد", show: perms.dues },
-    { id: "transactions", label: "المعاملات المالية", icon: ArrowRightLeft, hint: "دفتر القيود الكامل — كل مدخول ومصروف", show: perms.transactions },
-    { id: "reports", label: "التقارير", icon: FileText, hint: "ملخص وأجور ومداخيل مع التصدير", show: perms.reports },
+    { id: "overview", label: "نظرة عامة", icon: LayoutDashboard, hint: "اللوحة التنفيذية والمؤشرات والمقارنات", show: perms.overview },
+    { id: "transactions", label: "دفتر العمليات", icon: ArrowRightLeft, hint: "دفتر القيود المالي الكامل — كل مدخول ومصروف", show: perms.transactions },
+    { id: "incomes", label: "المداخيل", icon: TrendingUp, hint: "إدارة وتوزيع مصادر الإيرادات والمقبوضات", show: perms.incomes },
+    { id: "expenses", label: "المصاريف", icon: TrendingDown, hint: "إدارة وتوزيع النفقات والمصروفات", show: perms.expenses },
+    { id: "wages", label: "الأجور", icon: Banknote, hint: "أجور العمال وساعات العمل المعتمدة والتسديدات", show: perms.wages },
+    { id: "dues", label: "المستحقات", icon: Wallet, hint: "التزامات النادي ومستحقات المنخرطين والتسديدات", show: perms.dues },
+    { id: "analytics", label: "التحليل المالي", icon: PieChart, hint: "التحليل المالي التفصيلي ومطابقة المبالغ بدقة 100%", show: perms.analytics },
+    { id: "reports", label: "التقارير", icon: FileText, hint: "التقارير المالية الرسمية مع التصدير", show: perms.reports },
+    { id: "audit", label: "التدقيق والسجل", icon: ShieldCheck, hint: "فحص سلامة الحسابات والعمليات الملغاة وإقفال الصندوق", show: perms.audit },
   ];
   const visibleSections = SECTIONS.filter((s) => s.show);
 
@@ -274,6 +307,17 @@ export function FinancialHub({ role }: FinancialHubProps) {
                 label="تحميل"
               />
             )}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setClosureOpen(true)}
+              className="text-white hover:bg-white/15 border border-white/25 h-9 gap-1.5 text-xs font-bold shrink-0"
+              aria-label="إقفال الصندوق اليومي"
+              title="إقفال الصندوق ومطابقة النقد الفعلي (Z-Report)"
+            >
+              <Receipt className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">إقفال الصندوق</span>
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -288,6 +332,9 @@ export function FinancialHub({ role }: FinancialHubProps) {
               <DropdownMenuContent align="start" className="text-xs">
                 <DropdownMenuItem onClick={() => setIntegrityOpen(true)} className="gap-2 cursor-pointer">
                   <ShieldCheck className="h-3.5 w-3.5 text-teal-600" /> فحص سلامة الحسابات
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setClosureOpen(true)} className="gap-2 cursor-pointer">
+                  <Receipt className="h-3.5 w-3.5 text-teal-600" /> إقفال الصندوق اليومي (تقرير Z)
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -403,16 +450,10 @@ export function FinancialHub({ role }: FinancialHubProps) {
         </div>
       </div>
 
-      {/* ═══ محتوى الأقسام ═══ */}
+      {/* ═══ محتوى الأقسام (9 أقسام محاسبية متخصصة) ═══ */}
       {section === "overview" && perms.overview && (
         <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} key="overview">
           <FinancialOverview role={role} onNavigateSection={handleNavigateSection} controlledPeriod={hubPeriod} onControlledPeriodChange={changeHubPeriod} />
-        </motion.section>
-      )}
-
-      {section === "dues" && perms.dues && (
-        <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} key="dues">
-          <DuesSection onChanged={() => fetchSummary(true)} />
         </motion.section>
       )}
 
@@ -425,9 +466,45 @@ export function FinancialHub({ role }: FinancialHubProps) {
         </motion.section>
       )}
 
+      {section === "incomes" && perms.incomes && (
+        <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} key="incomes">
+          <IncomesView role={role} />
+        </motion.section>
+      )}
+
+      {section === "expenses" && perms.expenses && (
+        <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} key="expenses">
+          <ExpensesView role={role} />
+        </motion.section>
+      )}
+
+      {section === "wages" && perms.wages && (
+        <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} key="wages">
+          <WagesSection onChanged={() => fetchSummary(true)} />
+        </motion.section>
+      )}
+
+      {section === "dues" && perms.dues && (
+        <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} key="dues">
+          <DuesSection onChanged={() => fetchSummary(true)} />
+        </motion.section>
+      )}
+
+      {section === "analytics" && perms.analytics && (
+        <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} key="analytics">
+          <FinancialAnalyticsView role={role} />
+        </motion.section>
+      )}
+
       {section === "reports" && perms.reports && (
         <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} key="reports">
           <FinancialReports syncRange={syncRange ?? undefined} />
+        </motion.section>
+      )}
+
+      {section === "audit" && perms.audit && (
+        <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} key="audit">
+          <AuditView role={role} />
         </motion.section>
       )}
 
@@ -440,6 +517,13 @@ export function FinancialHub({ role }: FinancialHubProps) {
           fetchSummary(true);
           notifyFinancialUpdated();
         }}
+      />
+
+      {/* إقفال الصندوق اليومي (تقرير Z) */}
+      <CashDrawerClosureDialog
+        open={closureOpen}
+        onOpenChange={setClosureOpen}
+        todayIncome={summary?.periodIncome.today ?? 0}
       />
     </div>
   );

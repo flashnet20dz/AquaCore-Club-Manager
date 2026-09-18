@@ -10,7 +10,8 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
+  url           = env("DATABASE_URL")
+  // ⚠️ إنتاج PostgreSQL (Neon). المحلي SQLite — استبدال جراحي فقط (درس b8f4e5d)
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -83,6 +84,7 @@ model Club {
   // ★ Financial system (المحاسب المالي)
   financialTransactions FinancialTransaction[]        // العمليات المالية (مداخيل + مصاريف)
   financialBalance      FinancialBalance?              // الرصيد المالي للحظي
+  wagePayments          WagePayment[]                  // تسديدات أجور العمال
 }
 
 // Club subscription (اشتراك النادي)
@@ -223,6 +225,11 @@ model Subscriber {
 
   @@unique([clubId, fileNumber])
   @@index([clubId])
+  @@index([clubId, fileNumber])
+  @@index([clubId, createdAt])
+  @@index([clubId, lastPaymentDate])
+  @@index([clubId, lastName, firstName])
+  @@index([clubId, deletedAt])
   @@index([clubId, paymentStatus])
   @@index([clubId, subscriptionType])
   @@index([clubId, gender])
@@ -284,12 +291,12 @@ model User {
 
   workHours       WorkHours[]
   payments        Payment[]
-  sessions        Session[]
   employees       Employee[]
   guardAssignments GuardAssignment[]
   codeBatches     CodeBatch[]                       // الدفعات التي ولّدها هذا المستخدم
   compensationHistory CompensationHistory[]           // سجل تدقيق التعويضات
   staffCompensations StaffCompensation[]
+  wagePayments    WagePayment[]                       // تسديدات الأجور المستلمة
   // ★ Financial system
   financialTransactions FinancialTransaction[]        // العمليات المالية التي سجّلها هذا المستخدم
 }
@@ -303,14 +310,29 @@ model WorkHours {
   date            DateTime
   startTime       DateTime
   endTime         DateTime
+  // ★ المرحلة 5 (§9): دورة حياة السجل — pending(مسودة)/approved/rejected/cancelled
+  //   فقط approved يدخل في حساب الأجور (wage-core)
   status          String   @default("pending")
   note            String?
   approvedById    String?
   approvedAt      DateTime?
+  // ★ المرحلة 5 (§23): لقطة سعر الساعة وقت التسجيل — تغيير الأجر لاحقاً
+  //   لا يعيد حساب السجلات القديمة (اللقطة أسبق من السعر الحالي)
+  rateSnapshot    Int?
+  // ★ المرحلة 5 (§9/10): سبب الرفض/الإلغاء + من وأين أُلغي (إلغاء ناعم بلا حذف)
+  rejectionReason String?
+  cancelledById   String?
+  cancelledAt     DateTime?
   createdAt       DateTime @default(now())
+
+  // ★ المرحلة 5 (§6): ربط السجل بالحصة الموحّدة من جدول المسبح —
+  //   اللقطة النصية تبقى في note JSON للتوافق مع السجلات القديمة (§27)
+  slotId          String?
+  slot            SwimmingTimeSlot? @relation(fields: [slotId], references: [id], onDelete: SetNull)
 
   @@index([clubId, userId, date])
   @@index([clubId, status])
+  @@index([clubId, slotId])
 }
 
 model Payment {
@@ -329,6 +351,12 @@ model Payment {
   note            String?
   status          String   @default("paid")
   createdAt       DateTime @default(now())
+
+  // ★ الإلغاء الناعم — الدفعة لا تُحذف فعلياً (المرحلة 9/41):
+  // status="cancelled" + من ألغى/متى/لماذا — السجل التاريخي محفوظ دائماً
+  cancelledAt        DateTime?
+  cancelledById      String?
+  cancellationReason String?
 
   @@index([clubId])
   @@index([clubId, subscriberId])
@@ -378,10 +406,14 @@ model Setting {
   @@index([clubId])
 }
 
+// ⚠️ Session.userId لا يملك علاقة FK بجدول User عمداً: جلسات كود الكاشير
+// (PIN) تُنشأ بمعرّف وهمي «pin-...» غير موجود في Users — مع الـ FK كان
+// الإدراج يفشل دائماً (Foreign key constraint) فيرجع النظام لمخزن في
+// الذاكرة يعمل محلياً لكنه ميت على Vercel (كل route بذاكرته) فلا يكتمل
+// دخول PIN أبداً. حذف مستخدم ينظّف جلساته يدوياً في /api/users/[id].
 model Session {
   id              String   @id
   userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   data            String
   expiresAt       DateTime
   createdAt       DateTime @default(now())
@@ -477,8 +509,15 @@ model SwimmingTimeSlot {
   maxCapacity     Int      @default(30)
   active          Boolean  @default(true)
   sortOrder       Int      @default(0)
+  // ★ ربط الحصة بيوم من أيام الأسبوع (sun|mon|tue|wed|thu|fri|sat) — null = تظهر في كل الأيام
+  dayOfWeek       String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+
+  // ★ المرحلة 4: تعيينات العمال/الحراس على هذه الحصة (PoolSessionEmployee عبر GuardAssignment)
+  guardAssignments GuardAssignment[]
+  // ★ المرحلة 5: ساعات العمل المسجّلة على هذه الحصة (ربط اختياري — لقطة نصية في note)
+  workHours        WorkHours[]
 
   @@unique([clubId, name])
   @@index([clubId])
@@ -502,6 +541,10 @@ model Employee {
   address         String?
   phone           String?
   nationalId      String?
+  // ★ المرحلة 5 (§3): تواصل + الاسم بالفرنسية عند الحاجة
+  email           String?
+  firstNameFr     String?
+  lastNameFr      String?
 
   // Job data
   position        String   // guard/coach/admin/maintenance/cleaner/seasonal/other
@@ -511,6 +554,9 @@ model Employee {
   hourRate        Int      @default(200)
 
   active          Boolean  @default(true)
+  // ★ المرحلة 5 (§3): حالة الموظف ACTIVE/INACTIVE/SUSPENDED/ARCHIVED —
+  //   active يبقى مزامَناً معها (ACTIVE = true) للتوافق مع الكود القديم
+  status          String   @default("ACTIVE")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -520,6 +566,7 @@ model Employee {
   @@unique([clubId, nationalId])
   @@index([clubId])
   @@index([clubId, position])
+  @@index([clubId, status])
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -536,6 +583,12 @@ model GuardAssignment {
   dayOfWeek       String   // "الأحد والأربعاء" | "الاثنين والخميس" | "الثلاثاء والجمعة" | "كل الأيام"
   timeSlot        String   // "09:00-10:00" | etc.
   groupName       String?  // اسم الفوج (اختياري)
+
+  // ★ المرحلة 4: التعيين على حصة محددة من جدول المسبح (SwimmingTimeSlot) —
+  // المصدر الموحّد للجلسات هو الإعدادات؛ slotId يربط التعيين بالحصة نفسها،
+  // بينما يبقى dayOfWeek/timeSlot كنص لقطة تاريخية للتوافق مع السجلات القديمة.
+  slotId          String?
+  slot            SwimmingTimeSlot? @relation(fields: [slotId], references: [id], onDelete: SetNull)
 
   // نوع التعيين
   assignmentType  String   @default("primary") // primary | assistant | substitute
@@ -555,6 +608,7 @@ model GuardAssignment {
   @@index([clubId, userId])
   @@index([clubId, dayOfWeek, timeSlot])
   @@index([clubId, attendanceStatus])
+  @@index([clubId, slotId])
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -577,13 +631,25 @@ model EmploymentContract {
   monthlySalary   Int?
   workSchedule    String?  // e.g. "40 ساعة/أسبوع"
 
+  // ★ المرحلة 5 (§4): نوع العقد القابل للتوسعة + عنوان + مدة العمل الأسبوعية
+  contractType    String   @default("HOURLY") // HOURLY/MONTHLY/TEMPORARY/FIXED_TERM/OTHER
+  title           String?
+  weeklyHours     Int?
+
   // Snapshot of the rendered content (after variable substitution)
   content         String   // HTML content with substituted variables
 
   // Metadata
-  status          String   @default("active") // active/expired/terminated/renewed
+  // ★ المرحلة 5 (§4/26): draft/active/expired/terminated/renewed/cancelled —
+  //   الانتهاء التلقائي عند القراءة (endDate < اليوم → expired) بلا تغيير تاريخ العقد
+  status          String   @default("active")
   version         Int      @default(1)
   notes           String?
+
+  // ★ المرحلة 5 (§24): إنهاء العقد ناعم — السبب ومن أنهى ومتى (لا حذف)
+  terminatedAt     DateTime?
+  terminatedById   String?
+  terminatedReason String?
 
   createdBy        String?
   createdAt        DateTime @default(now())
@@ -592,6 +658,7 @@ model EmploymentContract {
   @@unique([clubId, contractNumber])
   @@index([clubId, employeeId])
   @@index([clubId, status])
+  @@index([clubId, endDate])
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1132,6 +1199,11 @@ model StaffCompensation {
   approvedById    String?
   approvedAt      DateTime?
 
+  // ★ Soft Archive — لا حذف فعلي: null = نشط، تاريخ = مؤرشف (محفوظ للتاريخ والتدقيق)
+  archivedAt      DateTime?
+  archivedById    String?
+  archiveReason   String?
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -1192,12 +1264,83 @@ model FinancialTransaction {
   createdById     String?
   user            User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
+  // ★ الإلغاء الناعم — لا حذف فعلي للعمليات المالية:
+  // الملغاة تبقى في السجل بوضع «ملغاة» ولا تدخل في الرصيد/المداخيل/المصاريف/التقارير
+  status             String    @default("active")   // active | cancelled
+  cancelledAt        DateTime?
+  cancelledById      String?
+  cancellationReason String?
+
+  // ★ رقم العملية المالي للمستخدم (المرحلة 13): FIN-2026-000001 — فريد لكل نادي
+  // seq يتولد تلقائياً في postLedgerEntry داخل نفس الذرّية؛ القديمة تُرقّم بالـ backfill
+  seq Int?
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  // ★ تسديدات الأجور المرتبطة بهذا القيد (1:1 فعلياً — transactionId فريد في WagePayment)
+  wagePayment     WagePayment?
+
+  @@unique([clubId, seq])
   @@index([clubId, type, category])
   @@index([clubId, date])
   @@index([clubId, payeeName])
+  @@index([clubId, status])
+  @@index([clubId, reference])
+}
+
+// ═══════════════════════════════════════════════════════════
+// WAGE PAYMENTS (تسديدات أجور العمال) — per club
+// ═══════════════════════════════════════════════════════════
+// كل تسديد أجر = سجل WagePayment واحد مرتبط 1:1 بقيد مالي واحد
+// (FinancialTransaction عبر transactionId الفريد) — فلا ازدواج أبداً:
+// صفحة ساعات العمل والمركز المالي يقرآن نفس القيد.
+// لقطة الحساب (hours/hourRate/grossAmount/prevPaid) محفوظة للتدقيق.
+model WagePayment {
+  id            String   @id @default(cuid())
+  clubId        String
+  club          Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  userId        String   // العامل المستفيد
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // الفترة التي يُسدَّد عنها (wall-clock UTC: بداية/نهاية الفترة)
+  periodStart   DateTime
+  periodEnd     DateTime
+  periodLabel   String   // "أوت 2026" أو "01/08/2026 → 31/08/2026"
+
+  // لقطة الحساب وقت التسديد (توثيق محاسبي حتى لو تغيّرت الأسعار لاحقاً)
+  hours         Float    @default(0)  // مجموع ساعات الفترة المحسوبة
+  hourRate      Int      @default(0)  // سعر الساعة المطبّق (متوسط مرجّح إذا تغيّر خلال الفترة)
+  grossAmount   Int      @default(0)  // إجمالي مستحق الفترة وقت التسديد
+  prevPaid      Int      @default(0)  // المدفوع سابقاً قبل هذه الدفعة
+  amount        Int      // المبلغ المسدَّد في هذه الدفعة
+
+  // ★ المرحلة 5 (§37): مفتاح Idempotency من العميل — ضغط مزدوج/إعادة إرسال/تحديث
+  //   الصفحة = دفعة واحدة فقط (قيد UNIQUE على مستوى قاعدة البيانات)
+  idempotencyKey String?  @unique
+  // ★ المرحلة 5 (§29): ربط اختياري بسجل الموظف لتقارير ملف الموظف
+  employeeId    String?
+
+  method        String   @default("cash")  // cash | bank | cheque
+  paidAt        DateTime @default(now())   // تاريخ الدفع الفعلي
+  note          String?
+
+  // ★ الربط 1:1 بالقيد المالي — قيد فريد يمنع التكرار على مستوى قاعدة البيانات
+  transactionId String?
+  transaction   FinancialTransaction? @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  createdById   String?
+  createdAt     DateTime @default(now())
+
+  // ★ الإلغاء الناعم — إلغاء التسديد يحفظ السجل بوضع «ملغى» ولا يحذفه
+  status             String    @default("active")   // active | cancelled
+  cancelledAt        DateTime?
+  cancelledById      String?
+  cancellationReason String?
+
+  @@unique([transactionId])
+  @@index([clubId, userId, periodStart])
+  @@index([clubId, paidAt])
 }
 
 // سجل لحظي للرصيد المالي للنادي (singleton لكل نادي)

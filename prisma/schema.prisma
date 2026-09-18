@@ -7,9 +7,10 @@ generator client {
 }
 
 datasource db {
-  provider      = "sqlite"
+  provider      = "postgresql"
   url           = env("DATABASE_URL")
-  // ⚠️ محلي SQLite. عند النشر: أعد postgresql + directUrl (درس b8f4e5d — استبدال جراحي فقط)
+  directUrl     = env("DIRECT_URL")
+  // ⚠️ إنتاج PostgreSQL (Neon). المحلي SQLite — استبدال جراحي فقط (درس b8f4e5d)
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -223,6 +224,11 @@ model Subscriber {
 
   @@unique([clubId, fileNumber])
   @@index([clubId])
+  @@index([clubId, fileNumber])
+  @@index([clubId, createdAt])
+  @@index([clubId, lastPaymentDate])
+  @@index([clubId, lastName, firstName])
+  @@index([clubId, deletedAt])
   @@index([clubId, paymentStatus])
   @@index([clubId, subscriptionType])
   @@index([clubId, gender])

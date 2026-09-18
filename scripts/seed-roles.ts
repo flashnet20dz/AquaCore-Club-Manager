@@ -67,6 +67,30 @@ async function main() {
     }
   }
 
+  // Ensure default club has an active subscription
+  const club = await db.club.findFirst();
+  if (club) {
+    const activeSub = await db.clubSubscription.findFirst({
+      where: { clubId: club.id, status: "active" },
+    });
+    if (!activeSub) {
+      const now = new Date();
+      const endDate = new Date(now);
+      endDate.setFullYear(endDate.getFullYear() + 2);
+      await db.clubSubscription.create({
+        data: {
+          clubId: club.id,
+          type: "yearly",
+          status: "active",
+          startDate: now,
+          endDate,
+          lastRenewalDate: now,
+        },
+      });
+      console.log("  ✓ Created 2-year active club subscription");
+    }
+  }
+
   console.log("\n✅ Seed complete!");
   console.log("\n📋 Login credentials:");
   console.log("  👑 admin@rcs.dz / admin123 (مدير)");

@@ -54,6 +54,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useSwimConfig } from "@/hooks/use-swim-config";
+import { SmartClosureDialog } from "@/components/smart-closure-dialog";
 import {
   SUBSCRIPTION_TYPES,
   PAYMENT_STATUSES,
@@ -486,8 +487,8 @@ export function CompensationsPanel() {
         )}
       </div>
 
-      {/* نافذة تسجيل إغلاق جديد */}
-      <NewClosureDialog
+      {/* نافذة تسجيل إغلاق جديد الذكية الاحترافية */}
+      <SmartClosureDialog
         open={newClosureOpen}
         onOpenChange={setNewClosureOpen}
         onCreated={loadClosures}

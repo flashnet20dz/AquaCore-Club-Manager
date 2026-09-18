@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
 import ZAI from "z-ai-web-dev-sdk";
+import { generateLocalInsights } from "@/lib/local-ai-engine";
 
 /**
  * POST /api/ai/insights
@@ -91,25 +92,33 @@ export async function POST(req: NextRequest) {
       أكثر_نوع_عدد: byType[0]?._count._all || 0,
     };
 
-    const zai = await ZAI.create();
-    const completion = await zai.chat.completions.create({
-      messages: [
-        {
-          role: "assistant",
-          content:
-            "أنت مدير نجاح عملاء خبير في إدارة نوادي السباحة بالجزائر. تحلل مؤشرات النادي وتقدم نصائح عملية مختصرة بالعربية الفصحى المبسطة. أسلوبك: مباشر، ودود، بلا مقدمات، بلا عناوين كبيرة. اكتب: سطران للملخص، ثم 3 توصيات مرقمة قابلة للتنفيذ اليوم، كل توصية سطر واحد محدد. لا تتجاوز 130 كلمة. الأرقام بالدينار الجزائري (دج).",
-        },
-        {
-          role: "user",
-          content: `مؤشرات النادي هذا الأسبوع:\n${JSON.stringify(metrics, null, 2)}\n\nقدم التحليل والتوصيات.`,
-        },
-      ],
-      thinking: { type: "disabled" },
-    });
+    let insights: string | undefined;
 
-    const insights = completion.choices[0]?.message?.content;
+    // 1) محاولة الاستعلام عبر ZAI إن كان مهيأً
+    try {
+      const zai = await ZAI.create();
+      const completion = await zai.chat.completions.create({
+        messages: [
+          {
+            role: "assistant",
+            content:
+              "أنت مدير نجاح عملاء خبير في إدارة نوادي السباحة بالجزائر. تحلل مؤشرات النادي وتقدم نصائح عملية مختصرة بالعربية الفصحى المبسطة. أسلوبك: مباشر، ودود، بلا مقدمات، بلا عناوين كبيرة. اكتب: سطران للملخص، ثم 3 توصيات مرقمة قابلة للتنفيذ اليوم، كل توصية سطر واحد محدد. لا تتجاوز 130 كلمة. الأرقام بالدينار الجزائري (دج).",
+          },
+          {
+            role: "user",
+            content: `مؤشرات النادي هذا الأسبوع:\n${JSON.stringify(metrics, null, 2)}\n\nقدم التحليل والتوصيات.`,
+          },
+        ],
+        thinking: { type: "disabled" },
+      });
+      insights = completion.choices[0]?.message?.content;
+    } catch (zaiErr) {
+      console.warn("ZAI API unavailable in insights, falling back to local insights engine:", zaiErr);
+    }
+
+    // 2) في حال عدم توفر أو تعثر ZAI الخارجي، نعتمد على محرك الرؤى المحلي الذكي
     if (!insights || !insights.trim()) {
-      return NextResponse.json({ error: "لم يصل رد من المحلل — أعد المحاولة" }, { status: 502 });
+      insights = generateLocalInsights(metrics);
     }
 
     return NextResponse.json({ insights, metrics });

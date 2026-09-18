@@ -93,17 +93,25 @@ export async function ensureSwimDefaults(
   let days = 0, slots = 0;
 
   if (dayCount === 0) {
-    const res = await db.swimmingDay.createMany({
-      data: DEFAULT_SWIM_DAYS.map((d, i) => ({ ...d, sortOrder: i, clubId })),
-    });
-    days = res.count;
+    try {
+      const res = await db.swimmingDay.createMany({
+        data: DEFAULT_SWIM_DAYS.map((d, i) => ({ ...d, sortOrder: i, clubId })),
+      });
+      days = res.count;
+    } catch {
+      // Ignored if created concurrently
+    }
   }
 
   if (slotCount === 0) {
-    const res = await db.swimmingTimeSlot.createMany({
-      data: DEFAULT_SWIM_SLOTS.map((s, i) => ({ ...s, sortOrder: i, clubId })),
-    });
-    slots = res.count;
+    try {
+      const res = await db.swimmingTimeSlot.createMany({
+        data: DEFAULT_SWIM_SLOTS.map((s, i) => ({ ...s, sortOrder: i, clubId })),
+      });
+      slots = res.count;
+    } catch {
+      // Ignored if created concurrently
+    }
   }
 
   if (!hadFlag || force) await setSeedFlag(db, clubId);

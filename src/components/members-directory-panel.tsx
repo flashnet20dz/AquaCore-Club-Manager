@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
+import { DataPagination } from "@/components/ui/data-pagination";
 import {
   Users, Download, Loader2, Calendar, ChevronRight, ChevronLeft,
   CheckSquare, Square, RefreshCw, Search, ExternalLink,
@@ -161,6 +162,10 @@ export function MembersDirectoryPanel() {
     }
   };
 
+  // ترقيم صفحات الجدول للأداء العالي (10,000 منخرط)
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+
   // فلترة حسب البحث
   const filtered = data.filter((m) => {
     if (!search) return true;
@@ -169,6 +174,13 @@ export function MembersDirectoryPanel() {
            m.firstName.toLowerCase().includes(q) ||
            m.fileNumber.toLowerCase().includes(q);
   });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedMembers = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, currentPage, pageSize]);
 
   return (
     <div className="space-y-4">
@@ -196,11 +208,13 @@ export function MembersDirectoryPanel() {
           <Input
             placeholder="بحث بالاسم أو رقم الملف..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             className="pr-9"
           />
         </div>
-        <Badge variant="secondary">{filtered.length} منخرط</Badge>
+        <Badge variant="secondary">
+          {filtered.length} منخرط {totalPages > 1 && `(صفحة ${currentPage} من ${totalPages})`}
+        </Badge>
       </div>
 
       {/* Table */}
@@ -235,7 +249,7 @@ export function MembersDirectoryPanel() {
                   </td>
                 </tr>
               ) : (
-                filtered.map((m, i) => (
+                pagedMembers.map((m, i) => (
                   <motion.tr
                     key={m.id}
                     initial={{ opacity: 0 }}
@@ -243,7 +257,7 @@ export function MembersDirectoryPanel() {
                     transition={{ delay: Math.min(i * 0.003, 0.2) }}
                     className="border-b border-border/40 transition hover:bg-muted/40"
                   >
-                    <td className="p-3 text-center text-xs text-muted-foreground">{i + 1}</td>
+                    <td className="p-3 text-center text-xs text-muted-foreground">{(currentPage - 1) * pageSize + i + 1}</td>
                     <td className="p-3 text-center font-mono text-xs font-bold">{m.fileNumber}</td>
                     <td className="p-3 text-right font-medium">{m.lastName}</td>
                     <td className="p-3 text-right font-medium">{m.firstName}</td>
@@ -288,6 +302,20 @@ export function MembersDirectoryPanel() {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* 🔑 شريط ترقيم صفحات جدول المنخرطين */}
+        <div className="p-3 border-t border-border/60 bg-muted/20">
+          <DataPagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={filtered.length}
+            pageSize={pageSize}
+            onPageChange={(p) => setPage(p)}
+            onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+            pageSizeOptions={[25, 50, 100, 250]}
+            itemLabel="منخرط"
+          />
         </div>
       </div>
 

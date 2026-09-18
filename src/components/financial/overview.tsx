@@ -40,6 +40,8 @@ import { DashboardRevenueBlock } from "@/components/financial/dashboard-revenue"
 import { IntegrityWidget, type InlineIntegrity } from "@/components/financial/integrity-widget";
 import { DayStatementCard } from "@/components/financial/day-statement";
 import { TransactionDetailsDialog } from "@/components/financial/transaction-details-dialog";
+import { SmartFinancialAdvisor } from "@/components/financial/smart-financial-advisor";
+import { FinancialSimulator } from "@/components/financial/financial-simulator";
 import { onFinancialUpdated } from "@/lib/financial-events";
 
 // ─────────────────────────────────────────────────────────────
@@ -589,6 +591,15 @@ export function FinancialOverview({ role, onNavigateSection, controlledPeriod, o
         receivables={data.receivables}
       />
 
+      {/* ═══ 5.5) المحلل المالي الذكي ومؤشرات السلامة والسيولة ═══ */}
+      <SmartFinancialAdvisor
+        balance={data.balance}
+        monthlyComparison={data.monthlyComparison}
+        realAvailable={realAvailable}
+        receivables={data.receivables}
+        payables={data.payables}
+      />
+
       {/* ═══ 6) سلامة الحسابات (المرحلة 31) ═══ */}
       <IntegrityWidget
         role={role}
@@ -598,6 +609,12 @@ export function FinancialOverview({ role, onNavigateSection, controlledPeriod, o
 
       {/* ═══ 7) حركة اليوم — كشف يومي (المرحلة 20) ═══ */}
       <DayStatementCard refreshSignal={reloadTick} />
+
+      {/* ═══ 7.5) محاكي النمو والتوقعات المالية ═══ */}
+      <FinancialSimulator
+        currentMonthlyIncome={data.monthlyComparison?.thisMonthIncome || data.balance.totalIncome}
+        currentMonthlyExpense={data.monthlyComparison?.thisMonthExpense || data.balance.totalExpense}
+      />
 
       {/* ═══ 8) مقارنة الفترة بالفترة السابقة (المرحلة 2/5) ═══ */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

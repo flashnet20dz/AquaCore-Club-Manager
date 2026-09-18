@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { motion } from "framer-motion";
+import { DataPagination } from "@/components/ui/data-pagination";
 import {
   ShieldCheck, Download, Search, Loader2, Users, Shield, ShieldOff,
   FileText, FileType, FileSpreadsheet, FileDown,
@@ -170,12 +171,22 @@ export function InsurancePanel({ subscribers, onRefresh }: InsurancePanelProps) 
     return s.lastName.toLowerCase().includes(q) || s.firstName.toLowerCase().includes(q) || s.fileNumber.toLowerCase().includes(q);
   };
 
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+
   const filteredSubs = subscribers.filter((s) => {
     const isInsured = !!insuranceStatus[s.id];
     if (filter === "insured" && !isInsured) return false;
     if (filter === "uninsured" && isInsured) return false;
     return applyCommonFilters(s);
   });
+
+  const totalPages = Math.max(1, Math.ceil(filteredSubs.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedSubs = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredSubs.slice(start, start + pageSize);
+  }, [filteredSubs, currentPage, pageSize]);
 
   // القائمة الأساسية (بلا فلتر الحالة) — لعدّادات نطاق التحميل
   const baseFiltered = subscribers.filter(applyCommonFilters);
@@ -575,9 +586,9 @@ export function InsurancePanel({ subscribers, onRefresh }: InsurancePanelProps) 
 
       {/* Stats cards */}
       <div className="grid grid-cols-3 gap-3">
-        <StatCard icon={Users} label="إجمالي" count={subscribers.length} color="bg-blue-600" active={filter === "all"} onClick={() => setFilter("all")} />
-        <StatCard icon={Shield} label="مؤمن" count={insuredCount} color="bg-emerald-600" active={filter === "insured"} onClick={() => setFilter("insured")} />
-        <StatCard icon={ShieldOff} label="غير مؤمن" count={uninsuredCount} color="bg-rose-600" active={filter === "uninsured"} onClick={() => setFilter("uninsured")} />
+        <StatCard icon={Users} label="إجمالي" count={subscribers.length} color="bg-blue-600" active={filter === "all"} onClick={() => { setFilter("all"); setPage(1); }} />
+        <StatCard icon={Shield} label="مؤمن" count={insuredCount} color="bg-emerald-600" active={filter === "insured"} onClick={() => { setFilter("insured"); setPage(1); }} />
+        <StatCard icon={ShieldOff} label="غير مؤمن" count={uninsuredCount} color="bg-rose-600" active={filter === "uninsured"} onClick={() => { setFilter("uninsured"); setPage(1); }} />
       </div>
 
       {/* Search + filters + actions */}
@@ -585,7 +596,7 @@ export function InsurancePanel({ subscribers, onRefresh }: InsurancePanelProps) 
         <div className="flex items-center gap-2 flex-wrap">
           <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="بحث بالاسم أو رقم العضوية..." value={search} onChange={(e) => setSearch(e.target.value)} className="pr-10 h-10" />
+            <Input placeholder="بحث بالاسم أو رقم العضوية..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className="pr-10 h-10" />
           </div>
           <Button size="sm" variant="outline" onClick={selectAllUninsured}>تحديد غير المؤمنين</Button>
           <Button size="sm" variant="ghost" onClick={() => setSelectedIds([])}>إلغاء التحديد</Button>
@@ -620,7 +631,7 @@ export function InsurancePanel({ subscribers, onRefresh }: InsurancePanelProps) 
           <input
             type="month"
             value={monthFilter}
-            onChange={(e) => setMonthFilter(e.target.value)}
+            onChange={(e) => { setMonthFilter(e.target.value); setPage(1); }}
             className="h-8 rounded-md border border-input bg-background px-2 text-xs"
             title="فلترة حسب شهر الدفعة"
           />
@@ -630,7 +641,7 @@ export function InsurancePanel({ subscribers, onRefresh }: InsurancePanelProps) 
             <input
               type="date"
               value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
+              onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
               className="h-8 rounded-md border border-input bg-background px-2 text-xs"
             />
           </div>
@@ -640,17 +651,19 @@ export function InsurancePanel({ subscribers, onRefresh }: InsurancePanelProps) 
             <input
               type="date"
               value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
+              onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
               className="h-8 rounded-md border border-input bg-background px-2 text-xs"
             />
           </div>
           {/* زر مسح الفلاتر */}
           {(monthFilter || dateFrom || dateTo) && (
-            <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => { setMonthFilter(""); setDateFrom(""); setDateTo(""); }}>
+            <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => { setMonthFilter(""); setDateFrom(""); setDateTo(""); setPage(1); }}>
               مسح الفلاتر
             </Button>
           )}
-          <Badge variant="outline" className="text-[10px]">{filteredSubs.length} نتيجة</Badge>
+          <Badge variant="outline" className="text-[10px]">
+            {filteredSubs.length} نتيجة {totalPages > 1 && `(صفحة ${currentPage} من ${totalPages})`}
+          </Badge>
         </div>
       </div>
 
@@ -681,7 +694,7 @@ export function InsurancePanel({ subscribers, onRefresh }: InsurancePanelProps) 
               ) : filteredSubs.length === 0 ? (
                 <tr><td colSpan={5} className="text-center py-12 text-muted-foreground">لا يوجد منخرون</td></tr>
               ) : (
-                filteredSubs.map((s, i) => {
+                pagedSubs.map((s, i) => {
                   const isInsured = !!insuranceStatus[s.id];
                   const isSelected = selectedIds.includes(s.id);
                   return (
@@ -717,6 +730,20 @@ export function InsurancePanel({ subscribers, onRefresh }: InsurancePanelProps) 
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* 🔑 شريط ترقيم صفحات جدول التأمين */}
+        <div className="p-3 border-t border-border/60 bg-muted/20">
+          <DataPagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={filteredSubs.length}
+            pageSize={pageSize}
+            onPageChange={(p) => setPage(p)}
+            onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+            pageSizeOptions={[25, 50, 100, 250]}
+            itemLabel="منخرط"
+          />
         </div>
       </div>
 
