@@ -5,6 +5,7 @@ import { parseWallDateTime } from "@/lib/wall-clock";
 import { dayKeyFromDate, slotDurationHours, type PoolSlot } from "@/lib/pool-schedule";
 import { checkContractAllowsWork } from "@/lib/work-contract-guard";
 import { ensureRuntimeColumns } from "@/lib/runtime-schema";
+import { runTx, ensureSqliteConcurrency } from "@/lib/tx-safe";
 
 /**
  * POST /api/workhours/bulk — تسجيل عدة حصص دفعة واحدة (المرحلة 4 — §11)
@@ -21,11 +22,23 @@ import { ensureRuntimeColumns } from "@/lib/runtime-schema";
  * - ★ المرحلة 5 (§24): عقد منتهٍ يرفض الطلب (تجاوز المدير allowAfterContractEnd=true).
  * - كل شيء داخل معاملة واحدة: إما كل الحصص غير المكررة تُسجَّل أو لا شيء.
  *
+ * ★ إصلاح «Unable to start a transaction in the given time» (P2028) + التكرار:
+ *  - معمارية القراءة الواحدة + الكتابة الذرّية واحدة محفوظة كما هي (لا معاملة
+ *    لكل حصة، ولا رفع مهلة لإخفاء السبب — بل غلاف runTx المُبرَّر أدناه).
+ *  - المعاملة عبر runTx: maxWait=10s (صحوة Neon الباردة/طابور الاتصالات على
+ *    الويب — وبديل WAL على سطح المكتب) + إعادة محاولة على فشل البدء العابر
+ *    (P2028 = لم يُنفَّذ شيء → إعادة آمنة) + تسجيل تشخيصي.
+ *  - إعادة فحص التكرار داخل المعاملة نفسها (يغلق نافذة السباق بين الطلبين).
+ *  - فريد جزئي DB-level (WorkHours_active_user_date_start_key): السباق
+ *    المتزامن الحقيقي يوقفه الفهرس (P2002) → محاولة كاملة واحدة إضافية ترى
+ *    صفوف الطلب الآخر → استجابة «مكرر» نظيفة. لا 8 سجلات أبداً.
+ *
  * Response: { created, skipped, totalHours, records: [...] }
  */
 
 export async function POST(req: NextRequest) {
   try {
+    ensureSqliteConcurrency(); // WAL + busy_timeout (جذر تزامن سطح المكتب)
     await ensureRuntimeColumns();
     const currentUser = await getCurrentUser();
     if (!currentUser || !hasPermission(currentUser.role, "workHours")) {
@@ -143,18 +156,18 @@ export async function POST(req: NextRequest) {
     });
     const takenStarts = new Set(existing.map((e) => new Date(e.startTime).getTime()));
 
-    // بناء الصفوف: غير المكررة فقط
-    const toCreate: Array<{
-      clubId: string; userId: string; date: Date; startTime: Date; endTime: Date;
-      note: string; status: string; approvedById: string | null; approvedAt: Date | null;
-      slotId: string; rateSnapshot: number | null;
-    }> = [];
     const skipped: Array<{ slotId: string; name: string; reason: "duplicate" }> = [];
-    let totalHours = 0;
 
     const sortedSlots = slotIds
       .map((id) => slotMap.get(id)!)
       .sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+    // بناء الصفوف: غير المكررة فقط (فحص تمهيدي سريع — الفحص الحاسم داخل المعاملة)
+    const toCreate: Array<{
+      clubId: string; userId: string; date: Date; startTime: Date; endTime: Date;
+      note: string; status: string; approvedById: string | null; approvedAt: Date | null;
+      slotId: string; rateSnapshot: number | null; hours: number;
+    }> = [];
 
     for (const s of sortedSlots) {
       const startDt = parseWallDateTime(date, s.startTime);
@@ -165,9 +178,6 @@ export async function POST(req: NextRequest) {
       takenStarts.add(startDt.getTime());
       let endDt = parseWallDateTime(date, s.endTime);
       if (endDt <= startDt) endDt = new Date(endDt.getTime() + 86_400_000);
-
-      const dur = Math.max(0, slotDurationHours(s.startTime, s.endTime) - breakMinutes / 60);
-      totalHours += dur;
 
       const meta = {
         breakMinutes,
@@ -190,6 +200,7 @@ export async function POST(req: NextRequest) {
         approvedAt: isAdmin ? new Date() : null,
         slotId: s.id,
         rateSnapshot,
+        hours: Math.max(0, slotDurationHours(s.startTime, s.endTime) - breakMinutes / 60),
       });
     }
 
@@ -205,21 +216,73 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const created = await db.$transaction(async (tx) => {
-      const rows: Array<{ id: string; startTime: Date; endTime: Date }> = [];
-      for (const data of toCreate) {
-        const r = await tx.workHours.create({ data, select: { id: true, startTime: true, endTime: true } });
-        rows.push(r);
+    // ─── المعاملة الذرّية الواحدة (قراءة واحدة + كتابة واحدة — لا معاملة لكل حصة) ───
+    // السباق المتزامن الحقيقي: الفهرس الفريد الجزئي يرفض الازدواج (P2002) →
+    // محاولة كاملة واحدة إضافية ترى صفوف الطلب الآخر → استجابة «مكرر» نظيفة.
+    interface BulkOutcome {
+      rows: Array<{ id: string; startTime: Date; endTime: Date }>;
+      skippedInTx: Array<{ slotId: string; name: string; reason: "duplicate" }>;
+      hours: number;
+    }
+    let outcome: BulkOutcome | null = null;
+    for (let flowAttempt = 0; flowAttempt < 2 && !outcome; flowAttempt++) {
+      try {
+        outcome = await runTx<BulkOutcome>(
+          async (tx) => {
+            // ★ إعادة فحص التكرار داخل المعاملة (يغلق نافذة السباق TOCTOU)
+            const fresh = await tx.workHours.findMany({
+              where: { clubId, userId, date: dayStart, status: { notIn: ["rejected", "cancelled"] } },
+              select: { startTime: true },
+            });
+            const freshTaken = new Set(fresh.map((e) => new Date(e.startTime).getTime()));
+
+            const rows: Array<{ id: string; startTime: Date; endTime: Date }> = [];
+            const skippedInTx: Array<{ slotId: string; name: string; reason: "duplicate" }> = [];
+            let hours = 0;
+            for (const data of toCreate) {
+              if (freshTaken.has(data.startTime.getTime())) {
+                skippedInTx.push({
+                  slotId: data.slotId,
+                  name: slotMap.get(data.slotId)?.name || data.slotId,
+                  reason: "duplicate",
+                });
+                continue;
+              }
+              freshTaken.add(data.startTime.getTime());
+              // hours حقل حسابي داخلي — يُستبعد قبل تمرير الصف إلى Prisma
+              const { hours: rowHours, ...rowData } = data;
+              const r = await tx.workHours.create({
+                data: rowData,
+                select: { id: true, startTime: true, endTime: true },
+              });
+              rows.push(r);
+              hours += rowHours;
+            }
+            return { rows, skippedInTx, hours };
+          },
+          "workhours-bulk"
+        );
+      } catch (e) {
+        const isUniqueRace = (e as { code?: string })?.code === "P2002";
+        if (isUniqueRace && flowAttempt === 0) {
+          console.warn("workhours/bulk: سباق فريد متزامن (P2002) — إعادة فحص كاملة واحدة");
+          await new Promise((r) => setTimeout(r, 150));
+          continue; // المحاولة الثانية ترى صفوف الطلب الآخر → تخطٍّ نظيف
+        }
+        throw e;
       }
-      return rows;
-    });
+    }
+
+    if (!outcome) {
+      return NextResponse.json({ error: "تعذر إتمام التسجيل — أعد المحاولة" }, { status: 409 });
+    }
 
     return NextResponse.json(
       {
-        created: created.length,
-        skipped,
-        totalHours: Math.round(totalHours * 100) / 100,
-        records: created.map((r) => ({ id: r.id, startTime: r.startTime, endTime: r.endTime })),
+        created: outcome.rows.length,
+        skipped: [...skipped, ...outcome.skippedInTx],
+        totalHours: Math.round(outcome.hours * 100) / 100,
+        records: outcome.rows.map((r) => ({ id: r.id, startTime: r.startTime, endTime: r.endTime })),
       },
       { status: 201 }
     );

@@ -27,7 +27,9 @@ export async function POST(
     // إضافة (تجاهل الموجود بالفعل)
     const created = await db.clubGroupMember.createMany({
       data: clubIds.map((clubId: string) => ({ groupId: id, clubId })),
-      skipDuplicates: true,
+      // SQLite-generated client omits skipDuplicates from its types (and rejects it at runtime);
+      // production PostgreSQL client supports it — `as never` keeps runtime unchanged.
+      skipDuplicates: true as never,
     });
 
     await auditLogWithRequest(req, currentUser, {

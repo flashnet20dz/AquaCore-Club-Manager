@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { computeSubscriberFields, isExemptStatus, formatAmountForExport } from "@/lib/rcs";
+import { computeSubscriberFields, isExemptStatus, formatAmountForExport, type PaymentStatus } from "@/lib/rcs";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -262,7 +262,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Load EN-TETE config once (used by PDF + Word)
-    const enteteConfig = await loadEnteteConfig(currentUser.clubId);
+    const enteteConfig = await loadEnteteConfig(currentUser.clubId ?? null);
 
     if (format === "xlsx" || format === "excel") {
       return await exportExcel(type, filters, { year: compoundYear, month: compoundMonth });
@@ -314,10 +314,10 @@ async function exportExcel(type: string, filters: ExportFilters = { club: {}, su
         "تاريخ الانتهاء": isExemptStatus(s.paymentStatus) ? "" : (c.expiryDate ? formatDate(new Date(c.expiryDate)) : ""),
         "حالة الدفع": s.paymentStatus,
         // ★ EXEMPT subscribers show "معفى" in amount columns (not 0)
-        "رسوم الاشتراك": formatAmountForExport(s.paymentStatus, c.subscriptionFee),
-        "مصاريف التأمين": formatAmountForExport(s.paymentStatus, c.insuranceFee),
-        "حقوق المركب": formatAmountForExport(s.paymentStatus, c.compoundRights),
-        "المبلغ الإجمالي": formatAmountForExport(s.paymentStatus, c.totalAmount),
+        "رسوم الاشتراك": formatAmountForExport(s.paymentStatus as PaymentStatus, c.subscriptionFee),
+        "مصاريف التأمين": formatAmountForExport(s.paymentStatus as PaymentStatus, c.insuranceFee),
+        "حقوق المركب": formatAmountForExport(s.paymentStatus as PaymentStatus, c.compoundRights),
+        "المبلغ الإجمالي": formatAmountForExport(s.paymentStatus as PaymentStatus, c.totalAmount),
         "حالة التجديد": c.renewalStatus,
         "أيام السباحة": s.swimmingDays || "",
         "التوقيت": s.timeSlot || "",
@@ -537,7 +537,7 @@ async function exportPdf(type: string, _sigs: string[], _enteteConfig: EnteteCon
   const startY = drawEnTete(doc, title);
 
   let head: string[] = [];
-  let body: (string | number)[][] = [];
+  let body: (string | number | null)[][] = [];
 
   if (queryType === "subscribers") {
     const subs = await db.subscriber.findMany({ where: filters.sub, orderBy: { createdAt: "asc" } });

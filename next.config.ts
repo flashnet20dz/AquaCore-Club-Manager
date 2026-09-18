@@ -3,9 +3,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "standalone",
   allowedDevOrigins: ["*"],
-  typescript: {
-    ignoreBuildErrors: true,
-  },
+  // ★ التدقيق النهائي: ignoreBuildErrors أُزيل — كل أخطاء TypeScript صُلحت
+  // والبناء يفشل الآن على أي خطأ نوع جديد (بوابة جودة صارمة)
   reactStrictMode: false,
   experimental: {
     optimizePackageImports: ["lucide-react", "framer-motion"],

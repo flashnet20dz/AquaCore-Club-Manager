@@ -42,7 +42,8 @@ async function main() {
     console.log(`  • Coach already exists`);
   }
 
-  // Settings
+  // Settings — Setting is club-scoped (@@unique([clubId, key]))
+  const clubId = (await db.club.findFirst())?.id ?? "";
   const settings = [
     { key: "clubName", value: "نادي RCS للسباحة" },
     { key: "clubPhone", value: "0550000000" },
@@ -53,9 +54,9 @@ async function main() {
     { key: "whatsappTemplate", value: "مرحباً {name}، اشتراكك في نادي RCS ينتهي في {date}. يرجى التجديد. شكراً." },
   ];
   for (const s of settings) {
-    const existing = await db.setting.findUnique({ where: { key: s.key } });
+    const existing = await db.setting.findUnique({ where: { clubId_key: { clubId, key: s.key } } });
     if (!existing) {
-      await db.setting.create({ data: s });
+      await db.setting.create({ data: { ...s, clubId } });
       console.log(`  ✓ Setting: ${s.key}`);
     }
   }
@@ -77,6 +78,7 @@ async function main() {
         };
         await db.activity.create({
           data: {
+            clubId: sub.clubId,
             subscriberId: sub.id,
             type,
             description: descriptions[type],
@@ -108,6 +110,7 @@ async function main() {
         try {
           await db.attendance.create({
             data: {
+              clubId: sub.clubId,
               subscriberId: sub.id,
               date,
               checkInTime: checkIn,

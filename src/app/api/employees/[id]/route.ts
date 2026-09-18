@@ -110,42 +110,25 @@ export async function DELETE(
       db.staffCompensation.count({ where: { employeeId: id } }),
       db.wagePayment.count({ where: { clubId, employeeId: id } }),
     ]);
-    const hasLinks = contracts > 0 || workHours > 0 || compensations > 0 || wagePayments > 0;
 
-    if (hasLinks) {
-      // أرشفة ناعمة — السجل يبقى بوضع ARCHIVED ولا يدخل في القوائم النشطة
-      const employee = await db.employee.update({
-        where: { id },
-        data: { status: "ARCHIVED", active: false },
-      });
-      await db.auditLog.create({
-        data: {
-          clubId,
-          userId: user.id,
-          action: "employee_archive",
-          entityType: "Employee",
-          entityId: id,
-          description: `أرشفة موظف: ${employee.lastName} ${employee.firstName} (لديه بيانات مرتبطة — أُرشِف بدل الحذف)`,
-          metadata: JSON.stringify({ contracts, workHours, compensations, wagePayments }),
-        },
-      }).catch(() => undefined);
-      return NextResponse.json({ success: true, archived: true, message: "تمت الأرشفة — البيانات المرتبطة محفوظة" });
-    }
-
-    // بلا أي بيانات مرتبطة → حذف فعلي مسموح (سجل لم يُستخدم أبداً)
-    await db.employee.delete({ where: { id } });
+    // ★ التدقيق النهائي: لا حذف فعلي أبداً — الأرشفة دائماً (status=ARCHIVED)
+    // حتى بلا بيانات مرتبطة: هوية العامل وسجل توظيفه يبقى محفوظاً للتاريخ والتدقيق
+    const employee = await db.employee.update({
+      where: { id },
+      data: { status: "ARCHIVED", active: false },
+    });
     await db.auditLog.create({
       data: {
         clubId,
         userId: user.id,
-        action: "employee_delete",
+        action: "employee_archive",
         entityType: "Employee",
         entityId: id,
-        description: `حذف موظف بلا بيانات مرتبطة: ${existing.lastName} ${existing.firstName}`,
-        metadata: JSON.stringify({ oldValue: { position: existing.position, hourRate: existing.hourRate } }),
+        description: `أرشفة موظف: ${employee.lastName} ${employee.firstName} (السجل محفوظ — ${contracts} عقد / ${workHours} ساعة / ${compensations} تعويض / ${wagePayments} تسديد)`,
+        metadata: JSON.stringify({ contracts, workHours, compensations, wagePayments, oldValue: { position: existing.position, hourRate: existing.hourRate, status: existing.status } }),
       },
     }).catch(() => undefined);
-    return NextResponse.json({ success: true, archived: false });
+    return NextResponse.json({ success: true, archived: true, message: "تمت الأرشفة — السجل محفوظ في الأرشيف" });
   } catch (e) {
     console.error("DELETE employee:", e);
     return NextResponse.json({ error: e instanceof Error ? e.message : "Internal" }, { status: 500 });

@@ -39,6 +39,8 @@ async function main() {
   // Clear existing
   await db.subscriber.deleteMany();
 
+  // Subscriber is club-scoped (clubId required)
+  const clubId = (await db.club.findFirst())?.id ?? "";
   const subscriberCount = 48;
   const today = new Date();
 
@@ -73,6 +75,7 @@ async function main() {
 
     await db.subscriber.create({
       data: {
+        clubId,
         fileNumber,
         lastName,
         firstName,

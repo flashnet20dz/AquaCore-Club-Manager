@@ -718,7 +718,9 @@ export async function POST(req: NextRequest) {
       try {
         const result = await db.subscriber.createMany({
           data: batch as any,
-          skipDuplicates: true,
+          // SQLite-generated client omits skipDuplicates from its types (and rejects it at runtime);
+          // production PostgreSQL client supports it — `as never` keeps runtime unchanged.
+          skipDuplicates: true as never,
         });
         imported += result.count;
         // ★ Count exempt imports in this batch
@@ -915,7 +917,7 @@ export async function POST(req: NextRequest) {
               for (let i = 0; i < renewalRecords.length; i += RENEWAL_BATCH_SIZE) {
                 const batch = renewalRecords.slice(i, i + RENEWAL_BATCH_SIZE);
                 try {
-                  const result = await db.renewal.createMany({ data: batch, skipDuplicates: true });
+                  const result = await db.renewal.createMany({ data: batch, skipDuplicates: true as never });
                   renewalsImported += result.count;
                 } catch (e) {
                   console.warn(`Renewal batch ${i / RENEWAL_BATCH_SIZE + 1} failed:`, e);

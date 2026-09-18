@@ -369,6 +369,38 @@ export default function Home() {
   fetchDataRef.current = fetchData;
   useEffect(() => onFinancialUpdated(() => fetchDataRef.current()), []);
 
+  // ★ إجمالي المداخيل «مع التحديث»: جلب خفيف للملخص المالي فقط (بلا إعادة تحميل الصفحة)
+  //   — كل 45 ثانية + عند العودة إلى التبويبة + زر تحديث فوري في البطاقة.
+  //   الأرقام تبقى من دفتر القيود حصراً (/api/financial/dashboard) — بلا أي حساب موازٍ.
+  const [finRefreshing, setFinRefreshing] = useState(false);
+  const refreshFinSummary = useCallback(async () => {
+    if (!sessionUser || !hasPermission(sessionUser.role, "financialDashboard")) return;
+    setFinRefreshing(true);
+    try {
+      const data = await fetchFinancialDashboard<FinSummary>("month");
+      setFinSummary(data);
+    } catch {
+      /* صامت — تُبقى الأرقام الحالية معروضة حتى نجاح التحديث التالي */
+    } finally {
+      setFinRefreshing(false);
+    }
+  }, [sessionUser]);
+
+  useEffect(() => {
+    if (!sessionUser || !hasPermission(sessionUser.role, "financialDashboard")) return;
+    const tick = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") refreshFinSummary();
+    }, 45_000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshFinSummary();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(tick);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [sessionUser, refreshFinSummary]);
+
   const handleAdd = () => {
     setEditInitial(undefined);
     setFormOpen(true);
@@ -790,10 +822,42 @@ export default function Home() {
                         <>
                           <div className="h-12 w-px bg-white/20" />
                           <div className="text-center">
-                            <div className="text-3xl font-extrabold tabular-nums text-amber-300">
-                              {finSummary ? Math.round(finSummary.balance.totalIncome).toLocaleString("en-US") : "…"}
+                            <div className="flex items-center justify-center gap-1.5">
+                              <span className="text-3xl font-extrabold tabular-nums text-amber-300">
+                                {finSummary ? Math.round(finSummary.balance.totalIncome).toLocaleString("en-US") : "…"}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => refreshFinSummary()}
+                                disabled={finRefreshing}
+                                aria-label="تحديث الإيرادات الآن"
+                                title="تحديث الآن"
+                                className="rounded-full p-1.5 hover:bg-white/15 transition-colors disabled:opacity-60"
+                              >
+                                <RefreshCw className={cn("h-3.5 w-3.5 text-white/80", finRefreshing && "animate-spin")} />
+                              </button>
                             </div>
-                            <div className="text-xs text-white/80 mt-0.5">إجمالي المداخيل (دفتر)</div>
+                            <div className="text-xs text-white/80 mt-0.5">إجمالي المداخيل (اشتراكات + تأمين + تجديد)</div>
+                            {finSummary && (
+                              <div className="text-[10px] text-white/70 mt-1 leading-relaxed">
+                                اشتراكات وتجديد{" "}
+                                {Math.round((finSummary.balance.incomeByCategory.subscription || 0) + (finSummary.balance.incomeByCategory.renewal || 0)).toLocaleString("en-US")}
+                                {" • "}تأمين{" "}
+                                {Math.round(finSummary.balance.incomeByCategory.insurance || 0).toLocaleString("en-US")}
+                                {" • "}مركب{" "}
+                                {Math.round(finSummary.balance.incomeByCategory.compound || 0).toLocaleString("en-US")} دج
+                              </div>
+                            )}
+                            <div
+                              className="inline-flex items-center gap-1 mt-1 text-[10px] text-white/60"
+                              title="تُحدَّث الأرقام تلقائياً كل 45 ثانية، وفوراً عند أي عملية مالية"
+                            >
+                              <span className="relative flex h-1.5 w-1.5">
+                                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                              </span>
+                              تحديث تلقائي
+                            </div>
                           </div>
                         </>
                       )}

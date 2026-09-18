@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser, hasPermission } from "@/lib/session";
 import { ensureRuntimeColumns } from "@/lib/runtime-schema";
+import { runTx, ensureSqliteConcurrency } from "@/lib/tx-safe";
 
 /**
  * POST /api/workhours/approve — اعتماد/رفض عدة سجلات دفعة واحدة (المرحلة 5 — §10)
@@ -16,6 +17,7 @@ import { ensureRuntimeColumns } from "@/lib/runtime-schema";
 
 export async function POST(req: NextRequest) {
   try {
+    ensureSqliteConcurrency(); // WAL + busy_timeout (إصلاح P2028 على سطح المكتب)
     await ensureRuntimeColumns();
     const currentUser = await getCurrentUser();
     if (!currentUser || !hasPermission(currentUser.role, "workHoursApproval")) {
@@ -42,8 +44,25 @@ export async function POST(req: NextRequest) {
     const clubFilter = currentUser.role === "superadmin" ? {} : { clubId: currentUser.clubId! };
     const records = await db.workHours.findMany({
       where: { id: { in: ids }, ...clubFilter },
-      select: { id: true, status: true, startTime: true, endTime: true },
+      select: { id: true, status: true, startTime: true, endTime: true, userId: true, date: true },
     });
+
+    // ★ حماية الأجر المدفوع (رفض الجماعي): السجل المعتمد داخل فترة تسديد نشطة
+    //   لنفس العامل = أساس أجر مدفوع — لا يُرفض صمتاً (نفس قاعدة PATCH الفردية)
+    let paidPeriods: Array<{ userId: string; periodStart: Date; periodEnd: Date; periodLabel: string }> = [];
+    if (action === "rejected") {
+      const approvedRows = records.filter((r) => r.status === "approved");
+      if (approvedRows.length > 0) {
+        paidPeriods = await db.wagePayment.findMany({
+          where: {
+            ...clubFilter,
+            userId: { in: [...new Set(approvedRows.map((r) => r.userId))] },
+            status: { not: "cancelled" },
+          },
+          select: { userId: true, periodStart: true, periodEnd: true, periodLabel: true },
+        });
+      }
+    }
 
     const skipped: Array<{ id: string; reason: string }> = [];
     const updatable = records.filter((r) => {
@@ -53,6 +72,14 @@ export async function POST(req: NextRequest) {
       }
       if (r.status === "cancelled") {
         skipped.push({ id: r.id, reason: "السجل ملغى — لا يمكن تعديله" });
+        return false;
+      }
+      if (
+        action === "rejected" &&
+        r.status === "approved" &&
+        paidPeriods.some((p) => p.userId === r.userId && p.periodStart <= r.date && p.periodEnd >= r.date)
+      ) {
+        skipped.push({ id: r.id, reason: "داخل فترة أجر مسدّدة — ألغِ التسديد أولاً من صفحة الأجور" });
         return false;
       }
       return true;
@@ -69,7 +96,10 @@ export async function POST(req: NextRequest) {
       return s + Math.max(0, (end - start) / 3600000);
     }, 0);
 
-    await db.$transaction(async (tx) => {
+    // ★ المعاملة الواحدة عبر runTx — اعتماد 200 سجل ببدءٍ مضمون (maxWait=10s
+    //    + إعادة على P2028 العابر) — بلا تغيير في الدلالة (كل أو لا شيء)
+    await runTx(
+      async (tx) => {
       for (const r of updatable) {
         await tx.workHours.update({
           where: { id: r.id },
@@ -99,7 +129,9 @@ export async function POST(req: NextRequest) {
           }),
         },
       }).catch(() => undefined);
-    });
+    },
+      "workhours-approve"
+    );
 
     return NextResponse.json({
       updated: updatable.length,

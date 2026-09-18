@@ -24,8 +24,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // (نوادٍ قديمة قبل هذا التعديل)، نبدأها الآن كحل احتياطي.
     if (body.action === "approve") {
       const now = new Date();
-      const existingClub = await db.club.findUnique({ where: { id } });
-      const needsTrialFallback = !existingClub?.trialStartedAt && !existingClub?.subscriptionEndDate;
+      // subscriptionEndDate ليس حقلاً على Club — تاريخ نهاية الاشتراك يوجد على
+      // ClubSubscription (العلاقة subscriptions)؛ نجلب أحدث اشتراك بالتاريخ
+      const existingClub = await db.club.findUnique({
+        where: { id },
+        include: { subscriptions: { orderBy: { endDate: "desc" }, take: 1 } },
+      });
+      const needsTrialFallback = !existingClub?.trialStartedAt && !existingClub?.subscriptions[0]?.endDate;
       const trial = needsTrialFallback ? startTrial(now, 7) : null;
 
       const club = await db.club.update({

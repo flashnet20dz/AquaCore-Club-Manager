@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import {
   Clock, Plus, Search, Download, Printer, RefreshCw, Users, CheckCircle2,
   XCircle, Calendar, Wallet, TrendingUp, FileText, Loader2, ChevronLeft, ChevronRight,
-  User, Trash2, Check, X, Settings2, DollarSign, Save, Waves, CalendarClock, Pencil,
+  User, Trash2, Check, X, Settings2, DollarSign, Save, Waves, CalendarClock, Pencil, AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -61,6 +61,33 @@ interface StaffUser {
   hourlyRate: number;
   avatar: string | null;
 }
+
+// ★ ملخص الخادم: يُحسب في GET /api/workhours بفلتر DB صريح
+//   status notIn (rejected, cancelled) — القاعدة الموحّدة:
+//   الملغى/المرفوض لا يدخل في أي حساب تشغيلي (يبقى للعرض والتدقيق فقط)
+interface SummaryRow {
+  userId: string;
+  presentDays: number;
+  absentDays: number;
+  totalHours: number;
+  overtime: number;
+  totalWage: number;
+}
+interface MonthSummary {
+  rule: string;
+  perUser: SummaryRow[];
+  totals: {
+    totalHours: number;
+    overtime: number;
+    totalWage: number;
+    presentDays: number;
+    absentDays: number;
+  };
+}
+
+// ★ القاعدة الموحّدة: السجل النشط (pending/approved) يدخل في الحسابات —
+//   الملغى/المرفوض لا يدخل إطلاقاً (مطابق لفلتر الخادم — نفس الدلالة في المكانين)
+const isActiveRecord = (w: { status: string }) => w.status !== "cancelled" && w.status !== "rejected";
 
 const STATUS_LABELS: Record<string, string> = {
   present: "حاضر",
@@ -120,6 +147,7 @@ export function WorkHoursManagement({ role }: { role?: string }) {
   // ★ دور المستخدم يُمرَّر من page.tsx (sessionUser.role) — قسم المسبح للمدير فقط
   const isAdmin = role === "admin" || role === "superadmin";
   const [workHours, setWorkHours] = useState<WorkHour[]>([]);
+  const [monthSummary, setMonthSummary] = useState<MonthSummary | null>(null);
   const [staff, setStaff] = useState<StaffUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -141,6 +169,13 @@ export function WorkHoursManagement({ role }: { role?: string }) {
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkRejectOpen, setBulkRejectOpen] = useState(false);
   const [bulkRejectReason, setBulkRejectReason] = useState("");
+
+  // ═══ ★ ميزة الحذف عند الخطأ — حوار تأكيد + سبب إلزامي لغير المسودات ═══
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string; name: string; date: string; hours: number; wage: number; status: string;
+  } | null>(null);
+  const [deleteReason, setDeleteReason] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   // ═══ ★ المسبح: حصص السباحة (مصدر موحّد عبر useSwimConfig) + أيام الاستغلال ═══
   const { slots: swimSlots } = useSwimConfig();
@@ -174,6 +209,7 @@ export function WorkHoursManagement({ role }: { role?: string }) {
       if (res.ok) {
         const data = await res.json();
         setWorkHours(data.workHours || []);
+        setMonthSummary(data.summary || null);
       }
     } catch {
       toast.error("تعذر تحميل البيانات");
@@ -230,17 +266,22 @@ export function WorkHoursManagement({ role }: { role?: string }) {
   // Stats
   const stats = useMemo(() => {
     const today = toLocalYMD();
-    const todayRecords = workHours.filter((w) => new Date(w.date).toISOString().split("T")[0] === today);
+    // ★ الملغى/المرفوض لا يحسب حاضراً/غائباً اليوم (سجل لغاء = سجل معدوم تشغيلياً)
+    const todayRecords = workHours.filter(
+      (w) => isActiveRecord(w) && new Date(w.date).toISOString().split("T")[0] === today
+    );
     const presentToday = todayRecords.filter((w) => w.workStatus === "present").length;
     const absentToday = todayRecords.filter((w) => w.workStatus === "absent").length;
-    const totalHoursMonth = workHours
-      .filter((w) => w.workStatus === "present")
+    // ★ الماليات من ملخص الخادم (محسوب بفلتر DB — الملغى/المرفوض مستثنى من الاستعلام)
+    //   والاحتياط (استجابة قديمة بلا ملخص) بنفس القاعدة يدوياً — نفس الدلالة
+    const fbHours = workHours
+      .filter((w) => isActiveRecord(w) && w.workStatus === "present")
       .reduce((sum, w) => sum + calcWorkHours(w.startTime, w.endTime, w.breakMinutes), 0);
-    const totalWages = workHours
-      .filter((w) => w.workStatus === "present" && w.user.hourlyRate > 0)
+    const fbWages = workHours
+      .filter((w) => isActiveRecord(w) && w.workStatus === "present" && w.user.hourlyRate > 0)
       .reduce((sum, w) => sum + calcWorkHours(w.startTime, w.endTime, w.breakMinutes) * w.user.hourlyRate, 0);
-    const overtimeHours = workHours
-      .filter((w) => w.workStatus === "present")
+    const fbOvertime = workHours
+      .filter((w) => isActiveRecord(w) && w.workStatus === "present")
       .reduce((sum, w) => {
         const hours = calcWorkHours(w.startTime, w.endTime, w.breakMinutes);
         return sum + Math.max(0, hours - 8);
@@ -250,12 +291,12 @@ export function WorkHoursManagement({ role }: { role?: string }) {
       totalStaff: staff.length,
       presentToday,
       absentToday,
-      totalHoursMonth: Math.round(totalHoursMonth),
-      totalWages: Math.round(totalWages),
-      overtimeHours: Math.round(overtimeHours),
-      absentDays: workHours.filter((w) => w.workStatus === "absent").length,
+      totalHoursMonth: Math.round(monthSummary?.totals.totalHours ?? fbHours),
+      totalWages: Math.round(monthSummary?.totals.totalWage ?? fbWages),
+      overtimeHours: Math.round(monthSummary?.totals.overtime ?? fbOvertime),
+      absentDays: monthSummary?.totals.absentDays ?? workHours.filter((w) => isActiveRecord(w) && w.workStatus === "absent").length,
     };
-  }, [workHours, staff]);
+  }, [workHours, staff, monthSummary]);
 
   // Filtered records
   const filtered = useMemo(() => {
@@ -376,16 +417,47 @@ export function WorkHoursManagement({ role }: { role?: string }) {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("هل أنت متأكد من الحذف؟")) return;
+  // ═══ ★ ميزة الحذف عند الخطأ: حوار تأكيد + سبب إلزامي (غير المسودات) ═══
+  // المسودة: حذف فعلي بلا سبب إلزامي — المعتمد/المرفوض/الملغى: حذف نهائي بسبب إلزامي،
+  // والخادم يحمي سجل الأجر المدفوع (paidWageGuard) ويحفظ لقطة كاملة في التدقيق.
+  const openDeleteDialog = (w: WorkHour) => {
+    const hours = w.workStatus === "present" ? calcWorkHours(w.startTime, w.endTime, w.breakMinutes) : 0;
+    setDeleteTarget({
+      id: w.id,
+      name: w.user.name,
+      date: formatDate(w.date),
+      hours,
+      wage: Math.round(hours * (w.user.hourlyRate || 0)),
+      status: w.status,
+    });
+    setDeleteReason("");
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+    const isDraft = deleteTarget.status === "pending";
+    if (!isDraft && deleteReason.trim().length < 3) {
+      toast.error("سبب الحذف إلزامي (3 أحرف على الأقل) — مثال: خطأ في التسجيل");
+      return;
+    }
+    setDeleteBusy(true);
     try {
-      const res = await fetch(`/api/workhours/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("فشل");
-      toast.success("تم الحذف");
+      const res = await fetch(`/api/workhours/${deleteTarget.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: deleteReason.trim() || undefined }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "فشل الحذف");
+      toast.success(json.message || (isDraft ? "تم حذف المسودة" : "تم حذف السجل نهائياً — الأثر محفوظ في سجل التدقيق"));
+      setDeleteTarget(null);
+      setDeleteReason("");
       fetchWorkHours();
       setWagesRefresh((n) => n + 1);
-    } catch {
-      toast.error("فشل");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "فشل الحذف");
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -521,14 +593,14 @@ export function WorkHoursManagement({ role }: { role?: string }) {
   };
 
   const handleSlotDelete = async (id: string) => {
-    if (!confirm("حذف هذه الحصة؟ سيختفي أيضاً من منتقي الحصص في نموذج النقاط.")) return;
+    if (!confirm("تعطيل هذه الحصة؟ ستُخفى من منتقي الحصص في نموذج النقاط لكن السجل يبقى محفوظاً مع تاريخ ساعات العمل.")) return;
     try {
       const res = await fetch(`/api/swimming-slots/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("فشل");
-      toast.success("تم حذف الحصة");
+      toast.success("تم تعطيل الحصة — السجل محفوظ");
       invalidateSwimConfig();
     } catch {
-      toast.error("فشل الحذف");
+      toast.error("فشل التعطيل");
     }
   };
 
@@ -558,9 +630,26 @@ export function WorkHoursManagement({ role }: { role?: string }) {
   };
 
   // 🔑 جدول ملخص ساعات العمل والراتب لكل عامل
+  // ★ المصدر الوحيد: ملخص الخادم (GET /api/workhours?month=) — محسوب بفلتر DB
+  //   status notIn(rejected, cancelled): إلغاء سجل يُسقطه من الإجمالي فوراً
+  //   14س/5600 دج → إلغاء 1س/400 → 13س/5200 دج (السجل الملغى يبقى معروضاً بالأعلى)
   const staffSummary = useMemo(() => {
     return staff.map((s) => {
-      const records = workHours.filter((w) => w.userId === s.id && w.workStatus === "present");
+      const row = monthSummary?.perUser.find((x) => x.userId === s.id);
+      if (row) {
+        return {
+          ...s,
+          totalHours: row.totalHours,
+          overtime: row.overtime,
+          totalWage: row.totalWage,
+          presentDays: row.presentDays,
+          absentDays: row.absentDays,
+        };
+      }
+      // احتياط (استجابة قديمة بلا ملخص) — نفس قاعدة الخادم يدوياً
+      const records = workHours.filter(
+        (w) => w.userId === s.id && isActiveRecord(w) && w.workStatus === "present"
+      );
       const totalHours = records.reduce((sum, w) => sum + calcWorkHours(w.startTime, w.endTime, w.breakMinutes), 0);
       const overtime = records.reduce((sum, w) => {
         const h = calcWorkHours(w.startTime, w.endTime, w.breakMinutes);
@@ -568,7 +657,9 @@ export function WorkHoursManagement({ role }: { role?: string }) {
       }, 0);
       const totalWage = totalHours * (s.hourlyRate || 0);
       const presentDays = records.length;
-      const absentDays = workHours.filter((w) => w.userId === s.id && w.workStatus === "absent").length;
+      const absentDays = workHours.filter(
+        (w) => w.userId === s.id && isActiveRecord(w) && w.workStatus === "absent"
+      ).length;
       return {
         ...s,
         totalHours: Math.round(totalHours * 10) / 10,
@@ -578,7 +669,7 @@ export function WorkHoursManagement({ role }: { role?: string }) {
         absentDays,
       };
     });
-  }, [staff, workHours]);
+  }, [staff, workHours, monthSummary]);
 
   const goToPrevMonth = () => {
     const [y, m] = currentMonth.split("-").map(Number);
@@ -893,11 +984,13 @@ export function WorkHoursManagement({ role }: { role?: string }) {
                               <XCircle className="h-3.5 w-3.5" />
                             </button>
                           )}
-                          {w.status === "pending" && (
-                            <button onClick={() => handleDelete(w.id)} className="p-1 rounded hover:bg-rose-50 text-rose-600" title="حذف المسودة">
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          )}
+                          <button
+                            onClick={() => openDeleteDialog(w)}
+                            className="p-1 rounded hover:bg-rose-50 text-rose-600"
+                            title={w.status === "pending" ? "حذف المسودة" : "حذف نهائي — عند الخطأ في التسجيل"}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
                         </div>
                       </td>
                     </motion.tr>
@@ -1111,6 +1204,102 @@ export function WorkHoursManagement({ role }: { role?: string }) {
             <Button onClick={handleSave} disabled={saving} className="bg-teal-600 hover:bg-teal-700 text-white">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4 ml-1" />}
               {selectedSlots.length > 0 ? `تسجيل ${selectedSlots.length} حصة` : "تسجيل"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══ ★ حذف سجل عند الخطأ — تأكيد + سبب إلزامي لغير المسودات ═══ */}
+      <Dialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open && !deleteBusy) {
+            setDeleteTarget(null);
+            setDeleteReason("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-rose-600">
+              <Trash2 className="h-5 w-5" /> حذف سجل ساعات عمل
+            </DialogTitle>
+          </DialogHeader>
+          {deleteTarget && (
+            <div className="space-y-3">
+              {/* بيانات السجل المراد حذفه */}
+              <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">العامل</span>
+                  <span className="font-bold">{deleteTarget.name}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">التاريخ</span>
+                  <span className="font-semibold">{deleteTarget.date}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">الحالة</span>
+                  <Badge variant="outline" className="text-[9px]">
+                    {APPROVAL_LABELS[deleteTarget.status] || deleteTarget.status}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">الساعات</span>
+                  <span className="font-bold text-teal-700">{deleteTarget.hours > 0 ? `${deleteTarget.hours.toFixed(1)} سا` : "—"}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">الأجر</span>
+                  <span className="font-bold text-amber-600">{deleteTarget.wage > 0 ? `${deleteTarget.wage.toLocaleString()} دج` : "—"}</span>
+                </div>
+              </div>
+
+              {/* تحذير الحذف النهائي */}
+              <div className="rounded-lg border border-rose-500/30 bg-rose-500/5 p-2.5 text-[11px] text-rose-700 font-semibold flex items-start gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <span>
+                  الحذف نهائي لا يمكن التراجع عنه — سيُزال السجل من جميع الحسابات (الساعات والأجور)،
+                  وتبقى لقطة كاملة له في سجل التدقيق فقط.
+                </span>
+              </div>
+
+              {/* السبب — إلزامي لغير المسودات */}
+              {deleteTarget.status !== "pending" && (
+                <div>
+                  <Label className="text-xs font-semibold">سبب الحذف (إلزامي) *</Label>
+                  <Textarea
+                    value={deleteReason}
+                    onChange={(e) => setDeleteReason(e.target.value)}
+                    placeholder="مثال: خطأ في التسجيل — تسجيل مزدوج — حصة خاطئة..."
+                    className="h-16 mt-1 text-xs"
+                    disabled={deleteBusy}
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    يُحفظ السبب مع لقطة كاملة للسجل (الأوقات، السعر، الساعات، المبلغ) في سجل التدقيق.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={deleteBusy}
+              onClick={() => {
+                setDeleteTarget(null);
+                setDeleteReason("");
+              }}
+            >
+              تراجع
+            </Button>
+            <Button
+              size="sm"
+              className="bg-rose-600 hover:bg-rose-700 text-white"
+              disabled={deleteBusy || (!!deleteTarget && deleteTarget.status !== "pending" && deleteReason.trim().length < 3)}
+              onClick={handleDeleteConfirm}
+            >
+              {deleteBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 ml-1" />}
+              حذف نهائي
             </Button>
           </DialogFooter>
         </DialogContent>

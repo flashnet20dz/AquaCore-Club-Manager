@@ -10,6 +10,7 @@
  *  - WagePayment:          status/cancelledAt/cancelledById/cancellationReason
  *  - Payment:              cancelledAt/cancelledById/cancellationReason
  *  - SwimmingTimeSlot:     dayOfWeek
+ *  - StaffCompensation:    archivedAt/archivedById/archiveReason (أرشفة ناعمة بلا حذف — التدقيق النهائي)
  *
  * + الفهارس المالية (ensureFinancialIndexes):
  *  - فريد جزئي (clubId, reference) للقيود النشطة فقط — منع ازدواج القيد لنفس المرجع
@@ -42,6 +43,10 @@ const COLUMN_SPECS: Array<{
   { table: "WagePayment", column: "cancelledAt", pg: `ALTER TABLE "WagePayment" ADD COLUMN IF NOT EXISTS "cancelledAt" TIMESTAMP(3)`, sqlite: `ALTER TABLE "WagePayment" ADD COLUMN "cancelledAt" DATETIME` },
   { table: "WagePayment", column: "cancelledById", pg: `ALTER TABLE "WagePayment" ADD COLUMN IF NOT EXISTS "cancelledById" TEXT`, sqlite: `ALTER TABLE "WagePayment" ADD COLUMN "cancelledById" TEXT` },
   { table: "WagePayment", column: "cancellationReason", pg: `ALTER TABLE "WagePayment" ADD COLUMN IF NOT EXISTS "cancellationReason" TEXT`, sqlite: `ALTER TABLE "WagePayment" ADD COLUMN "cancellationReason" TEXT` },
+  // ★ التدقيق النهائي: أرشفة ناعمة للتعويضات — لا حذف فعلي (السجل يبقى للتاريخ والتدقيق)
+  { table: "StaffCompensation", column: "archivedAt", pg: `ALTER TABLE "StaffCompensation" ADD COLUMN IF NOT EXISTS "archivedAt" TIMESTAMP(3)`, sqlite: `ALTER TABLE "StaffCompensation" ADD COLUMN "archivedAt" DATETIME` },
+  { table: "StaffCompensation", column: "archivedById", pg: `ALTER TABLE "StaffCompensation" ADD COLUMN IF NOT EXISTS "archivedById" TEXT`, sqlite: `ALTER TABLE "StaffCompensation" ADD COLUMN "archivedById" TEXT` },
+  { table: "StaffCompensation", column: "archiveReason", pg: `ALTER TABLE "StaffCompensation" ADD COLUMN IF NOT EXISTS "archiveReason" TEXT`, sqlite: `ALTER TABLE "StaffCompensation" ADD COLUMN "archiveReason" TEXT` },
   { table: "SwimmingTimeSlot", column: "dayOfWeek", pg: `ALTER TABLE "SwimmingTimeSlot" ADD COLUMN IF NOT EXISTS "dayOfWeek" TEXT`, sqlite: `ALTER TABLE "SwimmingTimeSlot" ADD COLUMN "dayOfWeek" TEXT` },
   { table: "Payment", column: "cancelledAt", pg: `ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "cancelledAt" TIMESTAMP(3)`, sqlite: `ALTER TABLE "Payment" ADD COLUMN "cancelledAt" DATETIME` },
   { table: "Payment", column: "cancelledById", pg: `ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "cancelledById" TEXT`, sqlite: `ALTER TABLE "Payment" ADD COLUMN "cancelledById" TEXT` },
@@ -136,6 +141,20 @@ export async function ensureRuntimeColumns(): Promise<void> {
       await db.$executeRawUnsafe(idx).catch(() => undefined);
     }
   } catch { /* الفهرس اختياري — التحقق الاستباقي داخل المعاملة يغطي */ }
+
+  // ★ إصلاح P2028/التكرار: فريد جزئي على سجل العمل النشط
+  //   (club + worker + day + start-time) — منع الازدواج على مستوى القاعدة
+  //   (سباق النقر المزدوج/طلبان متزامنان = P2002 يُعالَج كاستجابة «مكرر» نظيفة
+  //   لا 8 سجلات). الملغى/المرفوض مستثنون → إعادة التسجيل بعد الإلغاء تبقى
+  //   مشروعة (سلوك المرحلة 5 — notIn rejected+cancelled). جزئي → مدعوم
+  //   على PostgreSQL وSQLite معاً بنفس الصيغة.
+  try {
+    if (!(await indexExists(db, "WorkHours_active_user_date_start_key"))) {
+      const idx = `CREATE UNIQUE INDEX IF NOT EXISTS "WorkHours_active_user_date_start_key" ON "WorkHours"("clubId", "userId", "date", "startTime") WHERE "status" NOT IN ('rejected', 'cancelled')`;
+      await db.$executeRawUnsafe(idx).catch(() => undefined);
+    }
+  } catch { /* الفهرس اختياري — التحقق داخل المعاملة يغطي */ }
+
   runtimeDdlDone = true;
 }
 

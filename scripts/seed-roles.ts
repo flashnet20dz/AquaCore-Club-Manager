@@ -40,6 +40,8 @@ async function main() {
   if (lifeguard) {
     const existingWh = await db.workHours.count();
     if (existingWh === 0) {
+      // WorkHours is club-scoped (clubId required)
+      const clubId = (await db.club.findFirst())?.id ?? "";
       const today = new Date();
       for (let d = 0; d < 7; d++) {
         const date = new Date(today);
@@ -50,6 +52,7 @@ async function main() {
         end.setHours(11, 0, 0);
         await db.workHours.create({
           data: {
+            clubId,
             userId: lifeguard.id,
             date,
             startTime: start,

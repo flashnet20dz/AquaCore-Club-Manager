@@ -1357,7 +1357,7 @@ export function StaffCompensationsPanel({ canManage = true }: { canManage?: bool
         const data = await res.json();
         throw new Error(data.error || "فشل الحذف");
       }
-      toast.success("تم حذف التعويض بنجاح");
+      toast.success("تمت أرشفة التعويض — السجل محفوظ في الأرشيف");
       setDeleteTarget(null);
       fetchData();
     } catch (e) {
@@ -1386,8 +1386,8 @@ export function StaffCompensationsPanel({ canManage = true }: { canManage?: bool
     setBulkDeleteOpen(false);
     clearSelection();
     fetchData();
-    if (success > 0) toast.success(`تم حذف ${success} تعويض`);
-    if (failed > 0) toast.error(`فشل حذف ${failed} تعويض`);
+    if (success > 0) toast.success(`تمت أرشفة ${success} تعويض — السجلات محفوظة`);
+    if (failed > 0) toast.error(`فشل أرشفة ${failed} تعويض`);
   };
 
   const handleBulkStatusChange = async (newStatus: string) => {
@@ -2367,10 +2367,10 @@ export function StaffCompensationsPanel({ canManage = true }: { canManage?: bool
             <AlertDialogHeader>
               <AlertDialogTitle className="flex items-center gap-2">
                 <AlertTriangle className="h-5 w-5 text-rose-500" />
-                تأكيد الحذف
+                تأكيد الأرشفة
               </AlertDialogTitle>
               <AlertDialogDescription>
-                هل أنت متأكد من حذف تعويض <span className="font-semibold text-foreground">{deleteTarget?.personName}</span> للفترة {deleteTarget?.periodLabel}؟ لا يمكن التراجع عن هذا الإجراء.
+                هل أنت متأكد من أرشفة تعويض <span className="font-semibold text-foreground">{deleteTarget?.personName}</span> للفترة {deleteTarget?.periodLabel}؟ سيُخفى السجل من القوائم والإحصاءات لكنه يبقى محفوظاً في قاعدة البيانات للتاريخ والتدقيق، وتُلغى أي قيود مالية مرتبطة به (الإجراء قابل للمراجعة من سجل التدقيق).
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -2381,7 +2381,7 @@ export function StaffCompensationsPanel({ canManage = true }: { canManage?: bool
                 className="bg-rose-600 hover:bg-rose-700"
               >
                 {bulkActionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                حذف
+                أرشفة
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

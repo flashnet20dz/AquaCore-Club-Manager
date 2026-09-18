@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser, hasPermission } from "@/lib/session";
+import { ensureRuntimeColumns } from "@/lib/runtime-schema";
+import { recomputeBalanceTx } from "@/lib/financial-posting";
 
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureRuntimeColumns();
     const currentUser = await getCurrentUser();
     if (!currentUser || !hasPermission(currentUser.role, "staffCompensations")) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
@@ -49,6 +52,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const clubFilter = currentUser.role === "superadmin" ? {} : { clubId: currentUser.clubId! };
     const existing = await db.staffCompensation.findFirst({ where: { id, ...clubFilter } });
     if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    // ★ الأرشيف محفوظ للتاريخ فقط — لا تعديل بعد الأرشفة (التدقيق النهائي)
+    if (existing.archivedAt) {
+      return NextResponse.json({ error: "التعويض مؤرشف — لا يمكن تعديله" }, { status: 409 });
+    }
 
     // Recalculate total if any financial fields changed
     const workHours = body.workHours != null ? Number(body.workHours) : existing.workHours;
@@ -110,8 +118,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    await ensureRuntimeColumns();
     const currentUser = await getCurrentUser();
     if (!currentUser || !hasPermission(currentUser.role, "staffCompensationsManage")) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
@@ -122,18 +131,65 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     const existing = await db.staffCompensation.findFirst({ where: { id, ...clubFilter } });
     if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    await db.staffCompensation.delete({ where: { id } });
+    // ★ التدقيق النهائي — أرشفة ناعمة لا حذف فعلي:
+    // السجل يبقى في قاعدة البيانات (archivedAt محدّد) محفوظاً للتاريخ والتدقيق،
+    // ويُستثنى من القوائم النشطة والإحصاءات. القيود المالية المرتبطة به تُلغى
+    // ناعماً (تبقى في الدفتر بوضع «ملغاة») والرصيد يُعاد حسابه من الدفتر النشط.
+    if (existing.archivedAt) {
+      return NextResponse.json({ success: true, archived: true, alreadyArchived: true });
+    }
+    const reason = req.nextUrl.searchParams.get("reason")?.trim() || "أرشفة تعويض";
+
+    let cancelledTransactions = 0;
+    await db.$transaction(async (tx) => {
+      await tx.staffCompensation.update({
+        where: { id },
+        data: {
+          archivedAt: new Date(),
+          archivedById: currentUser.id,
+          archiveReason: reason,
+        },
+      });
+      const cancelled = await tx.financialTransaction.updateMany({
+        where: { staffCompensationId: id, status: "active" },
+        data: {
+          status: "cancelled",
+          cancelledAt: new Date(),
+          cancelledById: currentUser.id,
+          cancellationReason: `أرشفة التعويض — ${existing.personName}${existing.periodLabel ? ` — ${existing.periodLabel}` : ""}`.trim(),
+        },
+      });
+      cancelledTransactions = cancelled.count;
+      if (cancelledTransactions > 0) {
+        await recomputeBalanceTx(tx, existing.clubId);
+      }
+    });
 
     await db.activity.create({
       data: {
         clubId: existing.clubId,
         userId: currentUser.id,
         type: "delete",
-        description: `تم حذف تعويض ${existing.personName} — ${existing.periodLabel}`,
+        description: `تمت أرشفة تعويض ${existing.personName} — ${existing.periodLabel ?? ""} (محفوظ في الأرشيف)${cancelledTransactions > 0 ? ` — أُلغى ${cancelledTransactions} قيد مالي مرتبط` : ""}`.trim(),
       },
     });
+    await db.auditLog.create({
+      data: {
+        clubId: existing.clubId,
+        userId: currentUser.id,
+        action: "staff_compensation_archive",
+        entityType: "StaffCompensation",
+        entityId: id,
+        description: `أرشفة ناعمة لتعويض ${existing.personName} — السجل محفوظ بدون حذف`,
+        metadata: JSON.stringify({
+          reason,
+          oldValue: { totalAmount: existing.totalAmount, paymentStatus: existing.paymentStatus },
+          cancelledTransactions,
+        }),
+      },
+    }).catch(() => undefined);
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, archived: true, cancelledTransactions });
   } catch (error) {
     console.error("DELETE /api/staff-compensations/[id] error:", error);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });

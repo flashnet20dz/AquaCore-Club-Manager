@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
     const isTrustedCron =
       Boolean(cronSecret) &&
       providedSecret.length > 0 &&
-      timingSafeEqualStr(cronSecret, providedSecret);
+      timingSafeEqualStr(cronSecret ?? "", providedSecret);
 
     if (!currentUser && !isTrustedCron) {
       return NextResponse.json(

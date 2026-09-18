@@ -73,6 +73,30 @@ async function main() {
   const workerA = users.find((u) => u.id !== adminId) || users[0]; // «أحمد»
   const workerB = users.find((u) => u.id !== adminId && u.id !== workerA?.id) || users[1] || workerA; // «محمد»
 
+  // ═══ تنظيف متبقيات تشغيلات سابقة (إلغاء ناعم — نفس نهج phase5) ═══
+  // سجلات 2026-01 لهذين العاملين كلها بقايا اختبارات (النادي لا يعمل فيها فعلياً) —
+  // بدون هذا كان كل تشغيل يلوّث الذي يليه (created=0 / gross مختلط / أوقات مكرّرة)
+  {
+    const whLeft = await api("/api/workhours?month=2026-01");
+    const leftRows = (whLeft.data?.workHours || []).filter(
+      (w) => [workerA.id, workerB.id].includes(w.userId) && w.status !== "cancelled" && w.status !== "rejected"
+    );
+    for (const w of leftRows) {
+
+      await api(`/api/workhours/${w.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "cancelled", reason: "تنظيف متبقيات اختبار سابق" }),
+      });
+    }
+  // ★ التدقيق النهائي + إصلاح الانحدار: سجلاتنا الموسومة لهذا التشغيل والنشطة فقط —
+  //   الملغى (من تنظيف التشغيلات السابقة أو إلغاء يدوي) يبقى في القائمة بلا حساب
+  const myRecords = (whRes.data?.workHours || []).filter(
+    (w) => w.userId === workerA.id && new Date(w.date).toISOString().slice(0, 10) === TEST_DATE
+      && w.note?.includes(TEST_TAG)
+      && w.status !== "cancelled" && w.status !== "rejected"
+  )
+  }
+
   // ═══ 1) Settings: تفعيل يوم الأحد ═══
   console.log("\n📋 1) Settings — أيام التشغيل");
   const settingsRes = await api("/api/settings");
@@ -146,7 +170,7 @@ async function main() {
   const TEST_DATE = "2026-01-04"; // الأحد
   const bulk1 = await api("/api/workhours/bulk", {
     method: "POST",
-    body: JSON.stringify({ userId: workerA.id, date: TEST_DATE, slotIds: [slotIds[0], slotIds[1]] }),
+    body: JSON.stringify({ userId: workerA.id, date: TEST_DATE, slotIds: [slotIds[0], slotIds[1]], note: TEST_TAG }),
   });
   ok("bulk 201", bulk1.status === 201, JSON.stringify({ created: bulk1.data?.created, skipped: bulk1.data?.skipped?.length }));
   ok("سجلّان أُنشئا", bulk1.data?.created === 2);
@@ -170,8 +194,12 @@ async function main() {
   // ═══ 12) Timezone ═══
   console.log("\n📋 12) Timezone — 09:00 تبقى 09:00");
   const whRes = await api("/api/workhours?month=2026-01");
+  // ★ التدقيق النهائي + إصلاح الانحدار: سجلات هذا التشغيل (الموسومة) والنشطة فقط —
+  //   الملغى (تنظيف متبقيات سابقة/إلغاء يدوي) يبقى في القائمة بلا حساب إطلاقاً
   const myRecords = (whRes.data?.workHours || []).filter(
     (w) => w.userId === workerA.id && new Date(w.date).toISOString().slice(0, 10) === TEST_DATE
+      && w.note?.includes(TEST_TAG)
+      && w.status !== "cancelled" && w.status !== "rejected"
   );
   ok("سجلّان موجودان", myRecords.length === 2, `${myRecords.length}`);
   const starts = myRecords.map((w) => wallTime(w.startTime)).sort();
@@ -181,10 +209,14 @@ async function main() {
   // ═══ 13) الأجر: ساعات × سعر ═══
   console.log("\n📋 13) Wage calculation — hours × rate");
   const rate = myRecords[0]?.user?.hourlyRate || 200;
+  // ★ §23: أساس الأجر = لقطة السعر وقت التسجيل (قد تختلف عن السعر المعروض
+  //   إذا أُرشف موظف العامل لاحقاً — اللقطة أسبق دائماً)
+  const snap = myRecords[0]?.rateSnapshot;
   const wagesRes = await api("/api/wages?from=2026-01-01&to=2026-01-31");
   const wageRow = (wagesRes.data?.workers || []).find((w) => w.userId === workerA.id);
   ok("ساعات العامل = 2", wageRow?.totalHours === 2, `totalHours=${wageRow?.totalHours}`);
-  ok("الإجمالي = ساعات × السعر", wageRow?.gross === Math.round(2 * rate), `gross=${wageRow?.gross} (rate=${rate})`);
+  ok("الإجمالي = ساعات × السعر", wageRow?.gross === Math.round(2 * (snap ?? rate)), `gross=${wageRow?.gross} (snapshot=${snap ?? rate})`);
+
   ok("المتبقي = الإجمالي", wageRow?.remaining === wageRow?.gross);
 
   // ═══ 14) دفع جزئي ═══
@@ -275,7 +307,7 @@ async function main() {
   ok("تعديل الجلسة 200", editSlot.status === 200);
   const whAfterEdit = await api("/api/workhours?month=2026-01");
   const myAfterEdit = (whAfterEdit.data?.workHours || []).find(
-    (w) => w.userId === workerA.id && new Date(w.startTime).toISOString().includes("T09:00:00")
+    (w) => w.userId === workerA.id && w.note?.includes(TEST_TAG) && new Date(w.startTime).toISOString().includes("T09:00:00")
   );
   ok("السجل القديم احتفظ بـ 09:00", Boolean(myAfterEdit), myAfterEdit && wallTime(myAfterEdit.startTime));
   // استرجاع وقت الجلسة الأصلي
@@ -285,10 +317,16 @@ async function main() {
 
   // ═══ 21) تنظيف ═══
   console.log("\n📋 21) تنظيف البيانات التجريبية");
-  // سجلات ساعات العمل التجريبية
+  // سجلات ساعات العمل التجريبية — الإلغاء الناعم أولاً (المعتمد لا يُحذف)، ثم محاولة حذف المسودات
   const whAll = await api("/api/workhours?month=2026-01");
   for (const w of whAll.data?.workHours || []) {
     if (new Date(w.date).toISOString().slice(0, 10) === TEST_DATE && [workerA.id, workerB.id].includes(w.userId)) {
+      if (w.status !== "cancelled") {
+        await api(`/api/workhours/${w.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ status: "cancelled", reason: "تنظيف المرحلة 4 — يبقى في التاريخ" }),
+        });
+      }
       await api(`/api/workhours/${w.id}`, { method: "DELETE" });
     }
   }
