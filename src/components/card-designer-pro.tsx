@@ -2228,6 +2228,7 @@ function MembersSidebar({
   regDateTo: string; setRegDateTo: (s: string) => void;
   hasDateFilter: boolean; onClearDateFilter: () => void;
 }) {
+  const [displayLimit, setDisplayLimit] = useState(100);
   const getTypeColor = (code: string) => subTypes.find((st: any) => st.code === code)?.color || "#0d9488";
   return (
     <div className="flex flex-col h-full">
@@ -2321,7 +2322,7 @@ function MembersSidebar({
           </div>
         ) : (
           <div className="divide-y divide-white/10 dark:divide-white/5">
-            {subscribers.map((s) => {
+            {subscribers.slice(0, displayLimit).map((s) => {
               const isSelected = selectedSubIds.includes(s.id);
               const isPreview = previewSubId === s.id;
               const typeColor = getTypeColor(s.subscriptionType);
@@ -2349,6 +2350,18 @@ function MembersSidebar({
                 </button>
               );
             })}
+            {subscribers.length > displayLimit && (
+              <div className="p-2 text-center">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="w-full text-xs text-teal-600 hover:bg-teal-500/10 font-bold"
+                  onClick={() => setDisplayLimit((p) => p + 100)}
+                >
+                  عرض المزيد (+100 من أصل {subscribers.length})
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>

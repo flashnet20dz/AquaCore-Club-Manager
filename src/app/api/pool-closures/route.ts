@@ -66,6 +66,10 @@ export async function POST(req: NextRequest) {
       registeredOnOrBefore, registeredOnOrAfter,
       subscriptionTypes, paymentStatuses,
       validityDays,
+      extendSubscriptionDays = false,
+      createCompensations = true,
+      selectedSubscriberIds,
+      unexpiredOnly = false,
     } = body;
 
     if (!reason) {
@@ -98,6 +102,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "النادي غير محدد" }, { status: 400 });
     }
 
+    const closureDays = Math.max(1, Math.round((closureEnd.getTime() - closureStart.getTime()) / 86400000) + 1);
+    const closureDaysMs = closureDays * 86400000;
+    const reopenDate = new Date(closureEnd.getTime() + 86400000);
     const closureDate = closureStart; // للتوافق: date = startDate
     const validity = Number(validityDays) || 60; // مهلة افتراضية 60 يوماً
 
@@ -113,7 +120,6 @@ export async function POST(req: NextRequest) {
         reason,
         note: note || null,
         createdById: currentUser.id,
-        // ★ حفظ الفلاتر للسجل
         subscriptionTypesFilter: Array.isArray(subscriptionTypes) && subscriptionTypes.length > 0
           ? JSON.stringify(subscriptionTypes) : null,
         paymentStatusesFilter: Array.isArray(paymentStatuses) && paymentStatuses.length > 0
@@ -128,7 +134,6 @@ export async function POST(req: NextRequest) {
     if (swimmingDays) where.swimmingDays = swimmingDays;
     if (timeSlot) where.timeSlot = timeSlot;
 
-    // ★ تصفية حسب تاريخ التسجيل (من تاريخ إلى يوم الغلق)
     if (registeredOnOrBefore || registeredOnOrAfter) {
       const createdAtFilter: Record<string, Date> = {};
       if (registeredOnOrBefore) {
@@ -144,30 +149,88 @@ export async function POST(req: NextRequest) {
       where.createdAt = createdAtFilter;
     }
 
-    // ★ تصفية حسب نوع الاشتراك (متعدد)
     if (Array.isArray(subscriptionTypes) && subscriptionTypes.length > 0) {
       where.subscriptionType = { in: subscriptionTypes };
     }
 
-    // ★ تصفية حسب حالة الدفع (متعدد)
     if (Array.isArray(paymentStatuses) && paymentStatuses.length > 0) {
       where.paymentStatus = { in: paymentStatuses };
     }
 
-    const affectedSubscribers = await db.subscriber.findMany({ where });
+    const dbTypes = await db.subscriptionType.findMany({
+      where: clubId ? { clubId } : {},
+      select: { code: true, durationDays: true },
+    });
+    const durationMap = new Map(dbTypes.map((t) => [t.code, t.durationDays || 30]));
 
-    // 3) ★ أنشئ سجل تعويض pending لكل منخرط متأثر
-    //    مع حساب عدد الحصص الملغاة الفعلية لكل منخرط (من جدول فوجه)
-    if (affectedSubscribers.length > 0) {
-      // احسب cancelledSessionsCount لكل منخرط
+    const candidateSubscribers = await db.subscriber.findMany({
+      where,
+      include: {
+        renewals: {
+          orderBy: { expiryDate: "desc" },
+          take: 1,
+        },
+      },
+    });
+
+    // Determine target subscribers (selection / unexpiredOnly filtering)
+    let affectedSubscribers = candidateSubscribers;
+
+    if (Array.isArray(selectedSubscriberIds) && selectedSubscriberIds.length > 0) {
+      const idSet = new Set(selectedSubscriberIds);
+      affectedSubscribers = candidateSubscribers.filter((s) => idSet.has(s.id));
+    } else if (unexpiredOnly) {
+      affectedSubscribers = candidateSubscribers.filter((s) => {
+        const duration = durationMap.get(s.subscriptionType) || 30;
+        let curExpiry: Date | null = null;
+        if (s.renewals && s.renewals.length > 0 && s.renewals[0].expiryDate) {
+          curExpiry = new Date(s.renewals[0].expiryDate);
+        } else if (s.lastPaymentDate) {
+          curExpiry = new Date(s.lastPaymentDate);
+          curExpiry.setDate(curExpiry.getDate() + duration);
+        } else if (s.createdAt) {
+          curExpiry = new Date(s.createdAt);
+          curExpiry.setDate(curExpiry.getDate() + duration);
+        }
+        return curExpiry ? curExpiry >= closureStart : false;
+      });
+    }
+
+    // 3) ★ ميزة استئناف أيام بعد الفتح (تمديد تاريخ انتهاء الاشتراك بعدد أيام الإغلاق)
+    let extendedSubscribersCount = 0;
+    if (extendSubscriptionDays && affectedSubscribers.length > 0) {
+      for (const s of affectedSubscribers) {
+        if (s.lastPaymentDate) {
+          const updatedLastPayment = new Date(new Date(s.lastPaymentDate).getTime() + closureDaysMs);
+          await db.subscriber.update({
+            where: { id: s.id },
+            data: { lastPaymentDate: updatedLastPayment },
+          });
+        }
+
+        if (s.renewals && s.renewals.length > 0) {
+          const latest = s.renewals[0];
+          if (latest.expiryDate) {
+            const updatedExpiry = new Date(new Date(latest.expiryDate).getTime() + closureDaysMs);
+            await db.renewal.update({
+              where: { id: latest.id },
+              data: { expiryDate: updatedExpiry },
+            });
+          }
+        }
+        extendedSubscribersCount++;
+      }
+    }
+
+    // 4) ★ أنشئ سجل تعويض pending لكل منخرط متأثر (إذا كان createCompensations مفعلاً)
+    let totalCancelledSessions = 0;
+    if (createCompensations && affectedSubscribers.length > 0) {
       const compensationData = affectedSubscribers.map((s) => {
-        // ★ عدد الحصص الملغاة = عدد أيام فوجه ضمن فترة الإغلاق
         const cancelledCount = countCancelledSessionsInRange(
           closureStart,
           closureEnd,
           s.swimmingDays
         );
-        // ★ تاريخ انتهاء الصلاحية = originalDate + validityDays
         const expiry = calculateCompensationExpiryDate(closureStart, validity);
         return {
           clubId,
@@ -184,55 +247,57 @@ export async function POST(req: NextRequest) {
       });
 
       await db.compensation.createMany({ data: compensationData });
+      totalCancelledSessions = compensationData.reduce((s, c) => s + c.cancelledSessionsCount, 0);
 
-      // ★ سجل تدقيق: إنشاء تعويضات
+      // سجل تدقيق التعويضات
       await db.compensationHistory.create({
         data: {
           clubId,
           closureId: closure.id,
           action: "created",
-          description: `إنشاء ${compensationData.length} تعويض لفترة ${closureStart.toLocaleDateString("ar")} ← ${closureEnd.toLocaleDateString("ar")} (${reason})`,
+          description: `تسجيل إغلاق: ${affectedSubscribers.length} منخرط (${closureDays} يوم إغلاق) — ${extendSubscriptionDays ? `تم تمديد الاشتراكات +${closureDays} يوم` : "بدون تمديد"} — ${reason}`,
           newValue: JSON.stringify({
             count: compensationData.length,
-            totalCancelledSessions: compensationData.reduce((s, c) => s + c.cancelledSessionsCount, 0),
+            totalCancelledSessions,
             validityDays: validity,
+            extendedSubscribersCount,
+            closureDays,
+            reopenDate,
           }),
           userId: currentUser.id,
         },
       });
+    }
 
-      // 4) إشعار لكل منخرط متأثر
-      const isMultiDay = closureEnd.getTime() - closureStart.getTime() > 86400000;
+    // 5) إشعارات وسجل النشاط
+    if (affectedSubscribers.length > 0) {
+      const isMultiDay = closureDays > 1;
       await db.notification.createMany({
-        data: affectedSubscribers.map((s) => {
-          const comp = compensationData.find((c) => c.subscriberId === s.id)!;
-          return {
-            clubId,
-            type: "pool_closure",
-            title: "إغلاق المسبح للصيانة",
-            message: isMultiDay
-              ? `تم إغلاق المسبح من ${closureStart.toLocaleDateString("ar")} إلى ${closureEnd.toLocaleDateString("ar")} بسبب: ${reason}. سيتم تعويض ${comp.cancelledSessionsCount} حصة ملغاة للمنخرط ${s.firstName} ${s.lastName}.`
-              : `تم إغلاق حصة "${s.swimmingDays ?? ""} — ${s.timeSlot ?? ""}" بتاريخ ${closureDate.toLocaleDateString("ar")} بسبب: ${reason}. سيتم تعويض المنخرط ${s.firstName} ${s.lastName} بحصة بديلة.`,
-            link: `/dashboard/compensations?subscriberId=${s.id}`,
-          };
-        }),
+        data: affectedSubscribers.map((s) => ({
+          clubId,
+          type: "pool_closure",
+          title: "إغلاق المسبح للصيانة وتعديل الاشتراكات",
+          message: isMultiDay
+            ? `إغلاق المسبح من ${closureStart.toLocaleDateString("ar")} إلى ${closureEnd.toLocaleDateString("ar")} (${closureDays} أيام) بسبب: ${reason}.${extendSubscriptionDays ? ` تم استئناف وتمديد اشتراكك تلقائياً بـ ${closureDays} أيام إضافية.` : ""}`
+            : `إغلاق المسبح بتاريخ ${closureDate.toLocaleDateString("ar")} بسبب: ${reason}.${extendSubscriptionDays ? ` تم استئناف وتمديد اشتراكك بـ ${closureDays} يوم.` : ""}`,
+          link: `/dashboard/compensations?subscriberId=${s.id}`,
+        })),
       });
-
-      const totalCancelledSessions = compensationData.reduce((s, c) => s + c.cancelledSessionsCount, 0);
 
       await db.activity.create({
         data: {
           clubId,
           type: "pool_closure",
-          description: isMultiDay
-            ? `إغلاق مسبح للصيانة من ${closureStart.toLocaleDateString("ar")} إلى ${closureEnd.toLocaleDateString("ar")} — تأثر ${affectedSubscribers.length} منخرط(ة) بـ ${totalCancelledSessions} حصة ملغاة`
-            : `إغلاق مسبح للصيانة بتاريخ ${closureDate.toLocaleDateString("ar")} — تأثر ${affectedSubscribers.length} منخرط(ة)`,
+          description: `تسجيل إغلاق مسبح للصيانة (${closureDays} أيام) — ${affectedSubscribers.length} منخرط متأثر${extendSubscriptionDays ? ` (تم تمديد صلاحية ${extendedSubscribersCount} اشتراك بـ ${closureDays} يوم)` : ""}`,
           userId: currentUser.id,
           metadata: JSON.stringify({
-            closureId: closure.id, reason, count: affectedSubscribers.length,
+            closureId: closure.id,
+            reason,
+            affectedCount: affectedSubscribers.length,
+            extendedSubscribersCount,
+            closureDays,
+            reopenDate,
             totalCancelledSessions,
-            registeredOnOrBefore: registeredOnOrBefore || null,
-            registeredOnOrAfter: registeredOnOrAfter || null,
           }),
         },
       });
@@ -240,13 +305,11 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       closure,
+      closureDays,
+      reopenDate,
       affectedCount: affectedSubscribers.length,
-      totalCancelledSessions: affectedSubscribers.length > 0
-        ? (await db.compensation.aggregate({
-            where: { closureId: closure.id },
-            _sum: { cancelledSessionsCount: true },
-          }))._sum.cancelledSessionsCount || 0
-        : 0,
+      extendedSubscribersCount,
+      totalCancelledSessions,
     });
   } catch (e) {
     console.error("POST pool-closures:", e);

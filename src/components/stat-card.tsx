@@ -81,8 +81,9 @@ export function StatCard({
       transition={{ duration: 0.4, delay, ease: "easeOut" }}
       whileHover={{ y: -3 }}
       className={cn(
-        "relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5",
-        "shadow-sm hover:shadow-xl transition-all duration-300",
+        "relative overflow-hidden rounded-2xl border border-border/80 bg-card p-5",
+        "shadow-xs hover:shadow-lg hover:border-primary/40 transition-all duration-300",
+        "dark:shadow-[0_4px_20px_rgba(0,0,0,0.35)] dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] dark:hover:border-cyan-500/35",
         colors.glow
       )}
     >

@@ -46,10 +46,21 @@ interface PreviewRow {
   swimmingDays: string | null;
   timeSlot: string | null;
   phone: string | null;
+  fileNumber?: string | null;
   errors: string[];
   warnings: string[];
   errorDetails?: ErrorDetail[];
   status: "valid" | "warning" | "error";
+  isNewSubscriber?: boolean;
+  originType?: "new" | "renewal";
+  originLabel?: string;
+  feeBreakdown?: {
+    subscription: number;
+    renewal: number;
+    insurance: number;
+    compound: number;
+    total: number;
+  };
   computed: {
     age: number;
     subscriptionFee: number | null;
@@ -58,6 +69,15 @@ interface PreviewRow {
     totalAmount: number | null;
   };
   rightsRule: string;
+}
+
+interface FinancialBreakdownData {
+  newSubscriptions: { count: number; amount: number };
+  renewals: { count: number; amount: number };
+  insurance: { count: number; amount: number };
+  compound?: { count: number; amount: number };
+  grandTotal: number;
+  ledgerEntriesPosted?: number;
 }
 
 interface PreviewResult {
@@ -75,6 +95,8 @@ interface PreviewResult {
     totalInsurance: number;
     totalCompound: number;
     totalRevenue: number;
+    exemptCount?: number;
+    financialBreakdown?: FinancialBreakdownData;
   };
   renewalPreview?: {
     found: boolean;
@@ -87,6 +109,7 @@ interface PreviewResult {
 interface ImportResult {
   success: boolean;
   imported: number;
+  updated?: number;
   skipped: number;
   duplicates: number;
   conflictedCount?: number;
@@ -95,6 +118,7 @@ interface ImportResult {
   renewalErrors?: Array<{ row: number; name: string; error: string }>;
   totalRows: number;
   errors: Array<{ row: number; name: string; error: string }>;
+  financialBreakdown?: FinancialBreakdownData;
 }
 
 type TabKey = "all" | "valid" | "warnings" | "errors";
@@ -292,6 +316,15 @@ export function ImportPanel() {
       const errMsg = data.errors?.length > 0 ? ` • ${data.errors.length} خطأ` : "";
       const updMsg = data.updated > 0 ? ` • ${data.updated} محدّث` : "";
       toast.success(`تم استيراد ${data.imported} منخرط${updMsg}${dupMsg}${renewalMsg}${skipMsg}${errMsg}`);
+
+      if (data.financialBreakdown) {
+        const fb = data.financialBreakdown;
+        const compoundPart = fb.compound?.amount ? ` • حقوق مركب: ${fb.compound.amount.toLocaleString()} دج` : "";
+        toast.info(
+          `💰 التحليل المالي: اشتراكات جديدة: ${fb.newSubscriptions.amount.toLocaleString()} دج • تجديدات: ${fb.renewals.amount.toLocaleString()} دج • تأمين: ${fb.insurance.amount.toLocaleString()} دج${compoundPart} • الإجمالي: ${fb.grandTotal.toLocaleString()} دج (تم ترحيل ${fb.ledgerEntriesPosted || 0} قيد مالي)`,
+          { duration: 10000 }
+        );
+      }
 
       // اعرض أول 5 أخطاء إذا وجدت
       if (data.errors?.length > 0) {
@@ -682,6 +715,110 @@ export function ImportPanel() {
               </div>
             </div>
 
+            {/* ═══ التحليل المالي ومصادر المبالغ المحصلة (اشتراكات جديدة - تجديد - تأمين) ═══ */}
+            {preview?.summary?.financialBreakdown && (
+              <div className="rounded-2xl border-2 border-primary/30 bg-gradient-to-br from-primary/10 via-card to-card p-4 sm:p-5 shadow-sm space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-border/60 pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="h-9 w-9 rounded-xl bg-primary/20 text-primary flex items-center justify-center font-bold shadow-inner">
+                      <Wallet className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-black text-sm text-foreground">التحليل المالي التفصيلي للمبالغ ومصادرها</h4>
+                      <p className="text-xs text-muted-foreground">تفصيل دقيق لمصادر المبالغ (مشترك جديد vs تجديد اشتراك vs تأمين) والترحيل للدفتر</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">الإجمالي الشامل:</span>
+                    <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm px-3 py-1 shadow-sm">
+                      {preview.summary.financialBreakdown.grandTotal.toLocaleString()} دج
+                    </Badge>
+                  </div>
+                </div>
+
+                <div className={cn(
+                  "grid gap-3",
+                  preview.summary.financialBreakdown.compound?.amount
+                    ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-5"
+                    : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4"
+                )}>
+                  {/* 1: اشتراكات المنخرطين الجدد */}
+                  <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">اشتراكات المنخرطين الجدد</span>
+                      <Users className="h-4 w-4 text-emerald-600" />
+                    </div>
+                    <div className="text-xl font-black text-emerald-700 dark:text-emerald-400 tabular-nums">
+                      {preview.summary.financialBreakdown.newSubscriptions.amount.toLocaleString()} <span className="text-xs font-normal">دج</span>
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {preview.summary.financialBreakdown.newSubscriptions.count} منخرط جديد محصّل
+                    </div>
+                  </div>
+
+                  {/* 2: تجديد الاشتراكات */}
+                  <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 p-3.5 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-sky-800 dark:text-sky-300">تجديد الاشتراكات</span>
+                      <RefreshCw className="h-4 w-4 text-sky-600" />
+                    </div>
+                    <div className="text-xl font-black text-sky-700 dark:text-sky-400 tabular-nums">
+                      {preview.summary.financialBreakdown.renewals.amount.toLocaleString()} <span className="text-xs font-normal">دج</span>
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {preview.summary.financialBreakdown.renewals.count} عملية تجديد اشتراك
+                    </div>
+                  </div>
+
+                  {/* 3: مصاريف التأمين */}
+                  <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3.5 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-blue-800 dark:text-blue-300">مصاريف التأمين</span>
+                      <ShieldCheck className="h-4 w-4 text-blue-600" />
+                    </div>
+                    <div className="text-xl font-black text-blue-700 dark:text-blue-400 tabular-nums">
+                      {preview.summary.financialBreakdown.insurance.amount.toLocaleString()} <span className="text-xs font-normal">دج</span>
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {preview.summary.financialBreakdown.insurance.count} تأمين منخرط
+                    </div>
+                  </div>
+
+                  {/* 4: حقوق المركب */}
+                  {Boolean(preview.summary.financialBreakdown.compound?.amount) && (
+                    <div className="rounded-xl border border-violet-500/30 bg-violet-500/10 p-3.5 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-violet-800 dark:text-violet-300">حقوق المركب</span>
+                        <Building2 className="h-4 w-4 text-violet-600" />
+                      </div>
+                      <div className="text-xl font-black text-violet-700 dark:text-violet-400 tabular-nums">
+                        {(preview.summary.financialBreakdown.compound?.amount ?? 0).toLocaleString()} <span className="text-xs font-normal">دج</span>
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        {preview.summary.financialBreakdown.compound?.count ?? 0} حقوق مستحقة
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 5: الإجمالي الشامل */}
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-amber-800 dark:text-amber-300">الإجمالي الشامل المحصّل</span>
+                      <TrendingUp className="h-4 w-4 text-amber-600" />
+                    </div>
+                    <div className="text-xl font-black text-amber-700 dark:text-amber-400 tabular-nums">
+                      {preview.summary.financialBreakdown.grandTotal.toLocaleString()} <span className="text-xs font-normal">دج</span>
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {preview.summary.financialBreakdown.compound?.amount
+                        ? "اشتراكات + تجديد + تأمين + حقوق مركب"
+                        : "اشتراكات + تجديد + تأمين"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* ═══ معاينة ورقة التجديد ═══ */}
             {preview?.renewalPreview?.found && (
               <div className="rounded-xl border-2 border-sky-500/30 bg-sky-500/5 p-3 space-y-2">
@@ -829,6 +966,7 @@ export function ImportPanel() {
                           <th className="p-2 font-semibold whitespace-nowrap w-24">الميلاد</th>
                           <th className="p-2 font-semibold whitespace-nowrap w-12">العمر</th>
                           <th className="p-2 font-semibold whitespace-nowrap w-16">النوع</th>
+                          <th className="p-2 font-semibold whitespace-nowrap w-24">المصدر</th>
                           <th className="p-2 font-semibold whitespace-nowrap w-32">أيام السباحة</th>
                           <th className="p-2 font-semibold whitespace-nowrap w-24">التوقيت</th>
                           <th className="p-2 font-semibold whitespace-nowrap w-20">الرسوم</th>
@@ -841,7 +979,7 @@ export function ImportPanel() {
                       </thead>
                       <tbody>
                         {pagedRows.length === 0 ? (
-                          <tr><td colSpan={16} className="text-center py-8 text-muted-foreground">لا توجد بيانات</td></tr>
+                          <tr><td colSpan={17} className="text-center py-8 text-muted-foreground">لا توجد بيانات</td></tr>
                         ) : (
                           pagedRows.map((r) => (
                             <tr
@@ -875,6 +1013,16 @@ export function ImportPanel() {
                               <td className="p-2 whitespace-nowrap font-mono">{r.birthDateDisplay || "—"}</td>
                               <td className="p-2 text-center tabular-nums">{r.computed.age || "—"}</td>
                               <td className="p-2 whitespace-nowrap">{r.subscriptionType || "—"}</td>
+                              <td className="p-2 whitespace-nowrap">
+                                <span className={cn(
+                                  "inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border",
+                                  r.originType === "renewal"
+                                    ? "bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30"
+                                    : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30"
+                                )}>
+                                  {r.originLabel || (r.isNewSubscriber === false ? "تجديد اشتراك" : "مشترك جديد")}
+                                </span>
+                              </td>
                               <td className="p-2 whitespace-nowrap text-[10px]">{r.swimmingDays || "—"}</td>
                               <td className="p-2 whitespace-nowrap font-mono">{r.timeSlot || "—"}</td>
                               <td className="p-2 tabular-nums whitespace-nowrap">{r.computed.subscriptionFee ?? "—"}</td>

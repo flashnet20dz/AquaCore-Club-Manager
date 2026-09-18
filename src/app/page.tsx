@@ -1,15 +1,18 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { DataPagination } from "@/components/ui/data-pagination";
 import {
   Plus, Search, Users, Wallet, ShieldCheck, Waves, TrendingUp, Filter, X,
   RefreshCw, Calendar, Droplet, Clock, Activity, Crown, Sparkles, Waves as WavesIcon,
   QrCode, Download, Settings as SettingsIcon, LogOut, Moon, Sun, ChevronLeft,
   UserCheck, RefreshCcw, FileText, Bell, Zap, Award, Pencil, Trash2,
   CreditCard, Inbox, UserCog, Database, Layers, Menu, CalendarOff, ListPlus, Building2,
-  ArrowDownAZ, Banknote, Landmark, Copy,
+  ArrowDownAZ, Banknote, Landmark, Copy, ArrowRightLeft,
+  PanelRightClose, PanelRightOpen, Wifi,
 } from "lucide-react";
+import { AppSidebar } from "@/components/app-sidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +50,7 @@ import { ReportViewer } from "@/components/reports";
 import { SettingsPanel } from "@/components/settings-panel";
 import { ThemeSettingsPanel } from "@/components/theme-settings-panel";
 import { FinancialHub } from "@/components/financial-hub";
+import { FinancialTransactionDialog } from "@/components/financial-transaction-dialog";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SyncIndicator } from "@/components/sync-indicator";
 import { UserManagement } from "@/components/user-management";
@@ -70,6 +74,7 @@ import { NotificationBell } from "@/components/notification-bell";
 import { AnalyticsCharts } from "@/components/analytics-charts";
 import { BackupPanel } from "@/components/backup-panel";
 import { SubscriberRecordModal } from "@/components/subscriber-record-modal";
+import { LocalNetworkCard } from "@/components/local-network-card";
 import { WhatsAppReminders } from "@/components/whatsapp-reminders";
 import { hasPermission, ROLE_LABELS, ROLE_ICONS } from "@/lib/roles";
 import { onFinancialUpdated } from "@/lib/financial-events";
@@ -90,6 +95,7 @@ import { OnboardingChecklist } from "@/components/onboarding-checklist";
 import { AchievementsPanel } from "@/components/achievements-panel";
 import { KioskMode } from "@/components/kiosk-mode";
 import { POSReceipt } from "@/components/pos-receipt";
+import { ExecutiveDashboard } from "@/components/dashboard/executive-dashboard";
 
 interface Stats {
   total: number;
@@ -171,6 +177,10 @@ export default function Home() {
   const [stats, setStats] = useState<Stats | null>(null);
   // ★ الملخص المالي من دفتر القيود — المصدر الوحيد لأرقام لوحة التحكم المالية
   const [finSummary, setFinSummary] = useState<FinSummary | null>(null);
+  // ★ فترة عرض الأرقام المالية في لوحة التحكم (اليوم / الأسبوع / الشهر)
+  const [finPeriod, setFinPeriod] = useState<"today" | "week" | "month">("month");
+  // ★ نافذة تسجيل حركة مالية سريعة من الصفحة الرئيسية
+  const [quickTxOpen, setQuickTxOpen] = useState(false);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -179,6 +189,9 @@ export default function Home() {
   const [filterGender, setFilterGender] = useState("");
   const [filterRenewal, setFilterRenewal] = useState("");
   const [filterAgeCategory, setFilterAgeCategory] = useState("");
+  // 🔑 ترقيم صفحات شبكة المنخرطين للأداء العالي (10,000 منخرط بسلاسة 60 إطار/ثانية)
+  const [subscribersPage, setSubscribersPage] = useState(1);
+  const [subscribersPageSize, setSubscribersPageSize] = useState(48);
   // ★ الفئة المحددة لعرض قائمة المنخرطين
   const [selectedCat, setSelectedCat] = useState<{ key: string; title: string } | null>(null);
   // 🔑 ترتيب حسب رقم الملف
@@ -188,6 +201,7 @@ export default function Home() {
   // ★ الميزات الاحترافية الجديدة
   const [cmdOpen, setCmdOpen] = useState(false); // Command Palette
   const [kioskOpen, setKioskOpen] = useState(false); // Kiosk Mode
+  const [wifiModalOpen, setWifiModalOpen] = useState(false); // Local Wi-Fi Connect
   const [posOpen, setPosOpen] = useState(false); // POS Receipt
   const [posSubscriber, setPosSubscriber] = useState<SubscriberWithComputed | null>(null);
   const [editInitial, setEditInitial] = useState<Partial<SubscriberFormValues> & { id?: string } | undefined>();
@@ -201,6 +215,39 @@ export default function Home() {
   const defaultTab = sessionUser?.role === "accountant" ? "financial-hub"
     : (sessionUser?.role === "admin" || sessionUser?.role === "superadmin" ? "dashboard" : "attendance");
   const [activeTab, setActiveTab] = useState<string>(defaultTab);
+  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set([defaultTab]));
+
+  // حالة طي القائمة الجانبية مع التخزين في localStorage وتكيف تلقائي للأجهزة اللوحية
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("aquacore_sidebar_collapsed");
+      if (saved !== null) {
+        setSidebarCollapsed(saved === "true");
+      } else if (typeof window !== "undefined" && window.innerWidth < 1024) {
+        // الأجهزة اللوحية (iPad/Tablets < 1024px): تبدأ مصغرة تلقائياً لترك مساحة كافية للعمل
+        setSidebarCollapsed(true);
+      }
+    } catch {}
+  }, []);
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try { localStorage.setItem("aquacore_sidebar_collapsed", String(next)); } catch {}
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    setVisitedTabs((prev) => {
+      if (prev.has(activeTab)) return prev;
+      const next = new Set(prev);
+      next.add(activeTab);
+      return next;
+    });
+  }, [activeTab]);
+
   // Hook موحد لجلب أنواع الاشتراك — Single Source of Truth
   // يجب استدعاؤه قبل أي early return (قواعد الـ Hooks)
   const { types: subscriptionTypes, refresh: refreshSubTypes } = useSubscriptionTypes();
@@ -304,25 +351,6 @@ export default function Home() {
     window.location.href = "/login";
   };
 
-  const fetchAllSubscribers = useCallback(async (params: URLSearchParams) => {
-    // نظام الترقيم بالسيرفر يرجّع 100 بالصفحة افتراضياً (500 حد أقصى) —
-    // نلف على كل الصفحات ونجمعها بمصفوفة واحدة، حتى تبقى تجربة "قائمة
-    // كاملة محمَّلة + بحث فوري بالمتصفح" شغالة بدون تغيير بباقي الواجهة.
-    const all: any[] = [];
-    let page = 1;
-    const MAX_PAGES = 40; // سقف أمان: 40 × 500 = 20,000 سجل، أعلى بكثير من أي نادٍ واقعي
-    while (page <= MAX_PAGES) {
-      params.set("page", String(page));
-      params.set("limit", "500");
-      const res = await fetch(`/api/subscribers?${params.toString()}`);
-      const data = await res.json();
-      all.push(...(data.subscribers || []));
-      if (!data.pagination?.hasMore) break;
-      page++;
-    }
-    return all;
-  }, []);
-
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -334,10 +362,11 @@ export default function Home() {
       // 🔑 ترتيب حسب رقم الملف
       params.set("sortBy", sortBy);
       params.set("sortOrder", sortOrder);
+      params.set("limit", "10000");
 
       const canFin = sessionUser ? hasPermission(sessionUser.role, "financialDashboard") : false;
-      const [allSubs, statsRes, actRes, finRes] = await Promise.all([
-        fetchAllSubscribers(params),
+      const [subsRes, statsRes, actRes, finRes] = await Promise.all([
+        fetch(`/api/subscribers?${params.toString()}`).then((r) => r.json()).catch(() => ({ subscribers: [] })),
         fetch("/api/stats"),
         fetch("/api/activities"),
         // ★ المال من الدفتر فقط — للصلاحيات المالية فقط (الكاشير لا يرى بطاقات المال)
@@ -347,7 +376,7 @@ export default function Home() {
       ]);
       const statsData = await statsRes.json();
       const actData = await actRes.json();
-      setSubscribers(allSubs);
+      setSubscribers(subsRes.subscribers || []);
       setStats(statsData);
       setActivities(actData.activities || []);
       setFinSummary(finRes);
@@ -356,7 +385,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [filterPayment, filterType, filterGender, filterRenewal, sortBy, sortOrder, fetchAllSubscribers, sessionUser]);
+  }, [filterPayment, filterType, filterGender, filterRenewal, sortBy, sortOrder, sessionUser]);
 
   useEffect(() => {
     if (!sessionUser) return;
@@ -373,18 +402,19 @@ export default function Home() {
   //   — كل 45 ثانية + عند العودة إلى التبويبة + زر تحديث فوري في البطاقة.
   //   الأرقام تبقى من دفتر القيود حصراً (/api/financial/dashboard) — بلا أي حساب موازٍ.
   const [finRefreshing, setFinRefreshing] = useState(false);
-  const refreshFinSummary = useCallback(async () => {
+  const refreshFinSummary = useCallback(async (periodOverride?: "today" | "week" | "month") => {
     if (!sessionUser || !hasPermission(sessionUser.role, "financialDashboard")) return;
     setFinRefreshing(true);
+    const targetPeriod = periodOverride || finPeriod;
     try {
-      const data = await fetchFinancialDashboard<FinSummary>("month");
+      const data = await fetchFinancialDashboard<FinSummary>(targetPeriod);
       setFinSummary(data);
     } catch {
       /* صامت — تُبقى الأرقام الحالية معروضة حتى نجاح التحديث التالي */
     } finally {
       setFinRefreshing(false);
     }
-  }, [sessionUser]);
+  }, [sessionUser, finPeriod]);
 
   useEffect(() => {
     if (!sessionUser || !hasPermission(sessionUser.role, "financialDashboard")) return;
@@ -446,6 +476,7 @@ export default function Home() {
 
   const clearFilters = () => {
     setSearch(""); setFilterPayment(""); setFilterType(""); setFilterGender(""); setFilterRenewal(""); setFilterAgeCategory("");
+    setSubscribersPage(1);
   };
 
   const hasFilters = search || filterPayment || filterType || filterGender || filterRenewal || filterAgeCategory;
@@ -463,6 +494,15 @@ export default function Home() {
   const visibleSubscribers = filterAgeCategory
     ? searchFiltered.filter((s) => getAgeCategory(s.gender, s.age) === filterAgeCategory)
     : searchFiltered;
+
+  // 🔑 ترقيم صفحات شبكة المنخرطين للأداء العالي (10,000 منخرط بسلاسة 60 إطار/ثانية)
+  const totalFilteredSubscribers = visibleSubscribers.length;
+  const totalSubscribersPages = Math.max(1, Math.ceil(totalFilteredSubscribers / subscribersPageSize));
+  const currentSubscribersPage = Math.min(subscribersPage, totalSubscribersPages);
+  const pagedSubscribers = useMemo(() => {
+    const start = (currentSubscribersPage - 1) * subscribersPageSize;
+    return visibleSubscribers.slice(start, start + subscribersPageSize);
+  }, [visibleSubscribers, currentSubscribersPage, subscribersPageSize]);
 
   // Bulk delete handlers
   const toggleSelect = (id: string) => {
@@ -517,79 +557,136 @@ export default function Home() {
   return (
     <SubscriptionGate>
     <div
-      className="min-h-screen bg-gradient-to-b from-background via-background to-muted/30 flex flex-col"
+      className="min-h-screen ambient-canvas flex flex-col transition-colors duration-300"
       style={{ "--theme-primary": themePrimary, "--theme-secondary": themeSecondary } as React.CSSProperties}
     >
       {/* Header */}
-      <header className="sticky top-0 z-40 glass border-b border-border/40">
-        <div className="max-w-[1500px] mx-auto px-2 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-sky-600 text-white shadow-lg shadow-teal-500/30 overflow-hidden">
+      <header className="sticky top-0 z-40 glass border-b border-border/80 shadow-xs transition-colors duration-300">
+        <div className="w-full mx-auto px-2 sm:px-4 lg:px-6 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 flex-1">
+            {/* Mobile Sidebar Hamburger Toggle */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setMobileNavOpen(true)}
+              className="md:hidden h-9 w-9 text-muted-foreground hover:text-foreground shrink-0"
+              aria-label="فتح القائمة الجانبية"
+            >
+              <Menu className="h-5 w-5" />
+            </Button>
+
+            {/* Desktop Sidebar Collapse / Expand Toggle */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleSidebar}
+              className="hidden md:inline-flex h-9 w-9 text-muted-foreground hover:text-foreground shrink-0"
+              title={sidebarCollapsed ? "توسيع القائمة الجانبية" : "طي القائمة الجانبية"}
+              aria-label="تبديل القائمة الجانبية"
+            >
+              {sidebarCollapsed ? <PanelRightOpen className="h-5 w-5" /> : <PanelRightClose className="h-5 w-5" />}
+            </Button>
+
+            <div className="relative flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-sky-600 text-white shadow-md shadow-teal-500/30 overflow-hidden shrink-0">
               {headerLogo ? (
                 <img src={headerLogo} alt="شعار" className="w-full h-full object-contain" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
               ) : (
                 <WavesIcon className="h-5 w-5" strokeWidth={2.5} />
               )}
-              <span className="absolute -bottom-1 -left-1 flex h-3 w-3">
+              <span className="absolute -bottom-1 -left-1 flex h-2.5 w-2.5 sm:h-3 sm:w-3">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
-                <span className="relative inline-flex h-3 w-3 rounded-full bg-amber-500" />
+                <span className="relative inline-flex h-full w-full rounded-full bg-amber-500" />
               </span>
             </div>
             <div className="min-w-0">
-              <h1 className="text-base sm:text-lg font-extrabold leading-tight">
+              <h1 className="text-xs xs:text-sm sm:text-base md:text-lg font-extrabold leading-tight truncate" dir="auto">
                 {headerTitle}
               </h1>
-              <p className="text-[10px] sm:text-xs text-muted-foreground -mt-0.5">
+              <p className="text-[10px] sm:text-xs text-muted-foreground -mt-0.5 truncate hidden md:block" dir="auto">
                 {headerSubtitle}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end max-w-[60%] sm:max-w-none">
-            {sessionUser.role !== "superadmin" && <SubscriptionBadge />}
-            <ThemeToggle />
-            <SyncIndicator />
-            <NotificationBell />
-            <Button variant="ghost" size="icon" onClick={fetchData} title="تحديث" aria-label="تحديث البيانات" className="h-9 w-9">
+          <div className="flex items-center gap-1 sm:gap-1.5 md:gap-2 flex-nowrap shrink-0 justify-end">
+            {sessionUser.role !== "superadmin" && (
+              <div className="hidden xl:block">
+                <SubscriptionBadge />
+              </div>
+            )}
+            <div className="shrink-0">
+              <ThemeToggle />
+            </div>
+            <div className="hidden md:block shrink-0">
+              <SyncIndicator />
+            </div>
+            <div className="shrink-0">
+              <NotificationBell />
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={fetchData}
+              title="تحديث البيانات"
+              aria-label="تحديث البيانات"
+              className="hidden lg:inline-flex h-9 w-9 shrink-0"
+            >
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             </Button>
-            {/* ★ زر البحث السريع (Ctrl+K) */}
+            {/* ★ زر البحث السريع (Ctrl+K) — يظهر من التابلت فما فوق */}
             <Button
               variant="outline"
               size="sm"
               onClick={() => setCmdOpen(true)}
-              className="h-9 gap-1.5 text-muted-foreground"
+              className="hidden sm:inline-flex h-9 px-2 sm:px-3 gap-1.5 text-muted-foreground shrink-0"
               title="بحث سريع (Ctrl+K)"
             >
               <Search className="h-4 w-4" />
-              <kbd className="hidden sm:inline text-[10px] font-mono border rounded px-1">Ctrl+K</kbd>
+              <kbd className="hidden md:inline text-[10px] font-mono border rounded px-1">Ctrl+K</kbd>
+            </Button>
+            {/* ★ زر ربط الهاتف بالواي فاي بدون إنترنت */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setWifiModalOpen(true)}
+              className="hidden sm:inline-flex h-9 gap-1.5 border-emerald-500/40 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10 shrink-0"
+              title="الاتصال بالهاتف عبر الواي فاي (بدون إنترنت)"
+            >
+              <Wifi className="h-4 w-4" />
+              <span className="hidden lg:inline">ربط الهاتف (Wi-Fi)</span>
             </Button>
             {/* ★ زر شاشة البوابة الذكية */}
             <Button
               variant="outline"
               size="sm"
               onClick={() => setKioskOpen(true)}
-              className="h-9 gap-1.5 border-teal-400/40 text-teal-700 hover:bg-teal-50"
+              className="hidden xl:inline-flex h-9 gap-1.5 border-teal-400/40 text-teal-700 hover:bg-teal-50 shrink-0"
               title="شاشة البوابة الذكية"
             >
               <QrCode className="h-4 w-4" />
-              <span className="hidden lg:inline">البوابة</span>
+              <span>البوابة</span>
             </Button>
-            <Button onClick={handleAdd} className="h-9 px-3 sm:px-5 shadow-md shadow-primary/20" style={{ display: hasPermission(sessionUser.role, "subscribers") ? "" : "none" }}>
-              <Plus className="h-4 w-4 ml-1" />
+            {/* زر إضافة منخرط جديد: أيقونة على الموبايل، زر كامل على الشاشات الأكبر */}
+            <Button
+              onClick={handleAdd}
+              className="h-9 w-9 p-0 sm:w-auto sm:px-3.5 shadow-md shadow-primary/20 shrink-0"
+              title="إضافة منخرط جديد"
+              style={{ display: hasPermission(sessionUser.role, "subscribers") ? "" : "none" }}
+            >
+              <Plus className="h-4 w-4 sm:ml-1" />
               <span className="hidden sm:inline">منخرط جديد</span>
             </Button>
 
             {/* User menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-1.5 h-9 px-2 rounded-lg border border-border/60 bg-card hover:bg-accent transition">
+                <button className="flex items-center gap-1.5 h-9 px-1.5 sm:px-2 rounded-lg border border-border/60 bg-card hover:bg-accent transition shrink-0 cursor-pointer">
                   <Avatar className="h-7 w-7">
                     <AvatarFallback className="bg-primary/15 text-primary text-xs font-bold">
                       {sessionUser?.name?.[0] || "U"}
                     </AvatarFallback>
                   </Avatar>
-                  <span className="hidden lg:inline text-xs font-semibold max-w-[100px] truncate">
+                  <span className="hidden xl:inline text-xs font-semibold max-w-[100px] truncate">
                     {sessionUser?.name}
                   </span>
                 </button>
@@ -612,533 +709,79 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="flex-1 max-w-[1500px] w-full mx-auto px-2 sm:px-4 lg:px-8 py-4 sm:py-8 space-y-4 sm:space-y-6">
-        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          {/* Mobile: hamburger button that opens a Drawer with all tabs */}
-          <div className="sm:hidden -mx-2 mb-2 px-2">
-            <Button
-              variant="outline"
-              className="w-full h-11 justify-between"
-              onClick={() => setMobileNavOpen(true)}
-            >
-              <span className="flex items-center gap-2">
-                <Menu className="h-5 w-5" />
-                <span className="font-semibold">القائمة</span>
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {activeTab === "dashboard" ? "لوحة التحكم" :
-                 activeTab === "subscribers" ? "المنخرطون" :
-                 activeTab === "attendance" ? "الحضور" :
-                 activeTab === "renewals" ? "التجديد" :
-                 activeTab === "compensations" ? "التعويضات" :
-                 activeTab === "waitlist" ? "قائمة الانتظار" :
-                 activeTab === "workhours" ? "ساعات العمل" :
-                 activeTab === "pool-schedule" ? "جدول المسبح" :
-                 activeTab === "insurance" ? "التأمين" :
-                 activeTab === "categories" ? "الفئات" :
-                 activeTab === "analytics" ? "التحليلات" :
-                 activeTab === "cards-pro" ? "مصمم البطاقات" :
-                 activeTab === "import" ? "الاستيراد" :
-                 activeTab === "export" ? "التصدير" :
-                 activeTab === "charges" ? "المركز المالي" :
-                 activeTab === "staff-compensations" ? "تعويضات العمال" :
-                 activeTab === "financial-hub" ? "المركز المالي" :
-                 activeTab === "cash-register" ? "المركز المالي" :
-                 activeTab === "financial-payments" ? "الدفعات" :
-                 activeTab === "financial-reports" ? "التقارير المالية" :
-                 activeTab === "members-directory" ? "سجل المنخرطين" :
-                 activeTab === "contracts" ? "عقود العمال" :
-                 activeTab === "users" ? "المستخدمون" :
-                 activeTab === "backup" ? "النسخ الاحتياطي" :
-                 activeTab === "settings" ? "الإعدادات" : activeTab}
-              </span>
-            </Button>
-          </div>
+      <div className="flex-1 flex flex-row min-w-0 w-full relative">
+        {/* Desktop Sidebar (Collapsible & Reorderable via Settings) */}
+        <div className="hidden md:flex shrink-0 sticky top-14 sm:top-16 h-[calc(100vh-3.5rem)] sm:h-[calc(100vh-4rem)] z-30">
+          <AppSidebar
+            activeTab={activeTab}
+            onTabChange={handleTabChange}
+            isCollapsed={sidebarCollapsed}
+            onToggleCollapse={toggleSidebar}
+            userRole={sessionUser.role}
+            subscribersCount={stats?.total}
+            expiredRenewalsCount={stats?.byRenewalStatus?.find(r => r.status === "منتهية")?.count}
+            expiringContractsCount={stats?.workers?.contractsExpiringSoon}
+            clubName={headerTitle}
+            clubLogo={headerLogo}
+          />
+        </div>
 
-          {/* Desktop: horizontal scrollable tab bar (hidden on mobile) */}
-          <div className="hidden sm:block overflow-x-auto pb-2 -mx-2 px-2">
-            <TabsList className="bg-card border border-border/60 p-1 h-auto inline-flex">
-              {/* 🔑 لوحة التحكم والتحليلات: للمدير فقط (admin + superadmin) */}
-              {(sessionUser.role === "admin" || sessionUser.role === "superadmin") && (
-                <TabsTrigger value="dashboard" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <Activity className="h-4 w-4" /> لوحة التحكم
-                </TabsTrigger>
-              )}
-              {hasPermission(sessionUser.role, "subscribers") && (
-                <TabsTrigger value="subscribers" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <Users className="h-4 w-4" /> المنخرطون
-                  {stats && <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">{stats.total}</Badge>}
-                </TabsTrigger>
-              )}
-              <TabsTrigger value="attendance" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                <QrCode className="h-4 w-4" /> الحضور
-              </TabsTrigger>
-              {hasPermission(sessionUser.role, "workHours") && (
-                <TabsTrigger value="workhours" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <Clock className="h-4 w-4" /> ساعات العمل
-                </TabsTrigger>
-              )}
-              {hasPermission(sessionUser.role, "workHours") && (
-                <TabsTrigger value="pool-schedule" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <Waves className="h-4 w-4" /> جدول المسبح
-                </TabsTrigger>
-              )}
-              {hasPermission(sessionUser.role, "renewals") && (
-                <TabsTrigger value="renewals" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <RefreshCcw className="h-4 w-4" /> التجديد
-                  {stats && (stats.byRenewalStatus.find(r => r.status === "منتهية")?.count ?? 0) > 0 && (
-                    <span className="flex h-2 w-2 bg-rose-500 rounded-full" />
-                  )}
-                </TabsTrigger>
-              )}
-              {hasPermission(sessionUser.role, "renewals") && (
-                <TabsTrigger value="compensations" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <CalendarOff className="h-4 w-4" /> التعويضات
-                </TabsTrigger>
-              )}
-              {hasPermission(sessionUser.role, "renewals") && (
-                <TabsTrigger value="waitlist" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <ListPlus className="h-4 w-4" /> الانتظار
-                </TabsTrigger>
-              )}
-              {hasPermission(sessionUser.role, "subscribers") && (
-                <TabsTrigger value="insurance" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <ShieldCheck className="h-4 w-4" /> التأمين
-                </TabsTrigger>
-              )}
-              {hasPermission(sessionUser.role, "subscribers") && (
-                <TabsTrigger value="compound" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <Building2 className="h-4 w-4" /> حقوق المركب
-                </TabsTrigger>
-              )}
-              {/* ★ سجل المنخرطين الكامل */}
-              {hasPermission(sessionUser.role, "subscribers") && (
-                <TabsTrigger value="members-directory" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <Users className="h-4 w-4" /> سجل المنخرطين
-                </TabsTrigger>
-              )}
-              {hasPermission(sessionUser.role, "subscribers") && (
-                <TabsTrigger value="categories" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <Crown className="h-4 w-4" /> الفئات
-                </TabsTrigger>
-              )}
-              {/* 🔑 التحليلات: للمدير فقط */}
-              {(sessionUser.role === "admin" || sessionUser.role === "superadmin") && (
-                <TabsTrigger value="analytics" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <TrendingUp className="h-4 w-4" /> التحليلات
-                </TabsTrigger>
-              )}
-              {hasPermission(sessionUser.role, "cards") && (
-                <TabsTrigger value="cards-pro" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <Sparkles className="h-4 w-4" /> مصمم البطاقات
-                </TabsTrigger>
-              )}
-              {hasPermission(sessionUser.role, "import") && (
-                <TabsTrigger value="import" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <Inbox className="h-4 w-4" /> الاستيراد
-                </TabsTrigger>
-              )}
-              {hasPermission(sessionUser.role, "export") && (
-                <TabsTrigger value="export" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <Download className="h-4 w-4" /> التصدير
-                </TabsTrigger>
-              )}
-              {/* ★ المركز المالي الموحّد: نظرة عامة + الصندوق وتقرير Z + الأعباء والتسديدات + التقارير */}
-              {(hasPermission(sessionUser.role, "charges") || hasPermission(sessionUser.role, "financialDashboard") || hasPermission(sessionUser.role, "financialReports")) && (
-                <TabsTrigger value="financial-hub" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <Landmark className="h-4 w-4" /> المركز المالي
-                </TabsTrigger>
-              )}
-              {hasPermission(sessionUser.role, "staffCompensations") && (
-                <TabsTrigger value="staff-compensations" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <Banknote className="h-4 w-4" /> تعويضات العمال
-                </TabsTrigger>
-              )}
-              {/* ★ المركز المالي الموحّد (كان: لوحة المالية والتقارير + الصندوق وتقرير Z) */}
-              {/* ★ تم دمج الدفعات والتقارير والصندوق ضمن تبويب المركز المالي */}
-              {isAdmin && (
-                <TabsTrigger value="contracts" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <FileText className="h-4 w-4" /> عقود العمال
-                </TabsTrigger>
-              )}
-              {isAdmin && (
-                <TabsTrigger value="users" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <UserCog className="h-4 w-4" /> المستخدمون
-                </TabsTrigger>
-              )}
-              {isAdmin && (
-                <TabsTrigger value="backup" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <Database className="h-4 w-4" /> النسخ الاحتياطي
-                </TabsTrigger>
-              )}
-              {isAdmin && (
-                <TabsTrigger value="settings" className="gap-1 px-2 sm:px-4 py-1.5 text-xs sm:text-sm whitespace-nowrap">
-                  <SettingsIcon className="h-4 w-4" /> الإعدادات
-                </TabsTrigger>
-              )}
-            </TabsList>
-          </div>
+        {/* Mobile Navigation Drawer */}
+        <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+          <SheetContent side="right" className="p-0 w-[280px] max-w-[85vw] border-l border-border bg-card h-full flex flex-col">
+            <AppSidebar
+              activeTab={activeTab}
+              onTabChange={(tab) => {
+                handleTabChange(tab);
+                setMobileNavOpen(false);
+              }}
+              isCollapsed={false}
+              onToggleCollapse={() => setMobileNavOpen(false)}
+              userRole={sessionUser.role}
+              subscribersCount={stats?.total}
+              expiredRenewalsCount={stats?.byRenewalStatus?.find(r => r.status === "منتهية")?.count}
+              expiringContractsCount={stats?.workers?.contractsExpiringSoon}
+              clubName={headerTitle}
+              clubLogo={headerLogo}
+              isMobile={true}
+              onCloseMobile={() => setMobileNavOpen(false)}
+            />
+          </SheetContent>
+        </Sheet>
 
-          {/* DASHBOARD TAB */}
-          <TabsContent value="dashboard" className="space-y-6 mt-0">
+        {/* Main Workspace Area */}
+        <main className="flex-1 min-w-0 px-2 sm:px-4 lg:px-8 py-4 sm:py-8 space-y-4 sm:space-y-6 overflow-y-auto">
+          <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+            {/* DASHBOARD TAB */}
+            {visitedTabs.has("dashboard") && (
+              <TabsContent value="dashboard" forceMount className="space-y-6 mt-0 data-[state=inactive]:hidden">
             <OnboardingChecklist onGoTab={handleTabChange} />
             {loading || !stats ? (
               <DashboardSkeleton />
             ) : (
-              <>
-                {/* Hero */}
-                <motion.section
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="relative overflow-hidden rounded-3xl border border-border/60 bg-gradient-to-br from-teal-600 via-sky-700 to-indigo-800 p-6 sm:p-8 text-white"
-                >
-                  <div className="absolute inset-0 opacity-20">
-                    <svg className="absolute bottom-0 left-0 w-full h-32" viewBox="0 0 1200 120" preserveAspectRatio="none">
-                      <path d="M0,60 C150,100 350,0 600,60 C850,120 1050,20 1200,60 L1200,120 L0,120 Z" fill="white" />
-                    </svg>
-                    <svg className="absolute bottom-0 left-0 w-full h-20" viewBox="0 0 1200 120" preserveAspectRatio="none">
-                      <path d="M0,80 C200,40 400,100 600,80 C800,60 1000,100 1200,80 L1200,120 L0,120 Z" fill="white" opacity="0.5" />
-                    </svg>
-                  </div>
-                  <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                    <div>
-                      <div className="flex items-center gap-2 mb-2">
-                        <Sparkles className="h-4 w-4 text-amber-300" />
-                        <span className="text-xs font-semibold uppercase tracking-wider text-white/80">
-                          مرحباً {sessionUser?.name}
-                        </span>
-                      </div>
-                      <h2 className="text-2xl sm:text-3xl font-extrabold mb-1">AquaCore Club Manager</h2>
-                      <p className="text-sm text-white/80 max-w-md">
-                        تابع اشتراكات، حضور، وتجديدات منخرطيك في مكان واحد — مع QR وإشعارات WhatsApp
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-4 sm:gap-6 bg-white/10 backdrop-blur-md rounded-2xl p-4 border border-white/20">
-                      <div className="text-center">
-                        <div className="text-3xl font-extrabold tabular-nums">{stats.total}</div>
-                        <div className="text-xs text-white/80 mt-0.5">إجمالي المنخرطين</div>
-                      </div>
-                      {canFin && (
-                        <>
-                          <div className="h-12 w-px bg-white/20" />
-                          <div className="text-center">
-                            <div className="flex items-center justify-center gap-1.5">
-                              <span className="text-3xl font-extrabold tabular-nums text-amber-300">
-                                {finSummary ? Math.round(finSummary.balance.totalIncome).toLocaleString("en-US") : "…"}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => refreshFinSummary()}
-                                disabled={finRefreshing}
-                                aria-label="تحديث الإيرادات الآن"
-                                title="تحديث الآن"
-                                className="rounded-full p-1.5 hover:bg-white/15 transition-colors disabled:opacity-60"
-                              >
-                                <RefreshCw className={cn("h-3.5 w-3.5 text-white/80", finRefreshing && "animate-spin")} />
-                              </button>
-                            </div>
-                            <div className="text-xs text-white/80 mt-0.5">إجمالي المداخيل (اشتراكات + تأمين + تجديد)</div>
-                            {finSummary && (
-                              <div className="text-[10px] text-white/70 mt-1 leading-relaxed">
-                                اشتراكات وتجديد{" "}
-                                {Math.round((finSummary.balance.incomeByCategory.subscription || 0) + (finSummary.balance.incomeByCategory.renewal || 0)).toLocaleString("en-US")}
-                                {" • "}تأمين{" "}
-                                {Math.round(finSummary.balance.incomeByCategory.insurance || 0).toLocaleString("en-US")}
-                                {" • "}مركب{" "}
-                                {Math.round(finSummary.balance.incomeByCategory.compound || 0).toLocaleString("en-US")} دج
-                              </div>
-                            )}
-                            <div
-                              className="inline-flex items-center gap-1 mt-1 text-[10px] text-white/60"
-                              title="تُحدَّث الأرقام تلقائياً كل 45 ثانية، وفوراً عند أي عملية مالية"
-                            >
-                              <span className="relative flex h-1.5 w-1.5">
-                                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                              </span>
-                              تحديث تلقائي
-                            </div>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </motion.section>
-
-                {/* ★ بطاقات المال — من دفتر القيود حصراً (نفس أرقام المركز المالي) */}
-                {canFin && finSummary && (
-                  <ResponsiveGrid minCardWidth={140} gap={12}>
-                    <StatCard
-                      label="التسجيلات (اشتراك+تجديد)"
-                      value={Math.round((finSummary.balance.incomeByCategory.subscription || 0) + (finSummary.balance.incomeByCategory.renewal || 0))}
-                      suffix="دج" icon={Wallet} accent="ocean" delay={0}
-                      sublabel="المحصّل في الدفتر المالي"
-                    />
-                    <StatCard label="التأمين المحصّل" value={Math.round(finSummary.balance.incomeByCategory.insurance || 0)} suffix="دج" icon={ShieldCheck} accent="emerald" delay={0.05} sublabel="من الدفتر المالي" />
-                    <StatCard label="حقوق المركب المحصّلة" value={Math.round(finSummary.balance.incomeByCategory.compound || 0)} suffix="دج" icon={Waves} accent="teal" delay={0.1} sublabel="من الدفتر المالي" />
-                    <StatCard label="متوسط العملية" value={finSummary.period.avgAmount} suffix="دج" icon={TrendingUp} accent="amber" delay={0.15} sublabel="حركات هذا الشهر" />
-                  </ResponsiveGrid>
-                )}
-
-                {/* ★ بطاقات المسبح — من الجلسات وساعات العمل (المرحلة 4) */}
-                {stats.pool && (
-                  <ResponsiveGrid minCardWidth={140} gap={12}>
-                    <StatCard
-                      label="جلسات اليوم"
-                      value={stats.pool.operatingToday ? stats.pool.todaySessions : 0}
-                      suffix={stats.pool.operatingToday ? "جلسة" : "مغلق"}
-                      icon={Waves} accent="teal" delay={0}
-                      sublabel="من إعدادات جدول المسبح"
-                    />
-                    <StatCard label="حراس اليوم" value={stats.pool.activeLifeguardsToday} suffix="عامل" icon={Users} accent="ocean" delay={0.05} sublabel="معيّنون على جلسات اليوم" />
-                    <StatCard label="ساعات عمل اليوم" value={stats.pool.todayWorkHours} suffix="سا" icon={Clock} accent="emerald" delay={0.1} sublabel="ساعات معتمدة" />
-                    <StatCard label="أجور معلّقة" value={stats.pool.pendingWagesMonth} suffix="دج" icon={Wallet} accent="amber" delay={0.15} sublabel="متبقي الشهر الحالي" />
-                  </ResponsiveGrid>
-                )}
-
-                {/* ★ بطاقات العمال — الموظفون والعقود والأجور (المرحلة 5 — §27) */}
-                {stats.workers && (
-                  <ResponsiveGrid minCardWidth={140} gap={12}>
-                    <StatCard label="العمال" value={stats.workers.activeEmployees} suffix={`/ ${stats.workers.employeesCount}`} icon={Users} accent="ocean" delay={0} sublabel="موظفون نشطون" />
-                    <StatCard label="العقود النشطة" value={stats.workers.activeContracts} suffix="عقد" icon={FileText} accent="teal" delay={0.05} sublabel="عقود سارية" />
-                    <StatCard label="ساعات الشهر" value={stats.workers.approvedHoursMonth} suffix="سا" icon={Clock} accent="emerald" delay={0.1} sublabel="ساعات معتمدة" />
-                    <StatCard label="أجور الشهر" value={stats.workers.grossWagesMonth} suffix="دج" icon={Wallet} accent="amber" delay={0.15} sublabel={`مدفوع ${stats.workers.paidWagesMonth.toLocaleString("en-US")}`} />
-                  </ResponsiveGrid>
-                )}
-
-                {/* ★ العقود التي ستنتهي قريباً (§25) */}
-                {stats.workers && stats.workers.expiringContractsList.length > 0 && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4, delay: 0.18 }}
-                    className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4"
-                  >
-                    <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-                      <h3 className="font-bold text-sm flex items-center gap-2 text-amber-800 dark:text-amber-300">
-                        <FileText className="h-4 w-4" />
-                        العقود التي ستنتهي قريباً ({stats.workers.contractsExpiringSoon})
-                      </h3>
-                      <button
-                        onClick={() => setActiveTab("contracts")}
-                        className="text-xs text-amber-700 hover:underline dark:text-amber-400"
-                      >
-                        إدارة العقود ←
-                      </button>
-                    </div>
-                    <div className="space-y-1.5 max-h-56 overflow-y-auto">
-                      {stats.workers.expiringContractsList.map((c) => (
-                        <div key={c.contractNumber} className="flex items-center justify-between gap-2 rounded-xl bg-card border border-border/50 px-3 py-2 text-xs">
-                          <div className="min-w-0">
-                            <p className="font-semibold truncate">{c.employeeName || "—"}</p>
-                            <p className="text-[10px] text-muted-foreground font-mono" dir="ltr">{c.contractNumber}</p>
-                          </div>
-                          <div className="text-center">
-                            <p className="text-[10px] text-muted-foreground">تاريخ الانتهاء</p>
-                            <p className="font-semibold" dir="ltr">{c.endDate.split("-").reverse().join("/")}</p>
-                          </div>
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              "text-[10px] shrink-0",
-                              c.daysRemaining <= 7
-                                ? "bg-rose-500/10 text-rose-700 border-rose-500/30"
-                                : "bg-amber-500/10 text-amber-700 border-amber-500/30"
-                            )}
-                          >
-                            {c.daysRemaining === 0 ? "ينتهي اليوم" : c.daysRemaining <= 7 ? `خلال ${c.daysRemaining} أيام` : `خلال ${c.daysRemaining} يوماً`}
-                          </Badge>
-                        </div>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* Renewal + Activity feed */}
-                <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                  <motion.div
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4, delay: 0.2 }}
-                    className="rounded-2xl border border-border/60 bg-card p-5"
-                  >
-                    <h3 className="font-bold text-sm mb-4 flex items-center gap-2">
-                      <Calendar className="h-4 w-4 text-primary" /> حالة التجديد
-                    </h3>
-                    <div className="flex items-center justify-around gap-3">
-                      <DonutChart
-                        slices={[
-                          { label: "سارية", value: stats.byRenewalStatus.find(r => r.status === "سارية")?.count || 0, color: "#10b981" },
-                          { label: "قريبة", value: stats.byRenewalStatus.find(r => r.status === "قريبة الانتهاء")?.count || 0, color: "#f59e0b" },
-                          { label: "منتهية", value: stats.byRenewalStatus.find(r => r.status === "منتهية")?.count || 0, color: "#ef4444" },
-                          { label: "مجمدة", value: stats.byRenewalStatus.find(r => r.status === "مجمدة")?.count || 0, color: "#64748b" },
-                        ]}
-                        centerValue={stats.total}
-                        centerLabel="منخرط"
-                        size={140}
-                      />
-                      <div className="space-y-2 text-xs">
-                        <LegendItem color="#10b981" label="سارية" value={stats.byRenewalStatus.find(r => r.status === "سارية")?.count || 0} />
-                        <LegendItem color="#f59e0b" label="قريبة الانتهاء" value={stats.byRenewalStatus.find(r => r.status === "قريبة الانتهاء")?.count || 0} />
-                        <LegendItem color="#ef4444" label="منتهية" value={stats.byRenewalStatus.find(r => r.status === "منتهية")?.count || 0} />
-                        <LegendItem color="#64748b" label="مجمدة" value={stats.byRenewalStatus.find(r => r.status === "مجمدة")?.count || 0} />
-                      </div>
-                    </div>
-                  </motion.div>
-
-                  {/* Activity Feed */}
-                  <motion.div
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4, delay: 0.25 }}
-                    className="rounded-2xl border border-border/60 bg-card p-5 lg:col-span-2"
-                  >
-                    <h3 className="font-bold text-sm mb-4 flex items-center gap-2">
-                      <Zap className="h-4 w-4 text-primary" /> آخر النشاطات
-                    </h3>
-                    <div className="space-y-2 max-h-64 overflow-y-auto">
-                      {activities.length === 0 ? (
-                        <p className="text-center text-sm text-muted-foreground py-6">لا توجد نشاطات</p>
-                      ) : (
-                        activities.slice(0, 10).map((a, i) => (
-                          <motion.div
-                            key={a.id}
-                            initial={{ opacity: 0, x: -10 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            transition={{ delay: i * 0.03 }}
-                            className="flex items-start gap-2 p-2 rounded-lg hover:bg-accent/40 transition text-sm"
-                          >
-                            <ActivityIcon type={a.type} />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs text-foreground/90">{a.description}</p>
-                              <p className="text-[10px] text-muted-foreground mt-0.5">
-                                {new Date(a.createdAt).toLocaleString("ar-DZ", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" })}
-                              </p>
-                            </div>
-                          </motion.div>
-                        ))
-                      )}
-                    </div>
-                  </motion.div>
-                </section>
-
-                {/* Subscription types + payment status */}
-                <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <motion.div
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4, delay: 0.3 }}
-                    className="rounded-2xl border border-border/60 bg-card p-5"
-                  >
-                    <h3 className="font-bold text-sm mb-4 flex items-center gap-2">
-                      <Award className="h-4 w-4 text-primary" /> توزيع أنواع الاشتراك
-                    </h3>
-                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                      {stats.bySubscriptionType.map((item) => (
-                        <div key={item.type} className="rounded-xl border border-border/60 p-2.5 text-center hover:shadow-md transition">
-                          <div className="flex items-center justify-center gap-1">
-                            <div className="h-2 w-2 rounded-full" style={{ backgroundColor: SUBSCRIPTION_COLORS_HEX[item.type] }} />
-                            <span className="text-xs font-bold">{item.type === "/" ? "عادي" : item.type}</span>
-                          </div>
-                          <p className="text-xl font-extrabold tabular-nums mt-1">{item.count}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </motion.div>
-
-                  <motion.div
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4, delay: 0.35 }}
-                    className="rounded-2xl border border-border/60 bg-card p-5"
-                  >
-                    <h3 className="font-bold text-sm mb-4 flex items-center gap-2">
-                      <Wallet className="h-4 w-4 text-primary" /> حالات الدفع
-                    </h3>
-                    <ProgressBars
-                      items={stats.byPaymentStatus.map((p) => ({
-                        label: p.status, value: p.count,
-                        color: p.status === "مدفوع" ? "bg-emerald-500"
-                          : p.status === "لم يدفع" ? "bg-rose-500"
-                          : p.status === "تأمين فقط" ? "bg-sky-500" : "bg-amber-500",
-                      }))}
-                      total={stats.total}
-                      delay={0.4}
-                    />
-                  </motion.div>
-                </section>
-
-                {/* Financial detail + blood types */}
-                <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <motion.div
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4, delay: 0.4 }}
-                    className="rounded-2xl border border-border/60 bg-gradient-to-br from-amber-500/5 to-transparent p-5"
-                  >
-                    <h3 className="font-bold text-sm mb-4 flex items-center gap-2">
-                      <TrendingUp className="h-4 w-4 text-amber-600" /> التفصيل المالي — من دفتر القيود
-                    </h3>
-                    {canFin && finSummary ? (
-                    <div className="space-y-3">
-                      <FinanceRow
-                        label="التسجيلات (اشتراك + تجديد)"
-                        count={(finSummary.period.incomeByCategory.subscription?.count || 0) + (finSummary.period.incomeByCategory.renewal?.count || 0)}
-                        total={Math.round((finSummary.balance.incomeByCategory.subscription || 0) + (finSummary.balance.incomeByCategory.renewal || 0))}
-                        color="bg-amber-500"
-                      />
-                      <FinanceRow label="التأمين المحصّل" count={finSummary.period.incomeByCategory.insurance?.count || 0} total={Math.round(finSummary.balance.incomeByCategory.insurance || 0)} color="bg-teal-500" />
-                      <FinanceRow label="حقوق المركب المحصّلة" count={finSummary.period.incomeByCategory.compound?.count || 0} total={Math.round(finSummary.balance.incomeByCategory.compound || 0)} color="bg-sky-500" />
-                      <div className="pt-3 mt-3 border-t border-border/60 space-y-2">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">مداخيل هذا الشهر</span>
-                          <span className="font-bold tabular-nums">{Math.round(finSummary.monthlyComparison.thisMonthIncome).toLocaleString("en-US")} دج</span>
-                        </div>
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">متاح حقيقي (بعد الالتزامات)</span>
-                          <span className="font-bold tabular-nums">{Math.round(finSummary.realAvailable).toLocaleString("en-US")} دج</span>
-                        </div>
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">مستحقات غير محصّلة (منخرطون)</span>
-                          <span className="font-bold tabular-nums">{Math.round(finSummary.receivables.total).toLocaleString("en-US")} دج</span>
-                        </div>
-                      </div>
-                    </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground py-6 text-center">الأرقام المالية متاحة للصلاحيات المالية — من دفتر القيود في المركز المالي</p>
-                    )}
-                  </motion.div>
-
-                  <motion.div
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4, delay: 0.45 }}
-                    className="rounded-2xl border border-border/60 bg-card p-5"
-                  >
-                    <h3 className="font-bold text-sm mb-4 flex items-center gap-2">
-                      <Droplet className="h-4 w-4 text-primary" /> فصائل الدم
-                    </h3>
-                    <div className="grid grid-cols-4 gap-2">
-                      {stats.byBloodType.map((bt) => (
-                        <div key={bt.type} className="rounded-xl border border-border/60 p-2.5 text-center hover:border-rose-500/40 transition-colors">
-                          <div className="flex items-center justify-center gap-1">
-                            <Droplet className="h-3 w-3 text-rose-500" />
-                            <span className="text-xs font-bold">{bt.type}</span>
-                          </div>
-                          <p className="text-xl font-extrabold tabular-nums mt-1">{bt.count}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </motion.div>
-                </section>
-              </>
+              <ExecutiveDashboard
+                sessionUser={sessionUser}
+                finSummary={finSummary}
+                stats={stats}
+                activities={activities}
+                onNavigateTab={handleTabChange}
+                onQuickTx={() => setQuickTxOpen(true)}
+                onRefreshFinancial={() => refreshFinSummary(finPeriod)}
+                finPeriod={finPeriod}
+                onFinPeriodChange={(p) => {
+                  setFinPeriod(p);
+                  refreshFinSummary(p);
+                }}
+              />
             )}
 
             <DashboardExtras />
           </TabsContent>
+        )}
 
           {/* SUBSCRIBERS TAB */}
-          <TabsContent value="subscribers" className="space-y-4 mt-0">
+          {visitedTabs.has("subscribers") && (
+            <TabsContent value="subscribers" forceMount className="space-y-4 mt-0 data-[state=inactive]:hidden">
             <div className="rounded-2xl border border-border/60 bg-card p-4 space-y-3">
               {/* Search bar — always visible */}
               <div className="flex gap-2">
@@ -1147,7 +790,7 @@ export default function Home() {
                   <Input
                     placeholder="ابحث بالاسم، اللقب، رقم الملف، أو الهاتف..."
                     value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    onChange={(e) => { setSearch(e.target.value); setSubscribersPage(1); }}
                     className="pr-10 h-11"
                   />
                 </div>
@@ -1156,7 +799,7 @@ export default function Home() {
                   variant="outline"
                   size="sm"
                   className="h-11 px-3 shrink-0"
-                  onClick={() => { setSortBy("fileNumber"); setSortOrder("asc"); fetchData(); }}
+                  onClick={() => { setSortBy("fileNumber"); setSortOrder("asc"); setSubscribersPage(1); fetchData(); }}
                   title="ترتيب حسب رقم الملف"
                 >
                   <ArrowDownAZ className="h-4 w-4 ml-1" />
@@ -1185,7 +828,7 @@ export default function Home() {
 
               {/* Desktop: inline filters (hidden on mobile) */}
               <div className="hidden sm:flex items-center gap-2 flex-wrap">
-                <Select value={filterPayment || "all"} onValueChange={(v) => setFilterPayment(v === "all" ? "" : v)}>
+                <Select value={filterPayment || "all"} onValueChange={(v) => { setFilterPayment(v === "all" ? "" : v); setSubscribersPage(1); }}>
                   <SelectTrigger className="w-[140px] h-11"><SelectValue placeholder="حالة الدفع" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">الكل</SelectItem>
@@ -1195,7 +838,7 @@ export default function Home() {
                     <SelectItem value="اشتراك 300">اشتراك 300</SelectItem>
                   </SelectContent>
                 </Select>
-                <Select value={filterType || "all"} onValueChange={(v) => setFilterType(v === "all" ? "" : v)}>
+                <Select value={filterType || "all"} onValueChange={(v) => { setFilterType(v === "all" ? "" : v); setSubscribersPage(1); }}>
                   <SelectTrigger className="w-[140px] h-11"><SelectValue placeholder="نوع الاشتراك" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">الكل</SelectItem>
@@ -1206,7 +849,7 @@ export default function Home() {
                     ))}
                   </SelectContent>
                 </Select>
-                <Select value={filterRenewal || "all"} onValueChange={(v) => setFilterRenewal(v === "all" ? "" : v)}>
+                <Select value={filterRenewal || "all"} onValueChange={(v) => { setFilterRenewal(v === "all" ? "" : v); setSubscribersPage(1); }}>
                   <SelectTrigger className="w-[140px] h-11"><SelectValue placeholder="حالة التجديد" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">الكل</SelectItem>
@@ -1216,7 +859,7 @@ export default function Home() {
                     <SelectItem value="مجمدة">مجمدة</SelectItem>
                   </SelectContent>
                 </Select>
-                <Select value={filterAgeCategory || "all"} onValueChange={(v) => setFilterAgeCategory(v === "all" ? "" : v)}>
+                <Select value={filterAgeCategory || "all"} onValueChange={(v) => { setFilterAgeCategory(v === "all" ? "" : v); setSubscribersPage(1); }}>
                   <SelectTrigger className="w-[160px] h-11"><SelectValue placeholder="الفئة العمرية" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">كل الفئات</SelectItem>
@@ -1237,7 +880,7 @@ export default function Home() {
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span className="flex items-center gap-1.5">
                     <Filter className="h-3 w-3" />
-                    {loading ? "جاري التحميل..." : `${visibleSubscribers.length} منخرط`}
+                    {loading ? "جاري التحميل..." : `${visibleSubscribers.length} منخرط ${totalSubscribersPages > 1 ? `(صفحة ${currentSubscribersPage} من ${totalSubscribersPages})` : ""}`}
                   </span>
                   <div className="flex items-center gap-3">
                     {hasFilters && <button onClick={clearFilters} className="text-primary hover:underline">مسح الفلاتر</button>}
@@ -1285,117 +928,148 @@ export default function Home() {
             ) : visibleSubscribers.length === 0 ? (
               <EmptyState onAdd={handleAdd} hasFilters={!!hasFilters} />
             ) : (
-              <motion.div layout className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
-                <AnimatePresence mode="popLayout">
-                  {visibleSubscribers.map((sub, i) => (
-                    <SubscriberCard
-                      key={sub.id}
-                      subscriber={sub}
-                      onEdit={handleEdit}
-                      onDelete={setDeleteTarget}
-                      onShowQR={setQrTarget}
-                      onViewRecord={setRecordTarget}
-                      onPrintPOS={(s) => { setPosSubscriber(s); setPosOpen(true); }}
-                      index={i}
-                      selectionMode={selectionMode}
-                      selected={selectedIds.includes(sub.id)}
-                      onToggleSelect={toggleSelect}
-                    />
-                  ))}
-                </AnimatePresence>
-              </motion.div>
+              <div className="space-y-4">
+                <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
+                  <AnimatePresence mode="popLayout">
+                    {pagedSubscribers.map((sub, i) => (
+                      <SubscriberCard
+                        key={sub.id}
+                        subscriber={sub}
+                        onEdit={handleEdit}
+                        onDelete={setDeleteTarget}
+                        onShowQR={setQrTarget}
+                        onViewRecord={setRecordTarget}
+                        onPrintPOS={(s) => { setPosSubscriber(s); setPosOpen(true); }}
+                        index={i}
+                        selectionMode={selectionMode}
+                        selected={selectedIds.includes(sub.id)}
+                        onToggleSelect={toggleSelect}
+                      />
+                    ))}
+                  </AnimatePresence>
+                </div>
+
+                {/* 🔑 شريط الترقيم السلس للأداء العالي مع 10,000 منخرط */}
+                <DataPagination
+                  currentPage={currentSubscribersPage}
+                  totalPages={totalSubscribersPages}
+                  totalItems={totalFilteredSubscribers}
+                  pageSize={subscribersPageSize}
+                  onPageChange={(p) => {
+                    setSubscribersPage(p);
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  onPageSizeChange={(sz) => {
+                    setSubscribersPageSize(sz);
+                    setSubscribersPage(1);
+                  }}
+                  pageSizeOptions={[24, 48, 96, 192]}
+                  itemLabel="منخرط"
+                />
+              </div>
             )}
           </TabsContent>
+        )}
 
           {/* ATTENDANCE TAB */}
-          <TabsContent value="attendance" className="mt-0">
-            <AttendancePanel subscribers={subscribers} onRefresh={fetchData} />
-          </TabsContent>
+          {visitedTabs.has("attendance") && (
+            <TabsContent value="attendance" forceMount className="mt-0 data-[state=inactive]:hidden">
+              <AttendancePanel subscribers={subscribers} onRefresh={fetchData} />
+            </TabsContent>
+          )}
 
           {/* RENEWALS TAB */}
-          <TabsContent value="renewals" className="space-y-4 mt-0">
-            <WhatsAppReminders />
-            <RenewalPanel subscribers={subscribers} onRefresh={fetchData} />
-          </TabsContent>
+          {visitedTabs.has("renewals") && (
+            <TabsContent value="renewals" forceMount className="space-y-4 mt-0 data-[state=inactive]:hidden">
+              <WhatsAppReminders />
+              <RenewalPanel subscribers={subscribers} onRefresh={fetchData} />
+            </TabsContent>
+          )}
 
           {/* COMPENSATIONS TAB */}
-          <TabsContent value="compensations" className="mt-0">
-            <CompensationsPanel />
-          </TabsContent>
+          {visitedTabs.has("compensations") && (
+            <TabsContent value="compensations" forceMount className="mt-0 data-[state=inactive]:hidden">
+              <CompensationsPanel />
+            </TabsContent>
+          )}
 
-          <TabsContent value="waitlist" className="mt-0">
-            <WaitlistPanel />
-          </TabsContent>
+          {visitedTabs.has("waitlist") && (
+            <TabsContent value="waitlist" forceMount className="mt-0 data-[state=inactive]:hidden">
+              <WaitlistPanel />
+            </TabsContent>
+          )}
 
           {/* INSURANCE TAB */}
-          {hasPermission(sessionUser.role, "subscribers") && (
-            <TabsContent value="insurance" className="mt-0">
+          {hasPermission(sessionUser.role, "subscribers") && visitedTabs.has("insurance") && (
+            <TabsContent value="insurance" forceMount className="mt-0 data-[state=inactive]:hidden">
               <InsurancePanel subscribers={subscribers} onRefresh={fetchData} />
             </TabsContent>
           )}
 
           {/* COMPOUND RIGHTS TAB */}
-          {hasPermission(sessionUser.role, "subscribers") && (
-            <TabsContent value="compound" className="mt-0">
+          {hasPermission(sessionUser.role, "subscribers") && visitedTabs.has("compound") && (
+            <TabsContent value="compound" forceMount className="mt-0 data-[state=inactive]:hidden">
               <CompoundPanel />
             </TabsContent>
           )}
 
           {/* ★ MEMBERS DIRECTORY TAB */}
-          {hasPermission(sessionUser.role, "subscribers") && (
-            <TabsContent value="members-directory" className="mt-0">
+          {hasPermission(sessionUser.role, "subscribers") && visitedTabs.has("members-directory") && (
+            <TabsContent value="members-directory" forceMount className="mt-0 data-[state=inactive]:hidden">
               <MembersDirectoryPanel />
             </TabsContent>
           )}
 
           {/* CATEGORIES TAB */}
-          <TabsContent value="categories" className="space-y-4 mt-0">
-            {loading || !stats ? (
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-48 rounded-2xl" />)}
-              </div>
-            ) : (
-              <>
-                <ResponsiveGrid minCardWidth={140} gap={12}>
-                  <CategoryCard title="ذكور أقل من 13 سنة" count={stats.ageGender.malesUnder13} icon="👦" gradient="from-sky-500/15 to-sky-500/5" border="border-sky-500/30" onClick={() => setSelectedCat({ key: "males_under_13", title: "ذكور أقل من 13 سنة" })} />
-                  <CategoryCard title="إناث أقل من 13 سنة" count={stats.ageGender.femalesUnder13} icon="👧" gradient="from-pink-500/15 to-pink-500/5" border="border-pink-500/30" onClick={() => setSelectedCat({ key: "females_under_13", title: "إناث أقل من 13 سنة" })} />
-                  <CategoryCard title="ذكور 13 سنة فما فوق" count={stats.ageGender.malesOver13} icon="👨" gradient="from-indigo-500/15 to-indigo-500/5" border="border-indigo-500/30" onClick={() => setSelectedCat({ key: "males_13_plus", title: "ذكور 13 سنة فما فوق" })} />
-                  <CategoryCard title="إناث 13 سنة فما فوق" count={stats.ageGender.femalesOver13} icon="👩" gradient="from-fuchsia-500/15 to-fuchsia-500/5" border="border-fuchsia-500/30" onClick={() => setSelectedCat({ key: "females_13_plus", title: "إناث 13 سنة فما فوق" })} />
-                </ResponsiveGrid>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl border border-border/60 bg-card p-5">
-                    <h3 className="font-bold text-sm mb-4 flex items-center gap-2"><Users className="h-4 w-4 text-primary" /> توزيع الجنس</h3>
-                    <div className="flex items-center justify-around gap-4">
-                      <div className="text-center">
-                        <div className="flex items-center justify-center h-16 w-16 rounded-2xl bg-sky-500/15 mx-auto mb-2"><Users className="h-8 w-8 text-sky-600 dark:text-sky-300" /></div>
-                        <p className="text-2xl font-extrabold text-sky-700 dark:text-sky-300">{stats.ageGender.totalMales}</p>
-                        <p className="text-xs text-muted-foreground">ذكور</p>
-                      </div>
-                      <div className="text-center">
-                        <div className="flex items-center justify-center h-16 w-16 rounded-2xl bg-pink-500/15 mx-auto mb-2"><Users className="h-8 w-8 text-pink-600 dark:text-pink-300" /></div>
-                        <p className="text-2xl font-extrabold text-pink-700 dark:text-pink-300">{stats.ageGender.totalFemales}</p>
-                        <p className="text-xs text-muted-foreground">إناث</p>
-                      </div>
-                    </div>
-                    <div className="mt-4 grid grid-cols-2 gap-2">
-                      <div className="rounded-lg bg-muted/40 p-2 text-center">
-                        <p className="text-xs text-muted-foreground">13 سنة فما فوق</p>
-                        <p className="font-bold">{stats.ageGender.adultsOver14}</p>
-                      </div>
-                      <div className="rounded-lg bg-muted/40 p-2 text-center">
-                        <p className="text-xs text-muted-foreground">أقل من 13 سنة</p>
-                        <p className="font-bold">{stats.ageGender.childrenUnder14}</p>
-                      </div>
-                    </div>
-                  </motion.div>
-                  <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="rounded-2xl border border-border/60 bg-card p-5">
-                    <h3 className="font-bold text-sm mb-4 flex items-center gap-2"><Waves className="h-4 w-4 text-primary" /> أيام السباحة</h3>
-                    <ProgressBars items={stats.bySwimmingDays.map((d) => ({ label: d.days, value: d.count, color: "bg-gradient-to-l from-teal-500 to-sky-500" }))} total={Math.max(...stats.bySwimmingDays.map(d => d.count), 1)} />
-                  </motion.div>
+          {visitedTabs.has("categories") && (
+            <TabsContent value="categories" forceMount className="space-y-4 mt-0 data-[state=inactive]:hidden">
+              {loading || !stats ? (
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-48 rounded-2xl" />)}
                 </div>
-              </>
-            )}
-          </TabsContent>
+              ) : (
+                <>
+                  <ResponsiveGrid minCardWidth={140} gap={12}>
+                    <CategoryCard title="ذكور أقل من 13 سنة" count={stats.ageGender.malesUnder13} icon="👦" gradient="from-sky-500/15 to-sky-500/5" border="border-sky-500/30" onClick={() => setSelectedCat({ key: "males_under_13", title: "ذكور أقل من 13 سنة" })} />
+                    <CategoryCard title="إناث أقل من 13 سنة" count={stats.ageGender.femalesUnder13} icon="👧" gradient="from-pink-500/15 to-pink-500/5" border="border-pink-500/30" onClick={() => setSelectedCat({ key: "females_under_13", title: "إناث أقل من 13 سنة" })} />
+                    <CategoryCard title="ذكور 13 سنة فما فوق" count={stats.ageGender.malesOver13} icon="👨" gradient="from-indigo-500/15 to-indigo-500/5" border="border-indigo-500/30" onClick={() => setSelectedCat({ key: "males_13_plus", title: "ذكور 13 سنة فما فوق" })} />
+                    <CategoryCard title="إناث 13 سنة فما فوق" count={stats.ageGender.femalesOver13} icon="👩" gradient="from-fuchsia-500/15 to-fuchsia-500/5" border="border-fuchsia-500/30" onClick={() => setSelectedCat({ key: "females_13_plus", title: "إناث 13 سنة فما فوق" })} />
+                  </ResponsiveGrid>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl border border-border/60 bg-card p-5">
+                      <h3 className="font-bold text-sm mb-4 flex items-center gap-2"><Users className="h-4 w-4 text-primary" /> توزيع الجنس</h3>
+                      <div className="flex items-center justify-around gap-4">
+                        <div className="text-center">
+                          <div className="flex items-center justify-center h-16 w-16 rounded-2xl bg-sky-500/15 mx-auto mb-2"><Users className="h-8 w-8 text-sky-600 dark:text-sky-300" /></div>
+                          <p className="text-2xl font-extrabold text-sky-700 dark:text-sky-300">{stats.ageGender.totalMales}</p>
+                          <p className="text-xs text-muted-foreground">ذكور</p>
+                        </div>
+                        <div className="text-center">
+                          <div className="flex items-center justify-center h-16 w-16 rounded-2xl bg-pink-500/15 mx-auto mb-2"><Users className="h-8 w-8 text-pink-600 dark:text-pink-300" /></div>
+                          <p className="text-2xl font-extrabold text-pink-700 dark:text-pink-300">{stats.ageGender.totalFemales}</p>
+                          <p className="text-xs text-muted-foreground">إناث</p>
+                        </div>
+                      </div>
+                      <div className="mt-4 grid grid-cols-2 gap-2">
+                        <div className="rounded-lg bg-muted/40 p-2 text-center">
+                          <p className="text-xs text-muted-foreground">13 سنة فما فوق</p>
+                          <p className="font-bold">{stats.ageGender.adultsOver14}</p>
+                        </div>
+                        <div className="rounded-lg bg-muted/40 p-2 text-center">
+                          <p className="text-xs text-muted-foreground">أقل من 13 سنة</p>
+                          <p className="font-bold">{stats.ageGender.childrenUnder14}</p>
+                        </div>
+                      </div>
+                    </motion.div>
+                    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="rounded-2xl border border-border/60 bg-card p-5">
+                      <h3 className="font-bold text-sm mb-4 flex items-center gap-2"><Waves className="h-4 w-4 text-primary" /> أيام السباحة</h3>
+                      <ProgressBars items={stats.bySwimmingDays.map((d) => ({ label: d.days, value: d.count, color: "bg-gradient-to-l from-teal-500 to-sky-500" }))} total={Math.max(...stats.bySwimmingDays.map(d => d.count), 1)} />
+                    </motion.div>
+                  </div>
+                </>
+              )}
+            </TabsContent>
+          )}
 
           {/* ★ Modal: قائمة المنخرطين في فئة محددة */}
           {selectedCat && (
@@ -1432,47 +1106,49 @@ export default function Home() {
           )}
 
           {/* EXPORT TAB — مركز التقارير */}
-          <TabsContent value="export" className="mt-0">
-            {openReportId ? (
-              <ReportViewer reportId={openReportId} onBack={() => setOpenReportId(null)} />
-            ) : (
-              <ExportPanel onOpenReport={(id) => { setOpenReportId(id); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
-            )}
-          </TabsContent>
+          {visitedTabs.has("export") && (
+            <TabsContent value="export" forceMount className="mt-0 data-[state=inactive]:hidden">
+              {openReportId ? (
+                <ReportViewer reportId={openReportId} onBack={() => setOpenReportId(null)} />
+              ) : (
+                <ExportPanel onOpenReport={(id) => { setOpenReportId(id); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+              )}
+            </TabsContent>
+          )}
 
           {/* ★ المركز المالي — صفحة تقارير ومعاملات مالية موحّدة بلا تكرار */}
-          {(hasPermission(sessionUser.role, "charges") || hasPermission(sessionUser.role, "financialDashboard") || hasPermission(sessionUser.role, "financialReports")) && (
-            <TabsContent value="financial-hub" className="mt-0">
+          {(hasPermission(sessionUser.role, "charges") || hasPermission(sessionUser.role, "financialDashboard") || hasPermission(sessionUser.role, "financialReports")) && visitedTabs.has("financial-hub") && (
+            <TabsContent value="financial-hub" forceMount className="mt-0 data-[state=inactive]:hidden">
               <FinancialHub role={sessionUser.role} />
             </TabsContent>
           )}
 
           {/* ★ STAFF COMPENSATIONS TAB (financial — admin/assistant/lifeguard) */}
-          {hasPermission(sessionUser.role, "staffCompensations") && (
-            <TabsContent value="staff-compensations" className="mt-0">
+          {hasPermission(sessionUser.role, "staffCompensations") && visitedTabs.has("staff-compensations") && (
+            <TabsContent value="staff-compensations" forceMount className="mt-0 data-[state=inactive]:hidden">
               {/* ★ المحاسب المالي يرى التعويضات لكن لا يضيف/يعدّل (canManage=false) */}
               <StaffCompensationsPanel canManage={hasPermission(sessionUser.role, "staffCompensationsManage")} />
             </TabsContent>
           )}
 
-          {/* ★ تم دمج: لوحة المالية + التقارير + الصندوق وتقرير Z ← المركز المالي */}
-
           {/* CONTRACTS TAB (admin only) */}
-          {isAdmin && (
-            <TabsContent value="contracts" className="mt-0">
+          {isAdmin && visitedTabs.has("contracts") && (
+            <TabsContent value="contracts" forceMount className="mt-0 data-[state=inactive]:hidden">
               <ContractsPanel />
             </TabsContent>
           )}
 
           {/* ANALYTICS TAB */}
-          <TabsContent value="analytics" className="mt-0">
-            <AnalyticsCharts />
-            <AchievementsPanel />
-          </TabsContent>
+          {visitedTabs.has("analytics") && (
+            <TabsContent value="analytics" forceMount className="mt-0 data-[state=inactive]:hidden">
+              <AnalyticsCharts />
+              <AchievementsPanel />
+            </TabsContent>
+          )}
 
           {/* WORK HOURS TAB */}
-          {hasPermission(sessionUser.role, "workHours") && (
-            <TabsContent value="workhours" className="mt-0">
+          {hasPermission(sessionUser.role, "workHours") && visitedTabs.has("workhours") && (
+            <TabsContent value="workhours" forceMount className="mt-0 data-[state=inactive]:hidden">
               {/* ★ المحاسب المالي + المدير = واجهة الإدارة الكاملة (ساعات + أجور) */}
               {/* ★ role يُمرَّر لعرض قسم «أيام وساعات استغلال المسبح» للمدير فقط */}
               {canViewWorkHoursManagement ? <WorkHoursManagement role={sessionUser.role} /> : <PointagePanel />}
@@ -1480,236 +1156,49 @@ export default function Home() {
           )}
 
           {/* POOL SCHEDULE TAB (المرحلة 4) — المصدر الموحّد لجلسات المسبح */}
-          {hasPermission(sessionUser.role, "workHours") && (
-            <TabsContent value="pool-schedule" className="mt-0">
+          {hasPermission(sessionUser.role, "workHours") && visitedTabs.has("pool-schedule") && (
+            <TabsContent value="pool-schedule" forceMount className="mt-0 data-[state=inactive]:hidden">
               <PoolSchedule role={sessionUser.role} />
             </TabsContent>
           )}
 
           {/* CARD DESIGNER PRO TAB (unified — المصمم الوحيد) */}
-          {hasPermission(sessionUser.role, "cards") && (
-            <TabsContent value="cards-pro" className="mt-0">
+          {hasPermission(sessionUser.role, "cards") && visitedTabs.has("cards-pro") && (
+            <TabsContent value="cards-pro" forceMount className="mt-0 data-[state=inactive]:hidden">
               <CardDesignerPro subscribers={subscribers} onBack={() => window.location.href = "/"} />
             </TabsContent>
           )}
 
           {/* IMPORT TAB */}
-          {hasPermission(sessionUser.role, "import") && (
-            <TabsContent value="import" className="mt-0">
+          {hasPermission(sessionUser.role, "import") && visitedTabs.has("import") && (
+            <TabsContent value="import" forceMount className="mt-0 data-[state=inactive]:hidden">
               <ImportPanel />
             </TabsContent>
           )}
 
           {/* USERS TAB (admin only) */}
-          {isAdmin && (
-            <TabsContent value="users" className="mt-0">
+          {isAdmin && visitedTabs.has("users") && (
+            <TabsContent value="users" forceMount className="mt-0 data-[state=inactive]:hidden">
               <UserManagement />
             </TabsContent>
           )}
 
           {/* BACKUP TAB (admin only) */}
-          {isAdmin && (
-            <TabsContent value="backup" className="mt-0">
+          {isAdmin && visitedTabs.has("backup") && (
+            <TabsContent value="backup" forceMount className="mt-0 data-[state=inactive]:hidden">
               <BackupPanel />
             </TabsContent>
           )}
 
           {/* SETTINGS TAB (admin only) */}
-          {isAdmin && (
-            <TabsContent value="settings" className="space-y-4 mt-0">
-              <ThemeSettingsPanel />
+          {isAdmin && visitedTabs.has("settings") && (
+            <TabsContent value="settings" forceMount className="space-y-4 mt-0 data-[state=inactive]:hidden">
               <SettingsPanel />
             </TabsContent>
           )}
         </Tabs>
       </main>
-
-      {/* ====== Mobile navigation Drawer (hamburger menu) ====== */}
-      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
-        <SheetContent side="right" className="w-[280px] sm:w-[320px] p-0">
-          <SheetHeader className="px-4 py-3 border-b bg-gradient-to-l from-teal-600 to-sky-700 text-white">
-            <SheetTitle className="flex items-center justify-between text-base">
-              <span className="flex items-center gap-2">
-                <Menu className="h-5 w-5" /> القائمة الرئيسية
-              </span>
-            </SheetTitle>
-          </SheetHeader>
-          <nav className="p-2 overflow-y-auto h-[calc(100%-56px)]">
-            {/* 🔑 لوحة التحكم: للمدير فقط */}
-            {isAdmin && (
-              <MobileNavItem
-                icon={Activity}
-                label="لوحة التحكم"
-                active={activeTab === "dashboard"}
-                onClick={() => { setActiveTab("dashboard"); setMobileNavOpen(false); }}
-              />
-            )}
-            {hasPermission(sessionUser.role, "subscribers") && (
-              <MobileNavItem
-                icon={Users}
-                label="المنخرطون"
-                badge={stats?.total}
-                active={activeTab === "subscribers"}
-                onClick={() => { setActiveTab("subscribers"); setMobileNavOpen(false); }}
-              />
-            )}
-            <MobileNavItem
-              icon={QrCode}
-              label="الحضور"
-              active={activeTab === "attendance"}
-              onClick={() => { setActiveTab("attendance"); setMobileNavOpen(false); }}
-            />
-            {hasPermission(sessionUser.role, "workHours") && (
-              <MobileNavItem
-                icon={Clock}
-                label="ساعات العمل"
-                active={activeTab === "workhours"}
-                onClick={() => { setActiveTab("workhours"); setMobileNavOpen(false); }}
-              />
-            )}
-            {hasPermission(sessionUser.role, "workHours") && (
-              <MobileNavItem
-                icon={Waves}
-                label="جدول المسبح"
-                active={activeTab === "pool-schedule"}
-                onClick={() => { setActiveTab("pool-schedule"); setMobileNavOpen(false); }}
-              />
-            )}
-            {hasPermission(sessionUser.role, "renewals") && (
-              <MobileNavItem
-                icon={RefreshCcw}
-                label="التجديد"
-                active={activeTab === "renewals"}
-                onClick={() => { setActiveTab("renewals"); setMobileNavOpen(false); }}
-              />
-            )}
-            {hasPermission(sessionUser.role, "renewals") && (
-              <MobileNavItem
-                icon={CalendarOff}
-                label="التعويضات"
-                active={activeTab === "compensations"}
-                onClick={() => { setActiveTab("compensations"); setMobileNavOpen(false); }}
-              />
-            )}
-            {hasPermission(sessionUser.role, "renewals") && (
-              <MobileNavItem
-                icon={ListPlus}
-                label="قائمة الانتظار"
-                active={activeTab === "waitlist"}
-                onClick={() => { setActiveTab("waitlist"); setMobileNavOpen(false); }}
-              />
-            )}
-            {hasPermission(sessionUser.role, "subscribers") && (
-              <MobileNavItem
-                icon={ShieldCheck}
-                label="التأمين"
-                active={activeTab === "insurance"}
-                onClick={() => { setActiveTab("insurance"); setMobileNavOpen(false); }}
-              />
-            )}
-            {/* ★ سجل المنخرطين mobile nav */}
-            {hasPermission(sessionUser.role, "subscribers") && (
-              <MobileNavItem
-                icon={Users}
-                label="سجل المنخرطين"
-                active={activeTab === "members-directory"}
-                onClick={() => { setActiveTab("members-directory"); setMobileNavOpen(false); }}
-              />
-            )}
-            {hasPermission(sessionUser.role, "subscribers") && (
-              <MobileNavItem
-                icon={Crown}
-                label="الفئات"
-                active={activeTab === "categories"}
-                onClick={() => { setActiveTab("categories"); setMobileNavOpen(false); }}
-              />
-            )}
-            {/* 🔑 التحليلات: للمدير فقط */}
-            {isAdmin && (
-              <MobileNavItem
-                icon={TrendingUp}
-                label="التحليلات"
-                active={activeTab === "analytics"}
-                onClick={() => { setActiveTab("analytics"); setMobileNavOpen(false); }}
-              />
-            )}
-            {hasPermission(sessionUser.role, "cards") && (
-              <MobileNavItem
-                icon={Sparkles}
-                label="مصمم البطاقات"
-                active={activeTab === "cards-pro"}
-                onClick={() => { setActiveTab("cards-pro"); setMobileNavOpen(false); }}
-              />
-            )}
-            {hasPermission(sessionUser.role, "import") && (
-              <MobileNavItem
-                icon={Inbox}
-                label="الاستيراد"
-                active={activeTab === "import"}
-                onClick={() => { setActiveTab("import"); setMobileNavOpen(false); }}
-              />
-            )}
-            {hasPermission(sessionUser.role, "export") && (
-              <MobileNavItem
-                icon={Download}
-                label="التصدير"
-                active={activeTab === "export"}
-                onClick={() => { handleTabChange("export"); setMobileNavOpen(false); }}
-              />
-            )}
-            {/* ★ المركز المالي الموحّد mobile nav — بدل 3 عناصر */}
-            {(hasPermission(sessionUser.role, "charges") || hasPermission(sessionUser.role, "financialDashboard") || hasPermission(sessionUser.role, "financialReports")) && (
-              <MobileNavItem
-                icon={Landmark}
-                label="المركز المالي"
-                active={activeTab === "financial-hub"}
-                onClick={() => { handleTabChange("financial-hub"); setMobileNavOpen(false); }}
-              />
-            )}
-            {hasPermission(sessionUser.role, "staffCompensations") && (
-              <MobileNavItem
-                icon={Banknote}
-                label="تعويضات العمال"
-                active={activeTab === "staff-compensations"}
-                onClick={() => { handleTabChange("staff-compensations"); setMobileNavOpen(false); }}
-              />
-            )}
-            {/* ★ تم دمج عناصر المالية في المركز المالي أعلاه */}
-            {isAdmin && (
-              <MobileNavItem
-                icon={FileText}
-                label="عقود العمال"
-                active={activeTab === "contracts"}
-                onClick={() => { handleTabChange("contracts"); setMobileNavOpen(false); }}
-              />
-            )}
-            {isAdmin && (
-              <MobileNavItem
-                icon={UserCog}
-                label="المستخدمون"
-                active={activeTab === "users"}
-                onClick={() => { setActiveTab("users"); setMobileNavOpen(false); }}
-              />
-            )}
-            {isAdmin && (
-              <MobileNavItem
-                icon={Database}
-                label="النسخ الاحتياطي"
-                active={activeTab === "backup"}
-                onClick={() => { setActiveTab("backup"); setMobileNavOpen(false); }}
-              />
-            )}
-            {isAdmin && (
-              <MobileNavItem
-                icon={SettingsIcon}
-                label="الإعدادات"
-                active={activeTab === "settings"}
-                onClick={() => { setActiveTab("settings"); setMobileNavOpen(false); }}
-              />
-            )}
-          </nav>
-        </SheetContent>
-      </Sheet>
+    </div>
 
       {/* ====== Mobile filters Drawer (subscribers tab) ====== */}
       <Sheet open={filtersDrawerOpen} onOpenChange={setFiltersDrawerOpen}>
@@ -1820,6 +1309,15 @@ export default function Home() {
         onClose={() => { setPosOpen(false); setPosSubscriber(null); }}
         subscriber={posSubscriber}
       />
+      <FinancialTransactionDialog
+        open={quickTxOpen}
+        onOpenChange={setQuickTxOpen}
+        currentBalance={finSummary?.balance.balance ?? 0}
+        onSaved={() => {
+          refreshFinSummary();
+          fetchData();
+        }}
+      />
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1860,6 +1358,19 @@ export default function Home() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* نافذة ربط الهاتف بالواي فاي المحلي بدون إنترنت ورمز QR */}
+      <Dialog open={wifiModalOpen} onOpenChange={setWifiModalOpen}>
+        <DialogContent className="max-w-2xl p-4 sm:p-6" dir="rtl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-bold">
+              <Wifi className="h-5 w-5 text-teal-600" />
+              الاتصال المحلي عبر الواي فاي (بدون إنترنت)
+            </DialogTitle>
+          </DialogHeader>
+          <LocalNetworkCard />
+        </DialogContent>
+      </Dialog>
     </div>
     </SubscriptionGate>
   );

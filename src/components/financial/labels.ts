@@ -4,17 +4,22 @@
  */
 
 export const CATEGORY_LABELS: Record<string, string> = {
-  subscription: "اشتراك",
-  renewal: "تجديد",
-  insurance: "تأمين",
+  subscription: "اشتراكات جديدة",
+  renewal: "تجديد الاشتراكات",
+  insurance: "مصاريف التأمين",
   compound: "حقوق المركب",
-  other_income: "مدخول آخر",
-  wages: "أجور عمال",
   compound_rights: "حقوق المركب",
-  maintenance: "صيانة",
-  equipment: "معدات",
-  office_supplies: "لوازم مكتبية",
-  other_expense: "دفعات أخرى",
+  services: "خدمات",
+  other_services: "خدمات أخرى",
+  other_income: "مداخيل أخرى",
+  wages: "أجور العمال",
+  maintenance: "الصيانة",
+  equipment: "المشتريات والمعدات",
+  purchases: "المشتريات",
+  office_supplies: "المصاريف الإدارية واللوازم",
+  administrative: "المصاريف الإدارية",
+  transport: "النقل والتنقل",
+  other_expense: "مصاريف أخرى",
 };
 
 export const PAYMENT_METHOD_LABELS: Record<string, string> = {

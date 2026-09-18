@@ -150,23 +150,45 @@ function ymdToIso(ymd: string): string | null {
 export function SubscriberForm({ open, onOpenChange, initial, onSaved }: SubscriberFormProps) {
   const [form, setForm] = useState<SubscriberFormValues>(emptyForm);
   const { activeTypes: subTypes } = useSubscriptionTypes();
-  // 🔗 الميزة متزامنة مع الإعدادات: الأيام والتوقيتات من قاعدة البيانات (تبويب الإعدادات ← المنخرطون)
-  const { dayNames: swimDayNames, slotLabels: swimSlotLabels } = useSwimConfig();
+  // 🔗 الميزة متزامنة مع الإعدادات: الأيام والتوقيتات والأفواج المزدوجة من قاعدة البيانات
+  const {
+    dayNames: swimDayNames,
+    slotLabels: swimSlotLabels,
+    activeGroups,
+    operatingDays,
+  } = useSwimConfig();
 
-  // 🏊 خيارات أيام السباحة: أزواج مجموعات النادي المشتقة من الأيام المفتوحة في الإعدادات
-  // مثال: الأحد والأربعاء / الإثنين والخميس / الثلاثاء والسبت
-  // الزوج يختفي تلقائياً إن أُغلق أحد يوميه (مثل الجمعة يوم الصيانة والراحة)
+  // 🏊 خيارات أيام السباحة: الأفواج المزدوجة والمخصصة المعتمدة من الإعدادات
+  // الفوج يختفي تلقائياً إن أُغلق أحد أيامه (مثل عطلة وصيانة)
   const dayOptions = useMemo(() => {
-    // تطبيع الهمزات: القاعدة قد تحفظ «الاثنين» والثوابت «الإثنين» — نفس اليوم
-    const norm = (s: string) => s.replace(/[أإآ]/g, "ا").trim();
-    const open = swimDayNames.map(norm);
-    const pairs = SWIMMING_DAYS.filter((p) => {
-      if (p === "كل الأيام") return true;
-      return p.split(" و").every((d) => open.includes(norm(d)));
-    }).map((p) => ({ value: p, label: p }));
-    // أمان: إن لم يطابق أي زوج الأيام المفتوحة (أسماء مخصصة)، اعرض الأيام مفردة
-    return pairs.length > 1 ? pairs : swimDayNames.map((d) => ({ value: d, label: d }));
-  }, [swimDayNames]);
+    if (activeGroups && activeGroups.length > 0) {
+      const valid = activeGroups.filter((g) => {
+        if (g.name === "كل الأيام") return true;
+        if (!g.dayKeys || g.dayKeys.length === 0) return true;
+        return g.dayKeys.every((k) => operatingDays.includes(String(k)));
+      });
+      if (valid.length > 0) {
+        return valid.map((g) => ({
+          value: g.name,
+          label: g.name,
+        }));
+      }
+    }
+    return swimDayNames.map((d) => ({ value: d, label: d }));
+  }, [activeGroups, operatingDays, swimDayNames]);
+
+  // التوقيتات المتاحة: إذا اختار المنخرط فوجاً وله حصص متطابقة مخصصة، نظهرها أولاً
+  const selectedGroup = useMemo(() => {
+    if (!form.swimmingDays || !activeGroups) return null;
+    return activeGroups.find((g) => g.name === form.swimmingDays) || null;
+  }, [form.swimmingDays, activeGroups]);
+
+  const availableSlotOptions = useMemo(() => {
+    if (selectedGroup?.matchingSlots && selectedGroup.matchingSlots.length > 0) {
+      return selectedGroup.matchingSlots.map((t) => ({ value: t, label: t }));
+    }
+    return swimSlotLabels.map((t) => ({ value: t, label: t }));
+  }, [selectedGroup, swimSlotLabels]);
   const [saving, setSaving] = useState(false);
   const isEdit = !!initial?.id;
   // ★ معاينة رقم الملف التالي
@@ -708,23 +730,27 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
             )}
 
             <ChipSelector
-              label="أيام السباحة (مجموعات)"
+              label="أيام السباحة (الأفواج المعتمدة)"
               icon={<Waves className="h-4 w-4" />}
               options={dayOptions}
               value={form.swimmingDays}
               onChange={(v) => setForm({ ...form, swimmingDays: v })}
               columns={2}
-              hint="الزوج يُخفى إذا أُغلق أحد يوميه من الإعدادات"
+              hint="الأفواج المزدوجة المتزامنة لحظياً مع إعدادات النادي"
             />
 
             <ChipSelector
-              label="التوقيت"
+              label="التوقيت المتطابق"
               icon={<Clock className="h-4 w-4" />}
-              options={swimSlotLabels.map((t) => ({ value: t, label: t }))}
+              options={availableSlotOptions}
               value={form.timeSlot}
               onChange={(v) => setForm({ ...form, timeSlot: v })}
               columns={4}
-              hint="أو اكتب توقيتاً مخصصاً"
+              hint={
+                selectedGroup?.matchingSlots?.length
+                  ? `أوقات الحصص المتطابقة المخصصة لـ «${selectedGroup.name}»`
+                  : "أو اكتب توقيتاً مخصصاً"
+              }
             />
             {/* 🔑 حقل توقيت مخصص — يظهر دائماً للسماح بإدخال توقيت غير موجود في القائمة */}
             <Input

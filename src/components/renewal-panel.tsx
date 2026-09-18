@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { motion } from "framer-motion";
+import { DataPagination } from "@/components/ui/data-pagination";
 import {
   RefreshCw,
   Calendar,
@@ -81,8 +82,10 @@ export function RenewalPanel({ subscribers, onRefresh }: RenewalPanelProps) {
     open: false,
     subscriber: null,
   });
-  const [filter, setFilter] = useState<"all" | "expiring" | "expired" | "frozen">("all");
+  const [filter, setFilter] = useState<"all" | "active" | "expiring" | "expired" | "frozen">("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(40);
 
   const fetchRenewals = useCallback(async () => {
     setLoading(true);
@@ -109,7 +112,8 @@ export function RenewalPanel({ subscribers, onRefresh }: RenewalPanelProps) {
 
   const filteredSubs = (() => {
     let result = subscribers;
-    if (filter === "expiring") result = expiringSoon;
+    if (filter === "active") result = active;
+    else if (filter === "expiring") result = expiringSoon;
     else if (filter === "expired") result = expired;
     else if (filter === "frozen") result = frozen;
     // 🔑 فلتر البحث برقم الملف أو الاسم أو اللقب
@@ -124,6 +128,13 @@ export function RenewalPanel({ subscribers, onRefresh }: RenewalPanelProps) {
     }
     return result;
   })();
+
+  const totalPages = Math.max(1, Math.ceil(filteredSubs.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedSubs = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredSubs.slice(start, start + pageSize);
+  }, [filteredSubs, currentPage, pageSize]);
 
   const sendWhatsApp = (sub: SubscriberWithComputed) => {
     if (!sub.phone) {
@@ -159,7 +170,8 @@ export function RenewalPanel({ subscribers, onRefresh }: RenewalPanelProps) {
           label="سارية"
           count={active.length}
           color="emerald"
-          onClick={() => setFilter(filter === "all" ? "all" : "all")}
+          active={filter === "active"}
+          onClick={() => { setFilter(filter === "active" ? "all" : "active"); setPage(1); }}
         />
         <RenewalStat
           icon={Clock}
@@ -167,7 +179,7 @@ export function RenewalPanel({ subscribers, onRefresh }: RenewalPanelProps) {
           count={expiringSoon.length}
           color="amber"
           active={filter === "expiring"}
-          onClick={() => setFilter(filter === "expiring" ? "all" : "expiring")}
+          onClick={() => { setFilter(filter === "expiring" ? "all" : "expiring"); setPage(1); }}
         />
         <RenewalStat
           icon={XCircle}
@@ -175,7 +187,7 @@ export function RenewalPanel({ subscribers, onRefresh }: RenewalPanelProps) {
           count={expired.length}
           color="rose"
           active={filter === "expired"}
-          onClick={() => setFilter(filter === "expired" ? "all" : "expired")}
+          onClick={() => { setFilter(filter === "expired" ? "all" : "expired"); setPage(1); }}
         />
         <RenewalStat
           icon={Snowflake}
@@ -183,29 +195,32 @@ export function RenewalPanel({ subscribers, onRefresh }: RenewalPanelProps) {
           count={frozen.length}
           color="slate"
           active={filter === "frozen"}
-          onClick={() => setFilter(filter === "frozen" ? "all" : "frozen")}
+          onClick={() => { setFilter(filter === "frozen" ? "all" : "frozen"); setPage(1); }}
         />
       </div>
 
       {/* Subscribers needing renewal */}
-      <div className="rounded-2xl border border-border/60 bg-card p-4">
+      <div className="rounded-2xl border border-border/60 bg-card p-4 space-y-3">
         {/* 🔑 بحث برقم الملف أو الاسم */}
-        <div className="mb-3">
+        <div>
           <Input
             placeholder="بحث برقم الملف أو الاسم أو اللقب..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
             className="h-9"
           />
         </div>
-        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div className="flex items-center justify-between flex-wrap gap-2">
           <h3 className="font-bold text-sm flex items-center gap-2">
             <RefreshCw className="h-4 w-4 text-primary" />
-            {filter === "expiring" ? "قريبة الانتهاء (خلال 5 أيام)"
+            {filter === "active" ? "الاشتراكات السارية"
+              : filter === "expiring" ? "قريبة الانتهاء (خلال 5 أيام)"
               : filter === "expired" ? "اشتراكات منتهية"
               : filter === "frozen" ? "اشتراكات مجمدة"
               : "جميع الاشتراكات"}
-            <Badge variant="secondary">{filteredSubs.length}</Badge>
+            <Badge variant="secondary">
+              {filteredSubs.length} {totalPages > 1 && `(صفحة ${currentPage} من ${totalPages})`}
+            </Badge>
           </h3>
           {(filter === "expiring" || filter === "expired") && filteredSubs.length > 0 && (
             <Button size="sm" variant="outline" onClick={() => sendBulkWhatsApp(filteredSubs)}>
@@ -218,7 +233,7 @@ export function RenewalPanel({ subscribers, onRefresh }: RenewalPanelProps) {
           {filteredSubs.length === 0 ? (
             <p className="text-center text-sm text-muted-foreground py-8">لا يوجد منخرطون في هذه الفئة</p>
           ) : (
-            filteredSubs.map((s, i) => (
+            pagedSubs.map((s, i) => (
               <motion.div
                 key={s.id}
                 initial={{ opacity: 0, y: 4 }}
@@ -274,6 +289,18 @@ export function RenewalPanel({ subscribers, onRefresh }: RenewalPanelProps) {
             ))
           )}
         </div>
+
+        {/* 🔑 شريط الترقيم السلس */}
+        <DataPagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={filteredSubs.length}
+          pageSize={pageSize}
+          onPageChange={(p) => setPage(p)}
+          onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+          pageSizeOptions={[20, 40, 80, 160]}
+          itemLabel="منخرط"
+        />
       </div>
 
       {/* Recent renewals history */}

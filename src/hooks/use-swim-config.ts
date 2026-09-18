@@ -15,6 +15,12 @@ import { SWIMMING_DAYS, TIME_SLOTS } from "@/lib/rcs";
  * الثابتة من rcs.ts حتى لا تتعطل الواجهة أبداً.
  */
 
+import {
+  type SwimmingDayGroup,
+  DEFAULT_SWIMMING_GROUPS,
+  parseSwimmingGroups,
+} from "@/lib/swimming-groups";
+
 export interface SwimDayOption {
   id: string;
   name: string;
@@ -39,6 +45,8 @@ export interface SwimSlotOption {
 // ─── Cache على مستوى الوحدة (يُشارك بين كل المكوّنات) ───
 let cachedDays: SwimDayOption[] | null = null;
 let cachedSlots: SwimSlotOption[] | null = null;
+let cachedGroups: SwimmingDayGroup[] | null = null;
+let cachedOperatingDays: string[] | null = null;
 let cacheTimestamp = 0;
 const CACHE_DURATION = 30_000; // 30 ثانية
 let inflight: Promise<void> | null = null;
@@ -51,6 +59,8 @@ const listeners = new Set<Listener>();
 export function invalidateSwimConfig() {
   cachedDays = null;
   cachedSlots = null;
+  cachedGroups = null;
+  cachedOperatingDays = null;
   cacheTimestamp = 0;
   inflight = null;
   for (const l of listeners) {
@@ -80,6 +90,8 @@ async function loadConfig(): Promise<void> {
   if (daysRes?.ok) {
     const d = await daysRes.json().catch(() => null);
     if (d?.days?.length) cachedDays = d.days;
+    if (Array.isArray(d?.groups)) cachedGroups = d.groups;
+    if (Array.isArray(d?.operatingDays)) cachedOperatingDays = d.operatingDays;
   }
   if (slotsRes?.ok) {
     const s = await slotsRes.json().catch(() => null);
@@ -92,13 +104,17 @@ export function useSwimConfig(options?: { immediate?: boolean }) {
   const immediate = options?.immediate !== false;
   const [days, setDays] = useState<SwimDayOption[]>(cachedDays || []);
   const [slots, setSlots] = useState<SwimSlotOption[]>(cachedSlots || []);
+  const [groups, setGroups] = useState<SwimmingDayGroup[]>(cachedGroups || DEFAULT_SWIMMING_GROUPS);
+  const [operatingDays, setOperatingDays] = useState<string[]>(cachedOperatingDays || ["0", "1", "2", "3", "4", "5"]);
   const [loading, setLoading] = useState(!cachedDays);
 
   const refresh = useCallback(async (force = false) => {
     const now = Date.now();
-    if (!force && cachedDays && cachedSlots && now - cacheTimestamp < CACHE_DURATION) {
+    if (!force && cachedDays && cachedSlots && cachedGroups && now - cacheTimestamp < CACHE_DURATION) {
       setDays(cachedDays);
       setSlots(cachedSlots);
+      setGroups(cachedGroups);
+      if (cachedOperatingDays) setOperatingDays(cachedOperatingDays);
       setLoading(false);
       return;
     }
@@ -108,6 +124,8 @@ export function useSwimConfig(options?: { immediate?: boolean }) {
       await inflight;
       setDays(cachedDays || []);
       setSlots(cachedSlots || []);
+      setGroups(cachedGroups || DEFAULT_SWIMMING_GROUPS);
+      if (cachedOperatingDays) setOperatingDays(cachedOperatingDays);
     } finally {
       setLoading(false);
     }
@@ -124,9 +142,25 @@ export function useSwimConfig(options?: { immediate?: boolean }) {
     return () => { listeners.delete(l); };
   }, [refresh]);
 
-  /** أسماء الأيام الفعّالة (fallback ثابت إن كانت القاعدة فارغة) */
+  /** أسماء الأيام الفعّالة */
   const dayNames = days.length ? activeDayNames(days) : [...SWIMMING_DAYS];
   const slotLabels = slots.length ? activeSlotLabels(slots) : [...TIME_SLOTS];
 
-  return { days, slots, dayNames, slotLabels, loading, refresh, invalidate: invalidateSwimConfig };
+  /** الأفواج النشطة فقط */
+  const activeGroups = groups.filter((g) => g.active);
+  const groupNames = activeGroups.map((g) => g.name);
+
+  return {
+    days,
+    slots,
+    groups,
+    activeGroups,
+    groupNames,
+    operatingDays,
+    dayNames,
+    slotLabels,
+    loading,
+    refresh,
+    invalidate: invalidateSwimConfig,
+  };
 }

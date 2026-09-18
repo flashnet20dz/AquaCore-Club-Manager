@@ -5,7 +5,7 @@ import {
   Settings as SettingsIcon, Save, Loader2, Building, Phone, MessageSquare,
   DollarSign, Clock, Users, Plus, Trash2, Type, Calendar, Timer,
   LayoutTemplate, Sparkles, Pencil, FileText, Monitor,
-  RefreshCw, Key, Copy, Eye, EyeOff,
+  RefreshCw, Key, Copy, Eye, EyeOff, SlidersHorizontal, Wifi, Database,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,10 +28,14 @@ import { ThemeSettingsPanel } from "@/components/theme-settings-panel";
 import { useSubscriptionTypes, invalidateSubscriptionTypesCache } from "@/hooks/use-subscription-types";
 import { invalidateSwimConfig } from "@/hooks/use-swim-config";
 import { FeatureSettingsHub } from "@/components/feature-settings-hub";
+import { PageNavigationManager } from "@/components/page-navigation-manager";
+import { SwimmingScheduleHub } from "@/components/swimming-schedule-hub";
+import { LocalNetworkCard } from "@/components/local-network-card";
+import { AdvancedBackupManager } from "@/components/advanced-backup-manager";
 
 export function SettingsPanel({ initialTab }: { initialTab?: string | null }) {
   const [settings, setSettings] = useState<Record<string, string>>({});
-  const [activeSubTab, setActiveSubTab] = useState(initialTab || "appearance");
+  const [activeSubTab, setActiveSubTab] = useState(initialTab || "navigation");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [newSubType, setNewSubType] = useState("");
@@ -90,203 +94,408 @@ export function SettingsPanel({ initialTab }: { initialTab?: string | null }) {
     return <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
 
+  const SETTINGS_SECTIONS = [
+    { id: "navigation", label: "إدارة وترتيب وتسمية الصفحات", icon: SlidersHorizontal, desc: "تسمية الواجهات، ترتيب القوائم، وتخصيص عناوين التصدير", badge: "جديد", color: "text-emerald-500 bg-emerald-500/10" },
+    { id: "appearance", label: "المظهر والهوية البصرية", icon: Sparkles, desc: "السمة، الألوان، الشعار والخطوط", color: "text-purple-500 bg-purple-500/10" },
+    { id: "general", label: "معلومات النادي والعملة", icon: Building, desc: "اسم النادي، الهاتف، العنوان والعملة", color: "text-blue-500 bg-blue-500/10" },
+    { id: "subscribers", label: "المنخرطون والأنواع", icon: Users, desc: "أنواع الاشتراكات، أيام وحصص السباحة", color: "text-teal-500 bg-teal-500/10" },
+    { id: "entete", label: "الترويسة الموحدة (En-tête)", icon: FileText, desc: "ترويسة التقارير والمستندات الرسمية", color: "text-indigo-500 bg-indigo-500/10" },
+    { id: "workhours", label: "ساعات العمل والتسعير", icon: Clock, desc: "تسعير ساعات العمل ومستحقات العمال", color: "text-amber-500 bg-amber-500/10" },
+    { id: "whatsapp", label: "إشعارات WhatsApp", icon: MessageSquare, desc: "قوالب التنبيه والتجديد التلقائي", color: "text-green-500 bg-green-500/10" },
+    { id: "texts", label: "النصوص المخصصة", icon: Type, desc: "نصوص الواجهة، الترويسة والتذييل", color: "text-rose-500 bg-rose-500/10" },
+    { id: "features", label: "إدارة الميزات والوحدات", icon: LayoutTemplate, desc: "تفعيل وتعطيل وحدات المنظومة", color: "text-sky-500 bg-sky-500/10" },
+    { id: "wifi", label: "الشبكة والواي فاي المحلي", icon: Wifi, desc: "ربط الهواتف بدون إنترنت ورمز QR", badge: "مهم", color: "text-emerald-500 bg-emerald-500/10" },
+    { id: "backup", label: "النسخ الاحتياطي والأمان", icon: Database, desc: "النسخ اليدوي والجدولة التلقائية", color: "text-indigo-500 bg-indigo-500/10" },
+    { id: "desktop", label: "سطح المكتب والمزامنة", icon: Monitor, desc: "إعدادات Electron ومفاتيح المزامنة", color: "text-cyan-500 bg-cyan-500/10" },
+  ];
+
+  const currentSection = SETTINGS_SECTIONS.find((s) => s.id === activeSubTab) || SETTINGS_SECTIONS[0];
+
   return (
-    <div className="space-y-4">
-      <div className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5">
-        <h3 className="font-bold text-base mb-1 flex items-center gap-2">
-          <SettingsIcon className="h-5 w-5 text-primary" /> إعدادات النادي
-        </h3>
-        <p className="text-xs text-muted-foreground mb-4">عدّل كل إعدادات النادي — الإعدادات العامة، المنخرطين، ساعات العمل، النصوص</p>
-
-        <Tabs value={activeSubTab} onValueChange={setActiveSubTab} className="w-full">
-          <TabsList className="w-full flex-wrap h-auto">
-            <TabsTrigger value="appearance" className="text-xs flex-1">🎨 المظهر والشعار</TabsTrigger>
-            <TabsTrigger value="general" className="text-xs flex-1">🏢 عامة</TabsTrigger>
-            <TabsTrigger value="subscribers" className="text-xs flex-1">👥 المنخرطون</TabsTrigger>
-            <TabsTrigger value="workhours" className="text-xs flex-1">⏰ ساعات العمل</TabsTrigger>
-            <TabsTrigger value="entete" className="text-xs flex-1">📄 الترويسة الموحدة</TabsTrigger>
-            <TabsTrigger value="texts" className="text-xs flex-1">📝 النصوص</TabsTrigger>
-            <TabsTrigger value="whatsapp" className="text-xs flex-1">💬 WhatsApp</TabsTrigger>
-            <TabsTrigger value="features" className="text-xs flex-1">🧩 الميزات</TabsTrigger>
-            <TabsTrigger value="desktop" className="text-xs flex-1">💻 سطح المكتب</TabsTrigger>
-          </TabsList>
-
-          {/* ════════════ المظهر والشعار (ThemeSettingsPanel) ════════════ */}
-          <TabsContent value="appearance" className="mt-3">
-            <ThemeSettingsPanel />
-          </TabsContent>
-
-          {/* ════════════ العامة ════════════ */}
-          <TabsContent value="general" className="space-y-3 mt-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-sm flex items-center gap-1.5"><Building className="h-3 w-3" /> اسم النادي</Label>
-                <Input value={settings.clubName || ""} onChange={(e) => setSettings({ ...settings, clubName: e.target.value })} className="h-10" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm">العنوان</Label>
-                <Input value={settings.clubAddress || ""} onChange={(e) => setSettings({ ...settings, clubAddress: e.target.value })} className="h-10" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm flex items-center gap-1.5"><Phone className="h-3 w-3" /> هاتف النادي</Label>
-                <Input value={settings.clubPhone || ""} onChange={(e) => setSettings({ ...settings, clubPhone: e.target.value })} className="h-10" dir="ltr" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm flex items-center gap-1.5"><DollarSign className="h-3 w-3" /> العملة</Label>
-                <Input value={settings.currency || "دج"} onChange={(e) => setSettings({ ...settings, currency: e.target.value })} className="h-10" placeholder="دج" />
-              </div>
+    <div className="space-y-6" dir="rtl">
+      {/* Top Command Banner */}
+      <div className="relative overflow-hidden rounded-3xl border border-border/70 bg-gradient-to-l from-primary/10 via-card to-card p-4 sm:p-6 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-2xl bg-primary/15 text-primary flex items-center justify-center shadow-inner shrink-0">
+              <SettingsIcon className="h-5 w-5 sm:h-6 sm:w-6" />
             </div>
-          </TabsContent>
-
-          {/* ════════════ المنخرطون ════════════ */}
-          <TabsContent value="subscribers" className="space-y-4 mt-3">
-            <SubscriptionTypesManager />
-            <SwimmingDaysManager />
-            <SwimmingTimeSlotsManager />
-
-            {/* إعدادات نوع MJ تم حذفها — تُدار الآن بالكامل من جدول أنواع الاشتراك */}
-          </TabsContent>
-
-          {/* ════════════ ساعات العمل ════════════ */}
-          <TabsContent value="workhours" className="space-y-3 mt-3">
-            <div className="rounded-xl border-2 border-teal-500/30 bg-teal-500/5 p-4 space-y-3">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300 flex items-center gap-1.5">
-                <Clock className="h-3 w-3" /> تسعير ساعات العمل
-              </h4>
-              <p className="text-xs text-muted-foreground">يستخدم هذا السعر لحساب مستحقات العمال في تبويب الأعباء والتسديدات.</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-semibold">سعر الساعة (دج)</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={settings.workHourRate || "200"}
-                    onChange={(e) => setSettings({ ...settings, workHourRate: e.target.value })}
-                    className="h-10"
-                    placeholder="200"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-semibold">عملة السعر</Label>
-                  <Input
-                    value={settings.workHourCurrency || "دج"}
-                    onChange={(e) => setSettings({ ...settings, workHourCurrency: e.target.value })}
-                    className="h-10"
-                    placeholder="دج"
-                  />
-                </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-base sm:text-xl font-black text-foreground truncate">مركز التحكم والإعدادات الشاملة</h2>
+                <Badge variant="outline" className="text-xs bg-primary/5 text-primary border-primary/20">
+                  {SETTINGS_SECTIONS.length} أقسام
+                </Badge>
               </div>
-              <div className="rounded-lg bg-card p-2.5 text-xs text-muted-foreground">
-                <strong className="text-foreground">مثال:</strong> إذا كان السعر 200 دج/ساعة وعامل سجل 10 ساعات → مستحقاته = 2,000 دج
-              </div>
-            </div>
-          </TabsContent>
-
-          {/* ════════════ الترويسة الموحدة (EN-TÊTE) ════════════ */}
-          <TabsContent value="entete" className="mt-3">
-            <div className="rounded-2xl border-2 border-primary/30 bg-primary/5 p-3 mb-3">
-              <h4 className="font-bold text-sm flex items-center gap-2 mb-1">
-                <FileText className="h-4 w-4 text-primary" /> الترويسة الموحدة (EN-TÊTE)
-              </h4>
-              <p className="text-xs text-muted-foreground">
-                تُستخدم تلقائياً في جميع التقارير والمطبوعات — قائمة المنخرطين، التأمين، حقوق المركب، التجديدات، الحضور، التقرير المالي وغيرها.
-                أي تعديل هنا ينعكس فوراً على كل التقارير دون الحاجة لتعديل كل تقرير على حدة.
+              <p className="text-xs text-muted-foreground mt-0.5">
+                تخصيص كامل للهوية، الصفحات، أسعار الاشتراكات، ساعات العمل ونظام التقارير
               </p>
             </div>
-            <UnifiedHeaderSettings />
-          </TabsContent>
+          </div>
 
-          {/* ════════════ النصوص ════════════ */}
-          <TabsContent value="texts" className="space-y-3 mt-3">
-            {/* Header text */}
-            <div className="rounded-xl border border-border/60 p-3 space-y-3">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                <LayoutTemplate className="h-3 w-3" /> نص أعلى الموقع (الترويسة)
-              </h4>
-              <p className="text-xs text-muted-foreground">الشعار والألوان تُدار من تبويب «🎨 المظهر والشعار» أول تبويبات هذه الصفحة.</p>
-              <Input
-                value={settings.headerTitle || ""}
-                onChange={(e) => setSettings({ ...settings, headerTitle: e.target.value })}
-                className="h-10"
-                placeholder="نادي RCS للسباحة"
-              />
-              <Input
-                value={settings.headerSubtitle || ""}
-                onChange={(e) => setSettings({ ...settings, headerSubtitle: e.target.value })}
-                className="h-10"
-                placeholder="منظومة إدارة الاشتراكات والسباحة"
-              />
-            </div>
-            <div className="rounded-xl border border-border/60 p-3 space-y-3">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                <LayoutTemplate className="h-3 w-3" /> نص أسفل الموقع (التذييل)
-              </h4>
-              <Input
-                value={settings.footerText || ""}
-                onChange={(e) => setSettings({ ...settings, footerText: e.target.value })}
-                className="h-10"
-                placeholder="نادي RCS — منظومة إدارة الاشتراكات والسباحة"
-              />
-              <Input
-                value={settings.footerNote || ""}
-                onChange={(e) => setSettings({ ...settings, footerNote: e.target.value })}
-                className="h-10"
-                placeholder="المبلغ الإجمالي = رسوم الاشتراك + مصاريف التأمين"
-              />
-            </div>
-          </TabsContent>
-
-          {/* ════════════ WhatsApp ════════════ */}
-          <TabsContent value="whatsapp" className="space-y-3 mt-3">
-            <div className="flex items-center justify-between rounded-xl bg-muted/40 p-3">
-              <div>
-                <p className="text-sm font-semibold">تفعيل إشعارات WhatsApp</p>
-                <p className="text-xs text-muted-foreground">السماح بإرسال تذكيرات التجديد</p>
-              </div>
-              <Switch
-                checked={settings.whatsappEnabled === "true"}
-                onCheckedChange={(c) => setSettings({ ...settings, whatsappEnabled: c ? "true" : "false" })}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-sm">قالب رسالة التذكير</Label>
-              <Textarea
-                value={settings.whatsappTemplate || ""}
-                onChange={(e) => setSettings({ ...settings, whatsappTemplate: e.target.value })}
-                rows={3}
-                placeholder="مرحباً {name}، اشتراكك ينتهي في {date}..."
-              />
-              <p className="text-xs text-muted-foreground">المتغيرات: {`{name}`} (الاسم)، {`{date}`} (تاريخ الانتهاء)</p>
-            </div>
-          </TabsContent>
-
-          {/* ════════════ الميزات (كل ميزة بإعداداتها المتزامنة) ════════════ */}
-          <TabsContent value="features" className="mt-3">
-            <FeatureSettingsHub />
-          </TabsContent>
-
-          {/* ════════════ سطح المكتب (Desktop) ════════════ */}
-          <TabsContent value="desktop" className="mt-3">
-            <div className="rounded-2xl border border-border/60 bg-card p-3 mb-3">
-              <h3 className="font-bold text-sm flex items-center gap-2">
-                <Monitor className="h-4 w-4 text-primary" /> إعدادات تطبيق سطح المكتب
-              </h3>
-              <p className="text-xs text-muted-foreground mt-1">
-                إعدادات خاصة بنسخة Desktop (Electron) — مسار الملفات، النسخ الاحتياطي، الطباعة، الإشعارات، والتشغيل التلقائي.
-              </p>
-            </div>
-            <SyncKeyGenerator />
-            <DesktopSettings />
-          </TabsContent>
-        </Tabs>
-
-        <div className="flex justify-end gap-2 pt-4 border-t mt-4">
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4 ml-1" />}
-            حفظ الإعدادات
-          </Button>
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <Button
+              onClick={handleSave}
+              disabled={saving}
+              className="w-full sm:w-auto gap-2 shadow-md shadow-primary/20 rounded-xl px-5 h-11 font-bold"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              حفظ جميع الإعدادات
+            </Button>
+          </div>
         </div>
       </div>
+
+      {/* Main Settings 2-Column Grid */}
+      <Tabs value={activeSubTab} onValueChange={setActiveSubTab} className="w-full">
+        {/* Mobile quick horizontal selector */}
+        <div className="block lg:hidden mb-4 overflow-x-auto pb-2 scrollbar-none">
+          <div className="flex gap-2 min-w-max">
+            {SETTINGS_SECTIONS.map((sec) => {
+              const Icon = sec.icon;
+              const isActive = activeSubTab === sec.id;
+              return (
+                <button
+                  key={sec.id}
+                  onClick={() => setActiveSubTab(sec.id)}
+                  className={cn(
+                    "flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap",
+                    isActive
+                      ? "bg-primary text-primary-foreground shadow-md"
+                      : "bg-muted/60 text-muted-foreground hover:bg-muted"
+                  )}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  <span>{sec.label}</span>
+                  {sec.badge && (
+                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-500 text-white">
+                      {sec.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* Desktop Left Sidebar Navigation (RTL: right side) */}
+          <div className="hidden lg:block lg:col-span-4 xl:col-span-3 space-y-2 sticky top-4">
+            <div className="p-2 rounded-2xl border border-border/70 bg-card shadow-sm space-y-1.5">
+              <div className="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground/80">
+                أقسام الإعدادات
+              </div>
+              {SETTINGS_SECTIONS.map((sec) => {
+                const Icon = sec.icon;
+                const isActive = activeSubTab === sec.id;
+                return (
+                  <button
+                    key={sec.id}
+                    onClick={() => setActiveSubTab(sec.id)}
+                    className={cn(
+                      "w-full text-right flex items-center justify-between gap-3 p-3 rounded-xl text-xs font-bold transition-all group",
+                      isActive
+                        ? "bg-primary text-primary-foreground shadow-md shadow-primary/20 scale-[1.01]"
+                        : "hover:bg-muted/70 text-foreground"
+                    )}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div
+                        className={cn(
+                          "h-8 w-8 rounded-lg flex items-center justify-center transition-colors shrink-0",
+                          isActive
+                            ? "bg-primary-foreground/20 text-primary-foreground"
+                            : sec.color
+                        )}
+                      >
+                        <Icon className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0 text-right">
+                        <div className="truncate font-bold leading-tight">{sec.label}</div>
+                        <div
+                          className={cn(
+                            "text-[10px] truncate mt-0.5 font-normal",
+                            isActive ? "text-primary-foreground/80" : "text-muted-foreground"
+                          )}
+                        >
+                          {sec.desc}
+                        </div>
+                      </div>
+                    </div>
+                    {sec.badge && (
+                      <span
+                        className={cn(
+                          "text-[10px] px-1.5 py-0.5 rounded-full font-bold shrink-0",
+                          isActive
+                            ? "bg-primary-foreground text-primary"
+                            : "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+                        )}
+                      >
+                        {sec.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Right Main Content Pane (RTL: left side) */}
+          <div className="lg:col-span-8 xl:col-span-9">
+            <div className="rounded-3xl border border-border/70 bg-card p-5 sm:p-7 shadow-sm">
+              {/* Section Header */}
+              <div className="flex items-center justify-between pb-5 mb-6 border-b border-border/60">
+                <div className="flex items-center gap-3">
+                  <div className={cn("h-10 w-10 rounded-xl flex items-center justify-center", currentSection.color)}>
+                    {(() => {
+                      const Icon = currentSection.icon;
+                      return <Icon className="h-5 w-5" />;
+                    })()}
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-base text-foreground flex items-center gap-2">
+                      {currentSection.label}
+                      {currentSection.badge && (
+                        <Badge className="bg-emerald-500 text-white text-[10px] py-0 px-2">
+                          {currentSection.badge}
+                        </Badge>
+                      )}
+                    </h3>
+                    <p className="text-xs text-muted-foreground">{currentSection.desc}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* ════════════ 0. إدارة وترتيب الصفحات (جديد) ════════════ */}
+              <TabsContent value="navigation" className="m-0 focus-visible:outline-none">
+                <PageNavigationManager />
+              </TabsContent>
+
+              {/* ════════════ 1. المظهر والشعار (ThemeSettingsPanel) ════════════ */}
+              <TabsContent value="appearance" className="m-0 focus-visible:outline-none">
+                <ThemeSettingsPanel />
+              </TabsContent>
+
+              {/* ════════════ 2. العامة ════════════ */}
+              <TabsContent value="general" className="m-0 space-y-4 focus-visible:outline-none">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-semibold flex items-center gap-1.5">
+                      <Building className="h-4 w-4 text-primary" /> اسم النادي
+                    </Label>
+                    <Input
+                      value={settings.clubName || ""}
+                      onChange={(e) => setSettings({ ...settings, clubName: e.target.value })}
+                      className="h-11 rounded-xl"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-semibold">العنوان والمقر</Label>
+                    <Input
+                      value={settings.clubAddress || ""}
+                      onChange={(e) => setSettings({ ...settings, clubAddress: e.target.value })}
+                      className="h-11 rounded-xl"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-semibold flex items-center gap-1.5">
+                      <Phone className="h-4 w-4 text-primary" /> هاتف النادي
+                    </Label>
+                    <Input
+                      value={settings.clubPhone || ""}
+                      onChange={(e) => setSettings({ ...settings, clubPhone: e.target.value })}
+                      className="h-11 rounded-xl"
+                      dir="ltr"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-semibold flex items-center gap-1.5">
+                      <DollarSign className="h-4 w-4 text-primary" /> العملة المعتمدة
+                    </Label>
+                    <Input
+                      value={settings.currency || "دج"}
+                      onChange={(e) => setSettings({ ...settings, currency: e.target.value })}
+                      className="h-11 rounded-xl"
+                      placeholder="دج"
+                    />
+                  </div>
+                </div>
+              </TabsContent>
+
+              {/* ════════════ 3. المنخرطون ════════════ */}
+              <TabsContent value="subscribers" className="m-0 space-y-6 focus-visible:outline-none">
+                <SubscriptionTypesManager />
+                <SwimmingScheduleHub />
+                <SwimmingTimeSlotsManager />
+              </TabsContent>
+
+              {/* ════════════ 4. الترويسة الموحدة (EN-TÊTE) ════════════ */}
+              <TabsContent value="entete" className="m-0 space-y-4 focus-visible:outline-none">
+                <div className="rounded-2xl border-2 border-primary/20 bg-primary/5 p-4">
+                  <h4 className="font-bold text-sm flex items-center gap-2 mb-1 text-primary">
+                    <FileText className="h-4 w-4" /> الترويسة الموحدة (EN-TÊTE) للمستندات والتقارير
+                  </h4>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    تُستخدم تلقائياً في جميع التقارير والمطبوعات — قائمة المنخرطين، التأمين، حقوق المركب، التجديدات، الحضور، التقرير المالي وغيرها.
+                    أي تعديل هنا ينعكس فوراً على كل التقارير دون الحاجة لتعديل كل تقرير على حدة.
+                  </p>
+                </div>
+                <UnifiedHeaderSettings />
+              </TabsContent>
+
+              {/* ════════════ 5. ساعات العمل ════════════ */}
+              <TabsContent value="workhours" className="m-0 space-y-4 focus-visible:outline-none">
+                <div className="rounded-2xl border-2 border-amber-500/20 bg-amber-500/5 p-5 space-y-4">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                    <Clock className="h-4 w-4" /> تسعير ساعات العمل ومستحقات العمال
+                  </h4>
+                  <p className="text-xs text-muted-foreground">
+                    يستخدم هذا السعر لحساب مستحقات العمال والمدربين تلقائياً في تبويب الأعباء والتسديدات.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-semibold">سعر الساعة (دج)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={settings.workHourRate || "200"}
+                        onChange={(e) => setSettings({ ...settings, workHourRate: e.target.value })}
+                        className="h-11 rounded-xl"
+                        placeholder="200"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-semibold">عملة السعر</Label>
+                      <Input
+                        value={settings.workHourCurrency || "دج"}
+                        onChange={(e) => setSettings({ ...settings, workHourCurrency: e.target.value })}
+                        className="h-11 rounded-xl"
+                        placeholder="دج"
+                      />
+                    </div>
+                  </div>
+                  <div className="rounded-xl bg-card p-3 text-xs text-muted-foreground border border-border/50">
+                    <strong className="text-foreground">مثال توضيحي:</strong> إذا كان السعر 200 دج/ساعة وعامل سجل 10 ساعات ← مستحقاته = 2,000 دج
+                  </div>
+                </div>
+              </TabsContent>
+
+              {/* ════════════ 6. WhatsApp ════════════ */}
+              <TabsContent value="whatsapp" className="m-0 space-y-4 focus-visible:outline-none">
+                <div className="flex items-center justify-between rounded-2xl bg-muted/40 border border-border/60 p-4">
+                  <div>
+                    <p className="text-sm font-bold text-foreground">تفعيل إشعارات WhatsApp</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">السماح بإرسال تذكيرات التجديد والتنبيهات المباشرة</p>
+                  </div>
+                  <Switch
+                    checked={settings.whatsappEnabled === "true"}
+                    onCheckedChange={(c) => setSettings({ ...settings, whatsappEnabled: c ? "true" : "false" })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold">قالب رسالة التذكير بالتجديد</Label>
+                  <Textarea
+                    value={settings.whatsappTemplate || ""}
+                    onChange={(e) => setSettings({ ...settings, whatsappTemplate: e.target.value })}
+                    rows={4}
+                    className="rounded-xl font-mono text-sm leading-relaxed"
+                    placeholder="مرحباً {name}، اشتراكك ينتهي في {date}..."
+                  />
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>المتغيرات المدعومة:</span>
+                    <Badge variant="secondary" className="font-mono text-[10px]">{`{name}`}</Badge>
+                    <Badge variant="secondary" className="font-mono text-[10px]">{`{date}`}</Badge>
+                  </div>
+                </div>
+              </TabsContent>
+
+              {/* ════════════ 7. النصوص ════════════ */}
+              <TabsContent value="texts" className="m-0 space-y-4 focus-visible:outline-none">
+                <div className="rounded-2xl border border-border/60 p-4 space-y-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <LayoutTemplate className="h-3.5 w-3.5 text-primary" /> نص أعلى الموقع (الترويسة)
+                  </h4>
+                  <p className="text-xs text-muted-foreground">الشعار والألوان تُدار من تبويب «المظهر والهوية البصرية».</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Input
+                      value={settings.headerTitle || ""}
+                      onChange={(e) => setSettings({ ...settings, headerTitle: e.target.value })}
+                      className="h-11 rounded-xl"
+                      placeholder="العنوان الرئيسي (مثال: نادي AquaCore)"
+                    />
+                    <Input
+                      value={settings.headerSubtitle || ""}
+                      onChange={(e) => setSettings({ ...settings, headerSubtitle: e.target.value })}
+                      className="h-11 rounded-xl"
+                      placeholder="العنوان الفرعي (مثال: منظومة إدارة الاشتراكات)"
+                    />
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-border/60 p-4 space-y-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <LayoutTemplate className="h-3.5 w-3.5 text-primary" /> نص أسفل الموقع (التذييل)
+                  </h4>
+                  <div className="space-y-3">
+                    <Input
+                      value={settings.footerText || ""}
+                      onChange={(e) => setSettings({ ...settings, footerText: e.target.value })}
+                      className="h-11 rounded-xl"
+                      placeholder="نص حقوق المنظومة في الأسفل"
+                    />
+                    <Input
+                      value={settings.footerNote || ""}
+                      onChange={(e) => setSettings({ ...settings, footerNote: e.target.value })}
+                      className="h-11 rounded-xl"
+                      placeholder="ملاحظة الحسابات الإجمالية"
+                    />
+                  </div>
+                </div>
+              </TabsContent>
+
+              {/* ════════════ 8. الميزات (كل ميزة بإعداداتها المتزامنة) ════════════ */}
+              <TabsContent value="features" className="m-0 focus-visible:outline-none">
+                <FeatureSettingsHub />
+              </TabsContent>
+
+              {/* ════════════ 9. سطح المكتب (Desktop) ════════════ */}
+              <TabsContent value="desktop" className="m-0 space-y-4 focus-visible:outline-none">
+                <div className="rounded-2xl border border-border/60 bg-card p-4">
+                  <h3 className="font-bold text-sm flex items-center gap-2">
+                    <Monitor className="h-4 w-4 text-primary" /> إعدادات تطبيق سطح المكتب
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    إعدادات خاصة بنسخة Desktop (Electron) — مسار الملفات، النسخ الاحتياطي، الطباعة، الإشعارات، والتشغيل التلقائي.
+                  </p>
+                </div>
+                <SyncKeyGenerator />
+                <DesktopSettings />
+              </TabsContent>
+
+              {/* ════════════ 10. الشبكة والواي فاي المحلي ════════════ */}
+              <TabsContent value="wifi" className="m-0 focus-visible:outline-none">
+                <LocalNetworkCard />
+              </TabsContent>
+
+              {/* ════════════ 11. النسخ الاحتياطي والأمان ════════════ */}
+              <TabsContent value="backup" className="m-0 focus-visible:outline-none">
+                <AdvancedBackupManager />
+              </TabsContent>
+
+              {/* Bottom Sticky-like Save Bar */}
+              <div className="flex items-center justify-between gap-3 pt-6 mt-8 border-t border-border/60">
+                <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-primary" />
+                  <span>يتم تطبيق التغييرات فور الحفظ</span>
+                </div>
+                <Button onClick={handleSave} disabled={saving} className="gap-2 rounded-xl px-6 h-10 font-bold">
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  حفظ التغييرات
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Tabs>
     </div>
   );
 }
@@ -484,107 +693,9 @@ function SubscriptionTypesManager() {
   );
 }
 
-// ════════════ Swimming Days Manager ════════════
-interface SwimDay { id: string; name: string; shortName: string; color: string; active: boolean; sortOrder: number; }
+// ════════════ Swimming Days Manager (مستبدل بالمركز الموحد SwimmingScheduleHub) ════════════
+const SwimmingDaysManager = SwimmingScheduleHub;
 
-function SwimmingDaysManager() {
-  const [days, setDays] = useState<SwimDay[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<SwimDay | null>(null);
-  const [form, setForm] = useState({ name: "", shortName: "", color: "#0d9488", active: true, sortOrder: 0 });
-
-  const fetchDays = useCallback(() => {
-    setLoading(true);
-    globalThis.fetch("/api/swimming-days").then(r => r.json()).then(d => setDays(d.days || [])).finally(() => setLoading(false));
-  }, []);
-
-  // الجلب الأولي — كل setState داخل callbacks (متوافق مع قواعد React hooks)
-  useEffect(() => {
-    let cancelled = false;
-    globalThis.fetch("/api/swimming-days")
-      .then(r => r.json())
-      .then(d => { if (!cancelled) setDays(d.days || []); })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, []);
-
-  // 🔗 إبطال كاش الميزات — النماذج (منخرط/انتظار/تعويضات) تلتقط التعديل فوراً
-  const syncMutate = async () => { invalidateSwimConfig(); };
-
-  const handleSave = async () => {
-    if (!form.name) { toast.error("الاسم مطلوب"); return; }
-    const url = editing ? `/api/swimming-days/${editing.id}` : "/api/swimming-days";
-    const method = editing ? "PATCH" : "POST";
-    await globalThis.fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
-    toast.success(editing ? "تم التحديث" : "تمت الإضافة");
-    setDialogOpen(false); syncMutate(); fetchDays();
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!confirm("تعطيل هذا اليوم؟ سيُخفى من النماذج والقوائم لكن السجل يبقى محفوظاً ويمكن إعادة تفعيله بإنشاء يوم بنفس الاسم.")) return;
-    await globalThis.fetch(`/api/swimming-days/${id}`, { method: "DELETE" });
-    toast.success("تم تعطيل اليوم — السجل محفوظ"); syncMutate(); fetchDays();
-  };
-
-  const restoreDefaults = async () => {
-    const res = await globalThis.fetch("/api/swimming-days", { method: "PUT" });
-    if (res.ok) { toast.success("تمت استعادة الأيام والتوقيتات الافتراضية"); syncMutate(); fetchDays(); }
-    else toast.error("تعذّرت الاستعادة");
-  };
-
-  return (
-    <div className="rounded-xl border border-border/60 p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2"><Calendar className="h-4 w-4 text-primary" /><h4 className="font-bold text-sm">أيام السباحة</h4><Badge variant="secondary" className="text-[10px]">{days.length}</Badge></div>
-        <div className="flex gap-1.5">
-          {!loading && days.length === 0 && (
-            <Button size="sm" variant="outline" onClick={restoreDefaults}><RefreshCw className="h-3.5 w-3.5 ml-1" /> استعادة الافتراضي</Button>
-          )}
-          <Button size="sm" onClick={() => { setEditing(null); setForm({ name: "", shortName: "", color: "#0d9488", active: true, sortOrder: days.length }); setDialogOpen(true); }}><Plus className="h-4 w-4 ml-1" /> إضافة</Button>
-        </div>
-      </div>
-      <p className="text-[11px] text-muted-foreground">
-        🔗 هذه الأيام تستخدمها تلقائياً: نموذج المنخرط، قائمة الانتظار، التعويضات، جدول الحضور والتحليلات — أي تعديل هنا ينعكس عليها فوراً.
-      </p>
-      {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : days.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
-          لا توجد أيام سباحة بعد — أضف يوماً أو اضغط «استعادة الافتراضي».
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead><tr className="text-right border-b"><th className="p-1.5">الاسم</th><th className="p-1.5">الرمز</th><th className="p-1.5">اللون</th><th className="p-1.5">الترقيم</th><th className="p-1.5">فعال</th><th className="p-1.5">ترتيب</th><th className="p-1.5"></th></tr></thead>
-            <tbody>{days.map(d => (
-              <tr key={d.id} className="border-b hover:bg-accent/30">
-                <td className="p-1.5 font-semibold">{d.name}</td><td className="p-1.5">{d.shortName}</td>
-                <td className="p-1.5"><div className="h-4 w-4 rounded" style={{ backgroundColor: d.color }} /></td>
-                <td className="p-1.5">{d.active ? "✅" : "❌"}</td><td className="p-1.5 tabular-nums">{d.sortOrder}</td>
-                <td className="p-1.5"><div className="flex gap-0.5">
-                  <button onClick={() => { setEditing(d); setForm(d); setDialogOpen(true); }} className="p-1 hover:bg-accent rounded text-primary"><Pencil className="h-3 w-3" /></button>
-                  <button onClick={() => handleDelete(d.id)} className="p-1 hover:bg-rose-500/10 rounded text-rose-500"><Trash2 className="h-3 w-3" /></button>
-                </div></td>
-              </tr>
-            ))}</tbody>
-          </table>
-        </div>
-      )}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>{editing ? "تعديل يوم سباحة" : "إضافة يوم سباحة"}</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div><Label className="text-xs">الاسم *</Label><Input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="h-9" placeholder="الأحد والأربعاء" /></div>
-            <div><Label className="text-xs">الاختصار</Label><Input value={form.shortName} onChange={e => setForm({...form, shortName: e.target.value})} className="h-9" placeholder="أح+أر" /></div>
-            <div><Label className="text-xs">اللون</Label><div className="flex gap-2"><Input type="color" value={form.color} onChange={e => setForm({...form, color: e.target.value})} className="h-9 w-12 p-1" /><Input value={form.color} onChange={e => setForm({...form, color: e.target.value})} className="h-9 font-mono text-xs" dir="ltr" /></div></div>
-            <div className="flex items-center justify-between rounded-lg bg-muted/40 p-2"><Label className="text-xs">فعال</Label><Switch checked={form.active} onCheckedChange={c => setForm({...form, active: c})} /></div>
-          </div>
-          <DialogFooter><Button variant="outline" onClick={() => setDialogOpen(false)}>إلغاء</Button><Button onClick={handleSave}>{editing ? "حفظ" : "إضافة"}</Button></DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
 
 // ════════════ Swimming Time Slots Manager ════════════
 interface SwimSlot { id: string; name: string; startTime: string; endTime: string; maxCapacity: number; active: boolean; sortOrder: number; }

@@ -28,13 +28,16 @@ export async function GET(req: NextRequest) {
     const gender = url.searchParams.get("gender") || "";
     const renewalStatus = url.searchParams.get("renewalStatus") || "";
 
-    // 🔑 تحميل كل المنخرطين افتراضياً (not just 100)
+    // 🔑 حد افتراضي ذكي: 48 بطاقة في الصفحة (مع السماح بطلب أكثر للتصدير)
     const page = Math.max(1, parseInt(url.searchParams.get("page") || "1"));
     const limitParam = url.searchParams.get("limit");
-    const limit = limitParam ? Math.min(10000, Math.max(1, parseInt(limitParam))) : 10000;
+    const limit = limitParam ? Math.min(10000, Math.max(1, parseInt(limitParam))) : 48;
     const skip = (page - 1) * limit;
 
-    const where: Record<string, unknown> = currentUser.role === "superadmin" ? {} : { clubId: currentUser.clubId };
+    const where: Record<string, unknown> = currentUser.role === "superadmin"
+      ? { deletedAt: null }
+      : { clubId: currentUser.clubId, deletedAt: null };
+
     if (search) {
       where.OR = [
         { lastName: { contains: search } },
@@ -46,6 +49,9 @@ export async function GET(req: NextRequest) {
     if (paymentStatus) where.paymentStatus = paymentStatus;
     if (subscriptionType) where.subscriptionType = subscriptionType;
     if (gender) where.gender = gender;
+    if (renewalStatus === "معفى") {
+      where.isExempt = true;
+    }
 
     // 🔑 الترتيب الافتراضي حسب رقم الملف (تصاعدي) — خاصية دائمة
     const sortBy = url.searchParams.get("sortBy") || "fileNumber";
