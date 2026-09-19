@@ -1037,3 +1037,21 @@ Stage Summary:
 - ✅ 73 commit رُفعت بلا فقد أي سطر من أي طرف — التحقق الآلي بالاحتواء لكل ملف متضارب.
 - ⚠️ Vercel سينشر 65ea54e تلقائياً — مطلوب فحص دخاني للإنتاج (لاحظ: 33b3b13 نفسه رُفع على GitHub في 18:42 وقد كُسر schema فيه → إن نجح نشره كان الإنتاج قد انكسر مؤقتاً؛ نشرنا الحالي يصلح الجذر).
 - الملفات المعدلة الجوهرية: prisma/schema.prisma (datasource جراحي)، src/components/work-hours-management.tsx (دمج يدوي)، scripts/workhours-cancel-totals-test.mjs (متانة)، worklog.md (union) — والبقية 83 ملف دمج آلي موثق.
+---
+Task ID: production-deploy-merged-ae2da13
+Agent: main
+Task: نشر الدمج على الإنتاج (Vercel auto-deploy) + فحص دخاني شامل
+
+Work Log:
+- بعد أول push (65ea54e): prod-login استمر 500 ×10 محاولات (~7 دقائق) → استُبعد زمن البناء واتُهم فشل البناء نفسه.
+- الجذر: npx tsc --noEmit على شجرة الدمج كشف خطأين TS2307 في examples/websocket (socket.io غير مثبت — مجلد تجريبي أضافه commit محلي اليوم). tsconfig كان يشمله عبر "**/*.ts" → فحص الأنواع في next build يفشل على Vercel → النشر القديم المكسور أصلاً (33b3b13 رفع schema sqlite — نفس خطأ bc578f8) بقي حياً يخدم 500.
+- الإصلاح ae2da13: استثناء examples + mini-services من tsconfig → tsc صفر أخطاء → push → Vercel بنى وأنشر بنجاح.
+- دخان الإنتاج (aladine-pool-manager.vercel.app): home 200 + login صفحة 200 + POST /api/auth/login 200 (أهم فحص — يثبت صحة datasource postgres+directUrl) + auth/me 200 + network-info 200 (ميزات 33b3b13 حية) + workhours/stats/users 200. استجابات 400/403 على financial/* وswimming-days وwages = التصرف الرشيق المعمول به لsuper-admin بلا سياق نادي (موثق سلفاً) — ليست أعطالاً؛ صفر 500 في كل الفحوص.
+- تحقق متصفح كامل للإنتاج (agent-browser): دخول admin@rcs.dz → لوحة السوبر-أدمن تُحمَّل ببيانات حقيقية (نشاطان، نوادٍ نشطة: الفوق/البركة، تنبيهات اشتراكات 7/30 يوم) + صفحة الدخول RTL كاملة بالميزات.
+- تحقق متصفح محلي قبل الرفع: الشريط الجانبي الجديد (33b3b13) + جدول المسبح 13 حصة + تبويب ساعات العمل → إنشاء سجل → زر «حذف نهائي» → حوار الحذف المدمج (DialogDescription + بيانات + تحذير + سبب إلزامي + زر معطل حتى الإدخال) → حذف 200 + اختفاء من القائمة + toast — الميزتان تعملان معاً في الشجرة الموحدة.
+- البيئة المحلية بعد الدمج: خادم حي عبر .zscripts/dev.sh، انقلاب sqlite محمي skip-worktree، عاملو اختبار مزروعون (worker1/worker2@test.dz).
+
+Stage Summary:
+- ✅ الإنتاج ae2da13 حي وسليم: postgres datasource صحيح، صفر 500، السوبر-أدمن يرى نواديه الحقيقية.
+- ✅ الدرس: أي commit محلي يضيف ملفات خارج src (examples/scripts تجريبية) قد يفشل بناء Vercel عبر tsconfig "**/*.ts" — الحل الدائم: الاستثناءات في tsconfig.
+- ✅ سلسلة الرفع الكاملة: 25bd7f2 (دمج ثنائي الأبوين) → 65ea54e (متانة اختبار) → 290197a (worklog) → ae2da13 (إصلاح بناء) — كلها على GitHub والإنتاج.
