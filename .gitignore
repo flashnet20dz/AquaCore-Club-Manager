@@ -60,6 +60,7 @@ server.log
 # Temporary
 /tmp/
 scripts/*.png
+*.zip
 
 # OS
 Thumbs.db
