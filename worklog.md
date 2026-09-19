@@ -1012,3 +1012,28 @@ Stage Summary:
 - ⚠️ صادق ومهم: بيانات بيئة الاختبار المحلية القديمة (منخرطون/ساعات/مدفوعات التجارب السابقة) كانت في ملف DB المفقود — غير قابلة للاستعادة محلياً. إنتاج PostgreSQL (Neon) منفصل ولم يُمس إطلاقاً.
 - الدرسان المحفوظان: (1) كتلة datasource جراحية فقط — sqlite محلياً / postgres للإنتاج. (2) إعادة تشغيل الخادم تمر حصراً عبر .zscripts/dev.sh.
 - الملفات: prisma/schema.prisma (كتلة datasource فقط)، scripts/recover-admin.mjs (جديد).
+---
+Task ID: github-push-merge-lineages
+Agent: main
+Task: «ارفع على github» — رفع كل العمل المتراكم إلى GitHub (fastnet20dz/AquaCore-Club-Manager) مع دمج التاريخين المتباعدين
+
+Work Log:
+- الاكتشاف المحوري: origin/main البعيد (33b3b13، اليوم 19:42+0100) يحتوي lineage مستودع الإنتاج الكامل (4bfaeed→fc53f0c→a196fed→f7e7e98) + commit ضخم جديد «financial analytics + schedule hub + advanced backup + local network support» (28 ملف src جديداً كلياً: financial/analytics, swimming-schedule-hub, advanced-backup-manager, app-sidebar, executive-dashboard, page-navigation-manager, local-network-card...) غير موجود محلياً — والمحلي يحتوي 23 commit (أحدثها ميزة الحذف عند الخطأ) غير موجودة بعيداً. التاريخان تباعدان منذ f94e3bb مع 91 تعارضاً فعلياً.
+- ★ قاعدة الذهبة المطبّقة: merge حقيقي بأبوين — ممنوع force push (سيقتل ميزات الإنتاج الجديدة) وممنوع الاكتفاء بدمج worklog.
+- تصنيف آلي للتعارضات الـ91: قياس احتواء سطور «الإضافات المحلية» في نسخة البعيد لكل ملف → جدول قرار.
+- الحل: 83 ملفاً بنسخة البعيد (0-diff متطابقة + احتواء 100% + إعادة تنفيذ مؤكدة للمنطق المحلي: labels أغنى، swimming-days فيها البذر/الاستعادة/الأرشفة، subscriber-form تستخدم useSwimConfig، bulk فيها runTx+الحمايات) + ميزة الحذف المحلية أُبقيت (workhours/[id]/route.ts — superset منطقي يحل محل حذف-المسودات-القديم البعيد) + work-hours-management.tsx دمج يدوي جراحي (أساس 33b3b13: منتقي عمال متعدد + ratesDraft + DialogDescription، ثم إعادة زرع ميزة الحذف كاملة: الحالة + openDeleteDialog/handleDeleteConfirm + زر لكل الحالات + حوار الحذف مع DialogDescription) + worklog.md union (اتضح أن نسخة البعيد بادئة كاملة من المحلية) + قبول حذف البعيد لـ cash-register/charges-panel/financial-dashboard (استُبدلت بـ financial-hub — المراجع الوحيدة المتبقية redirects نصية) + استعادة upload/club-logo (theme-settings-panel يستخدمه).
+- ★ استعادة datasource الإنتاج في schema.prisma: 33b3b13 كسرها (استبدل schema.prisma بنسخة SQLite المولّدة آلياً — نفس خطأ bc578f8 التاريخي!) → أُعيد postgresql+directUrl مع الإبقاء على فهارس Subscriber الخمسة الجديدة. لو رُفع sqlite لانكسر اتصال Vercel بـ Neon بالكامل.
+- قبول skipDuplicates بلا cast (نسخة البعيد): عميل postgres يدعمه أصلاً — `as never` المحلي كان workaround لعميل sqlite فقط.
+- استعادة `2>&1 | tee dev.log` في سكربت dev (البعيد حذفها — مطلوبة لمراقبة هذه البيئة).
+- إعادة تشغيل الخادم المحلي: انقلاب sqlite جراحي غير-mُcommit على schema.prisma + حماية `git update-index --skip-worktree prisma/schema.prisma` (الانقلاب المحلي لن يلوث commits المستقبل أبداً — سلف الإنتاج postgres دائماً) + bash .zscripts/dev.sh (قناة الإقلاع الرسمية) → health check عبر، GET / 200، login API 200.
+- التحقق ما قبل الرفع: صفر markers عالمياً + lint (15 خطأ موروثة في scripts/ موروثة من البعيد نفسه — لا جديد) + كل endpoints المدموجة 200 (workhours/wages/financial-analytics/network-info/backup/swimming-days) + اختبارا الانحدار 38/38 (cancel+paidWageGuard+سباق+Δ=0) و 28/28 (ميزة الحذف كاملة) على شجرة الدمج.
+- إصلاحا متانة بسكربت cancel-totals (بيانات بيئة جديدة بلا عمال): تنظيف يوم الاختبار لأي مستخدم (يلتقط بقايا التشغيلات المنهارة مبكراً — تشخيص: 6 سجلات أدمن متبقية من تشغيلة قبل البذر كانت تفسد فحص الملخص 12↔18، الخادم كان محقاً) + استبعاد admin/superadmin/assistant من عمال الاختبار (توزيعات [7,7]/[6,5,3] مبنية على عمال).
+- Push: 33b3b13..65ea54e main → main — fast-forward نظيف (73 commit: 23 محلية + merge 25bd7f2 + إصلاح سكربت 65ea54e) — بلا أي force.
+
+Stage Summary:
+- ✅ GitHub = نقطة الحقيقة الموحدة الآن: كل ميزات الإنتاج (33b3b13) + كل عمل التطوير المحلي (ذروته: حذف سجل الساعات عند الخطأ) في شجرة واحدة بدمج ثنائي الأبوين محفوظ التاريخ.
+- ✅ schema.prisma المرفوع = postgresql+directUrl (إنتاج سليم) — الانقلاب المحلي sqlite محمي بـ skip-worktree (للإلغاء عند الحاجة: git update-index --no-skip-worktree).
+- ✅ 38/38 + 28/28 + دخان API شامل على شجرة الدمج قبل الرفع.
+- ✅ 73 commit رُفعت بلا فقد أي سطر من أي طرف — التحقق الآلي بالاحتواء لكل ملف متضارب.
+- ⚠️ Vercel سينشر 65ea54e تلقائياً — مطلوب فحص دخاني للإنتاج (لاحظ: 33b3b13 نفسه رُفع على GitHub في 18:42 وقد كُسر schema فيه → إن نجح نشره كان الإنتاج قد انكسر مؤقتاً؛ نشرنا الحالي يصلح الجذر).
+- الملفات المعدلة الجوهرية: prisma/schema.prisma (datasource جراحي)، src/components/work-hours-management.tsx (دمج يدوي)، scripts/workhours-cancel-totals-test.mjs (متانة)، worklog.md (union) — والبقية 83 ملف دمج آلي موثق.
