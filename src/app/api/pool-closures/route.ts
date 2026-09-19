@@ -102,7 +102,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "النادي غير محدد" }, { status: 400 });
     }
 
-    const closureDays = Math.max(1, Math.round((closureEnd.getTime() - closureStart.getTime()) / 86400000) + 1);
+    // 🔧 إصلاح off-by-one: الفترة 00:00:00 → 23:59:59.999 = 0.99999 يوم
+    // القديمة: round(0.99999)+1 = 2 لليوم الواحد → كانت تُمدد الاشتراكات يوماً زائداً
+    const closureDays = Math.max(1, Math.round((closureEnd.getTime() - closureStart.getTime()) / 86400000));
     const closureDaysMs = closureDays * 86400000;
     const reopenDate = new Date(closureEnd.getTime() + 86400000);
     const closureDate = closureStart; // للتوافق: date = startDate

@@ -124,7 +124,8 @@ export async function GET(req: NextRequest) {
       closureEnd.setHours(23, 59, 59, 999);
     }
 
-    const closureDays = Math.max(1, Math.round((closureEnd.getTime() - closureStart.getTime()) / 86400000) + 1);
+    // 🔧 إصلاح off-by-one (مطابق لـ POST): 00:00 → 23:59:59.999 = 0.99999 يوم وليس 2
+    const closureDays = Math.max(1, Math.round((closureEnd.getTime() - closureStart.getTime()) / 86400000));
     const reopenDate = new Date(closureEnd.getTime() + 86400000);
 
     let totalCancelledSessions = 0;

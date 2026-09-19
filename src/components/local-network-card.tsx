@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import {
   Wifi, Smartphone, Copy, Check, ExternalLink, RefreshCw,
-  ShieldCheck, Loader2, Info, Laptop, QrCode
+  ShieldCheck, Loader2, Info, QrCode, Cloud, WifiOff, MonitorSmartphone,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -28,37 +28,65 @@ interface NetworkInfo {
   localDomainUrl: string;
 }
 
+/**
+ * هل نحن داخل الشبكة المحلية؟
+ * - localhost / 127.0.0.1 → النسخة المفتوحة على حاسوب النادي نفسه
+ * - 192.168.* / 10.* / 172.16-31.* → متصفح هاتف متصل بالخادم المحلي عبر الواي فاي
+ * - غير ذلك (مثل vercel.app) → النسخة السحابية عبر الإنترنت
+ */
+function detectMode(): "local" | "cloud" {
+  if (typeof window === "undefined") return "cloud";
+  const h = window.location.hostname;
+  if (h === "localhost" || h === "127.0.0.1") return "local";
+  if (/^192\.168\.\d+\.\d+$/.test(h)) return "local";
+  if (/^10\.\d+\.\d+\.\d+$/.test(h)) return "local";
+  if (/^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(h)) return "local";
+  return "cloud";
+}
+
 export function LocalNetworkCard({ compact = false }: { compact?: boolean }) {
+  const [mode, setMode] = useState<"local" | "cloud">("cloud");
   const [data, setData] = useState<NetworkInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedUrl, setSelectedUrl] = useState<string>("");
   const [copied, setCopied] = useState(false);
+  const [serverReachable, setServerReachable] = useState<boolean | null>(null);
 
-  const fetchInfo = async () => {
+  const fetchInfo = useCallback(async () => {
     try {
       setLoading(true);
       const res = await fetch("/api/network-info");
       if (res.ok) {
-        const json = await res.json();
+        const json: NetworkInfo = await res.json();
         setData(json);
-        setSelectedUrl(json.defaultUrl || "");
+        setServerReachable(true);
+        // في الوضع المحلي نعرض العنوان المحلي، وفي السحابي نعرض رابط الموقع الحالي
+        if (detectMode() === "local") {
+          setSelectedUrl(json.defaultUrl || "");
+        } else {
+          setSelectedUrl(window.location.origin);
+        }
+      } else {
+        setServerReachable(false);
       }
     } catch {
+      setServerReachable(false);
       toast.error("تعذر قراءة عناوين الشبكة المحلية");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
+    setMode(detectMode());
     fetchInfo();
-  }, []);
+  }, [fetchInfo]);
 
   const handleCopy = () => {
     if (!selectedUrl) return;
     navigator.clipboard.writeText(selectedUrl);
     setCopied(true);
-    toast.success("تم نسخ الرابط المحلي بنجاح");
+    toast.success("تم نسخ الرابط بنجاح");
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -70,24 +98,32 @@ export function LocalNetworkCard({ compact = false }: { compact?: boolean }) {
     );
   }
 
+  const isLocal = mode === "local";
+
   return (
     <div className="space-y-4" dir="rtl">
       {/* بطاقة الاتصال الرئيسية */}
-      <div className="rounded-2xl border border-teal-500/30 bg-gradient-to-br from-teal-500/10 via-card to-card p-5 shadow-sm space-y-4">
+      <div className={cn(
+        "rounded-2xl border p-5 shadow-sm space-y-4 bg-gradient-to-br via-card to-card",
+        isLocal ? "border-teal-500/30 from-teal-500/10" : "border-sky-500/30 from-sky-500/10"
+      )}>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-teal-500/15 text-teal-600 flex items-center justify-center shrink-0">
-              <Wifi className="h-5 w-5" />
+            <div className={cn(
+              "h-10 w-10 rounded-xl flex items-center justify-center shrink-0",
+              isLocal ? "bg-teal-500/15 text-teal-600" : "bg-sky-500/15 text-sky-600"
+            )}>
+              {isLocal ? <Wifi className="h-5 w-5" /> : <Cloud className="h-5 w-5" />}
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="font-bold text-base text-foreground">الاتصال المحلي عبر الواي فاي (بدون إنترنت)</h3>
-                <Badge className="bg-emerald-500 text-white text-[10px] py-0 px-2">
-                  قاعدة بيانات موحدة
+                <Badge className={cn("text-white text-[10px] py-0 px-2", isLocal ? "bg-emerald-500" : "bg-sky-500")}>
+                  {isLocal ? "متصل بالخادم المحلي ✓" : "النسخة السحابية (إنترنت)"}
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
-                اربط هواتف الاستقبال والمدربين على نفس شبكة الواي فاي للعمل معاً في نفس اللحظة.
+                تعمل المنظومة في الحالتين: <strong>مع الإنترنت</strong> عبر الرابط السحابي، و<strong>بدون إنترنت</strong> عبر خادم حاسوب النادي على الواي فاي.
               </p>
             </div>
           </div>
@@ -99,8 +135,28 @@ export function LocalNetworkCard({ compact = false }: { compact?: boolean }) {
             className="text-xs gap-1.5 self-start sm:self-auto"
           >
             <RefreshCw className="h-3.5 w-3.5" />
-            تحديث الـ IP
+            تحديث واختبار الاتصال
           </Button>
+        </div>
+
+        {/* حالة الخادم الحالي */}
+        <div className={cn(
+          "flex items-center gap-2 text-xs rounded-xl px-3 py-2 border",
+          serverReachable === true
+            ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400"
+            : "bg-rose-500/10 border-rose-500/30 text-rose-700 dark:text-rose-400"
+        )}>
+          {serverReachable === true ? (
+            <>
+              <Check className="h-4 w-4 shrink-0" />
+              <span>هذا الجهاز متصل حالياً بخادم المنظومة بنجاح — كل الوظائف تعمل من هنا.</span>
+            </>
+          ) : (
+            <>
+              <WifiOff className="h-4 w-4 shrink-0" />
+              <span>تعذر الوصول إلى خادم المنظومة من هذا الجهاز — تحقق من نفس شبكة الواي فاي وتشغيل البرنامج على حاسوب النادي.</span>
+            </>
+          )}
         </div>
 
         {/* عرض الـ QR Code مع تفاصيل الرابط */}
@@ -121,14 +177,18 @@ export function LocalNetworkCard({ compact = false }: { compact?: boolean }) {
                 </span>
               </>
             ) : (
-              <p className="text-xs text-muted-foreground">لا يتوفر عنوان IP محلي</p>
+              <p className="text-xs text-muted-foreground">لا يتوفر عنوان للاتصال</p>
             )}
           </div>
 
           {/* تفاصيل الاتصال والتعليمات */}
           <div className="md:col-span-8 space-y-3">
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">رابط الدخول المباشر من الهاتف أو التابلت:</Label>
+              <Label className="text-xs font-semibold">
+                {isLocal
+                  ? "رابط الدخول المباشر من الهاتف أو التابلت (بدون إنترنت):"
+                  : "رابط النسخة السحابية (يعمل مع الإنترنت فقط):"}
+              </Label>
               <div className="flex items-center gap-2">
                 <Input
                   value={selectedUrl}
@@ -156,10 +216,10 @@ export function LocalNetworkCard({ compact = false }: { compact?: boolean }) {
               </div>
             </div>
 
-            {/* محولات الشبكة المتوفرة (إن وجد أكثر من محول) */}
-            {data && data.interfaces.length > 1 && (
+            {/* محولات الشبكة المتوفرة — فقط في الوضع المحلي */}
+            {isLocal && data && data.interfaces.length > 0 && (
               <div className="space-y-1">
-                <Label className="text-[11px] text-muted-foreground">اختر محول الشبكة (Wi-Fi أو كابل Ethernet):</Label>
+                <Label className="text-[11px] text-muted-foreground">اختر عنوان الشبكة (Wi-Fi أو كابل Ethernet):</Label>
                 <div className="flex flex-wrap gap-1.5">
                   {data.interfaces.map((iface, i) => (
                     <button
@@ -181,30 +241,58 @@ export function LocalNetworkCard({ compact = false }: { compact?: boolean }) {
               </div>
             )}
 
-            {/* خطوات الربط السريعة */}
-            <div className="rounded-xl bg-muted/40 p-3 border border-border/60 space-y-1.5">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
-                <Smartphone className="h-3.5 w-3.5 text-teal-600" />
-                كيف يعمل بدون إنترنت؟ (خطوات سريعة):
+            {/* تنبيه الوضع السحابي: كيف يعمل بدون إنترنت؟ */}
+            {!isLocal && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-1.5">
+                <div className="flex items-center gap-2 text-xs font-bold text-amber-800 dark:text-amber-300">
+                  <MonitorSmartphone className="h-4 w-4 text-amber-600 shrink-0" />
+                  <span>للعمل بدون إنترنت على الواي فاي المحلي:</span>
+                </div>
+                <ul className="text-[11px] text-amber-900/80 dark:text-amber-200/80 space-y-1 list-disc list-inside leading-relaxed">
+                  <li>شغّل <strong>نسخة سطح المكتب (AquaCore Desktop)</strong> على حاسوب النادي — هي تشغّل خادماً محلياً على المنفذ 3872.</li>
+                  <li>شغّل ملف <code className="px-1 py-0.5 rounded bg-background font-mono text-[10px] font-bold border border-amber-400">تفعيل_الاتصال_بالهاتف.bat</code> كمسؤول (مرة واحدة) لفتح المنافذ 3000 و3872.</li>
+                  <li>افتح النسخة المكتبية على الحاسوب وانتقل إلى هذه الشاشة — سيظهر رمز QR المحلي هنا تلقائياً.</li>
+                  <li>صل الهاتف بنفس واي فاي النادي وامسح الرمز — تعمل المنظومة كاملة بدون إنترنت!</li>
+                </ul>
               </div>
-              <ul className="text-[11px] text-muted-foreground space-y-1 list-disc list-inside leading-relaxed">
-                <li>صل الهاتف بنفس شبكة راوتر النادي (أو افتح نقطة اتصال Hotspot من هاتفك).</li>
-                <li>افتح تطبيق الكاميرا بالهاتف ووجهه نحو رمز QR أعلاه، ثم اضغط على الرابط المنبثق.</li>
-                <li>اضغط خيار <strong>«إضافة إلى الشاشة الرئيسية»</strong> ليعمل كتطبيق جوال كامل الشاشة.</li>
-                <li>أي منخرط يُسجل، أو أي حضور يُمسح من الهاتف يُحفظ فوراً في الكمبيوتر الرئيسي!</li>
-              </ul>
-            </div>
+            )}
 
-            {/* تنبيه استكشاف أخطاء جدار الحماية */}
+            {/* خطوات الربط السريعة — الوضع المحلي */}
+            {isLocal && (
+              <div className="rounded-xl bg-muted/40 p-3 border border-border/60 space-y-1.5">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+                  <Smartphone className="h-3.5 w-3.5 text-teal-600" />
+                  كيف يعمل بدون إنترنت؟ (خطوات سريعة):
+                </div>
+                <ul className="text-[11px] text-muted-foreground space-y-1 list-disc list-inside leading-relaxed">
+                  <li>صل الهاتف بنفس شبكة راوتر النادي (أو افتح نقطة اتصال Hotspot من حاسوب النادي).</li>
+                  <li>افتح تطبيق الكاميرا بالهاتف ووجهه نحو رمز QR أعلاه، ثم اضغط على الرابط المنبثق.</li>
+                  <li>اضغط خيار <strong>«إضافة إلى الشاشة الرئيسية»</strong> ليعمل كتطبيق جوال كامل الشاشة.</li>
+                  <li>أي منخرط يُسجل، أو أي حضور يُمسح من الهاتف يُحفظ فوراً في الكمبيوتر الرئيسي!</li>
+                </ul>
+              </div>
+            )}
+
+            {/* تنبيه استكشاف أخطاء الاتصال */}
             <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-1.5">
               <div className="flex items-center gap-2 text-xs font-bold text-amber-800 dark:text-amber-300">
                 <ShieldCheck className="h-4 w-4 text-amber-600 shrink-0" />
-                <span>تعذر الاتصال من الهاتف (ERR_CONNECTION_TIMED_OUT)؟</span>
+                <span>الهاتف لا يتصل؟ (ERR_CONNECTION_TIMED_OUT / REFUSED)</span>
               </div>
-              <p className="text-[11px] text-amber-900/80 dark:text-amber-200/80 leading-relaxed">
-                في أنظمة ويندوز، يقوم جدار الحماية (Windows Defender Firewall) بحظر المنافذ الواردة للأجهزة المتصلة افتراضياً.
-                لحلها بنقرة واحدة: انقر بالزر الأيمن على ملف <code className="px-1.5 py-0.5 rounded bg-background font-mono text-[10px] font-bold border border-amber-400">تفعيل_الاتصال_بالهاتف.bat</code> في المجلد الرئيسي للبرنامج واختر <strong>«تشغيل كمسؤول» (Exécuter en tant qu&apos;administrateur)</strong> وسيفتح المنفذ فوراً!
-              </p>
+              <ul className="text-[11px] text-amber-900/80 dark:text-amber-200/80 space-y-1 list-disc list-inside leading-relaxed">
+                <li>شغّل <code className="px-1 py-0.5 rounded bg-background font-mono text-[10px] font-bold border border-amber-400">تفعيل_الاتصال_بالهاتف.bat</code> بالزر الأيمن ← <strong>«تشغيل كمسؤول»</strong> — يفتح المنافذ 3000 و3872 في جدار الحماية.</li>
+                <li>إذا ظهرت للهاتف رسالة <strong>«شبكة الواي فاي بلا إنترنت — هل تبقى متصلاً؟»</strong> اضغط <strong>«البقاء متصلاً»</strong> (هذا طبيعي في الوضع المحلي).</li>
+                <li>أوقف بيانات الهاتف المحمولة (4G) مؤقتاً — بعض الهواتف تتجاوز الواي فاي تلقائياً عندما لا يجد إنترنت.</li>
+                <li>تأكد أن الهاتف والحاسوب على <strong>نفس شبكة الراوتر</strong>، وأن الراوتر لا يفعّل «عزل الأجهزة» (AP Isolation / Client Isolation).</li>
+              </ul>
+            </div>
+
+            {/* معلومة المنفذين */}
+            <div className="flex items-start gap-2 text-[11px] text-muted-foreground rounded-xl bg-muted/30 p-2.5 border border-border/50">
+              <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-teal-600" />
+              <span>
+                المنافذ المعتمدة: <strong dir="ltr">3872</strong> لنسخة سطح المكتب Electron (العمل بدون إنترنت) و <strong dir="ltr">3000</strong> لتشغيل المتصفح عبر npm start — كلاهما يجب أن يكون مفتوحاً في جدار الحماية.
+              </span>
             </div>
           </div>
         </div>
