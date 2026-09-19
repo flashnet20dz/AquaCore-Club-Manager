@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Cairo, Tajawal, Inter, JetBrains_Mono } from "next/font/google";
+import { Cairo, Tajawal, Unbounded, Manrope, Azeret_Mono, Cairo_Play, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import "@/lib/date-utils";
 import { Toaster } from "@/components/ui/sonner";
@@ -21,6 +21,7 @@ const tajawal = Tajawal({
   display: "swap",
 });
 
+// ── SaaS Analytics fonts (dense tables / mono metrics) ──
 const inter = Inter({
   variable: "--font-inter",
   subsets: ["latin"],
@@ -30,6 +31,33 @@ const inter = Inter({
 const jetbrainsMono = JetBrains_Mono({
   variable: "--font-mono",
   subsets: ["latin"],
+  display: "swap",
+});
+
+// ── Expressive Brand fonts ──
+// Unbounded carries display, Manrope carries UI, Azeret Mono marks energy.
+// Cairo Play is the expressive Arabic display fallback (Unbounded has no Arabic).
+const unbounded = Unbounded({
+  variable: "--font-unbounded",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+const manrope = Manrope({
+  variable: "--font-manrope",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+const azeretMono = Azeret_Mono({
+  variable: "--font-azeret",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+const cairoPlay = Cairo_Play({
+  variable: "--font-cairo-play",
+  subsets: ["arabic", "latin"],
   display: "swap",
 });
 
@@ -65,8 +93,8 @@ export const viewport: Viewport = {
   maximumScale: 5,
   userScalable: true,
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#0b1220" },
+    { media: "(prefers-color-scheme: light)", color: "#faf7fb" },
+    { media: "(prefers-color-scheme: dark)", color: "#0d0b10" },
   ],
 };
 
@@ -83,7 +111,10 @@ export default function RootLayout({
             __html: `
               try {
                 const theme = localStorage.getItem('rcs-theme');
-                if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                // ?_theme=dark|light deep-link override (useful for QA + screenshots)
+                const qp = new URLSearchParams(location.search).get('_theme');
+                const wantsDark = qp === 'dark' || (!qp && theme === 'dark') || (!qp && !theme && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                if (wantsDark) {
                   document.documentElement.classList.add('dark');
                 }
               } catch (e) {}
@@ -222,7 +253,7 @@ export default function RootLayout({
         />
       </head>
       <body
-        className={`${cairo.variable} ${tajawal.variable} ${inter.variable} ${jetbrainsMono.variable} font-cairo antialiased bg-background text-foreground min-h-screen`}
+        className={`${cairo.variable} ${tajawal.variable} ${inter.variable} ${jetbrainsMono.variable} ${unbounded.variable} ${manrope.variable} ${azeretMono.variable} ${cairoPlay.variable} font-cairo antialiased bg-background text-foreground min-h-screen`}
       >
         <LatinDigitsGuard />
         <ThemeProvider>
