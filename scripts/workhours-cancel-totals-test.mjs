@@ -73,7 +73,9 @@ const clubHeader = { "x-club-id": clubId };
 // ─── العمال: حتى 3 مستخدمين من النادي (مطابق لبلاغ: Abdelkrim/Lot/zakaria) ───
 const usersRes = await api(cookie, "/api/users", { headers: clubHeader });
 const users = (Array.isArray(usersRes.body) ? usersRes.body : usersRes.body?.users || [])
-  .filter((u) => u.id && u.name);
+  .filter((u) => u.id && u.name)
+  // استبعاد المدير/المسؤولين — التوزيعات مبنية على عمال فقط ([7,7] أو [6,5,3])
+  .filter((u) => !["admin", "superadmin", "assistant"].includes((u.role || "").toLowerCase()));
 const testUsers = users.slice(0, 3);
 check("توفر عمال للاختبار", testUsers.length >= 1, testUsers.map((u) => u.name).join(" | "));
 
@@ -113,10 +115,11 @@ async function cleanTestDate() {
       }
     }
   }
-  // 2) ألغِ (ناعماً) كل السجلات النشطة ليوم الاختبار لهؤلاء العمال
+  // 2) ألغِ (ناعماً) كل السجلات النشطة ليوم الاختبار — لأي مستخدم (يوم الاختبار مخصّص حصرياً،
+  //    وهذا يلتقط بقايا التشغيلات المنهارة مبكراً قبل اكتمال testUsers)
   const list = await api(cookie, `/api/workhours?month=${MONTH}`, { headers: clubHeader });
   const rows = (list.body?.workHours || [])
-    .filter((w) => testUsers.some((u) => u.id === w.userId) && (w.date || "").startsWith(DATE));
+    .filter((w) => (w.date || "").startsWith(DATE));
   for (const w of rows) {
     if (w.status !== "cancelled") {
       await api(cookie, `/api/workhours/${w.id}`, {
