@@ -1092,3 +1092,9 @@ Files modified:
 - src/hooks/use-swim-config.ts (seedSwimConfigCache + مستمع ذكي)
 - src/app/api/swimming-days/route.ts (معاملة مجمعة)
 - src/app/api/pool-closures/route.ts + preview/route.ts (إصلاح closureDays off-by-one)
+
+Deployment (wifi-groups-maintenance-speed):
+- commit f58513a → rebase على 9ee5391 (remote) → push كـ 4e5348a إلى flashnet20dz/AquaCore-Club-Manager
+- Vercel auto-deploy نجح — حزمة الإنتاج تحتوي «إغلاق يوم محدد بتاريخ» (تم التحقق من chunk 06pmccqmfymxu.js)
+- دخان الإنتاج: login 200 (superadmin)، /login 200، / 200، pool-closures 200، auth/me 200، swimming-days 403 (متوقع: superadmin بلا clubId)، لا يوجد أي 5xx
+- إصلاح جانبي: استعادة src/app/api/upload/club-logo/route.ts المحذوفة في بيئة العمل (تستدعيها theme-settings-panel)
