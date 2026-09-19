@@ -168,11 +168,20 @@ export function installLatinDigitsGuard(): void {
   };
 
   // 4. Intl.DateTimeFormat.prototype.format
+  // ⚠️ In newer V8, `format` is an accessor whose getter throws when read from
+  // the prototype itself ("incompatible receiver"). Guard the read so the app
+  // never crashes; instance formatting stays covered by the Date guards above.
   if (typeof Intl !== "undefined" && Intl.DateTimeFormat && Intl.DateTimeFormat.prototype) {
-    const origFormat = Intl.DateTimeFormat.prototype.format;
-    Intl.DateTimeFormat.prototype.format = function (date?: Date | number) {
-      return toLatinDigits(origFormat.call(this, date));
-    };
+    try {
+      const origFormat = Intl.DateTimeFormat.prototype.format;
+      if (typeof origFormat === "function") {
+        Intl.DateTimeFormat.prototype.format = function (date?: Date | number) {
+          return toLatinDigits(origFormat.call(this, date));
+        };
+      }
+    } catch {
+      // Skip the Intl.DateTimeFormat patch — Date.prototype guards already enforce Latin digits.
+    }
   }
 
   // 5. Number.prototype.toLocaleString
