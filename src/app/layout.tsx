@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Cairo, Tajawal } from "next/font/google";
+import { Cairo, Tajawal, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { PWAInstaller } from "@/components/pwa-installer";
@@ -16,6 +16,18 @@ const tajawal = Tajawal({
   variable: "--font-tajawal",
   subsets: ["arabic", "latin"],
   weight: ["300", "400", "500", "700", "800"],
+  display: "swap",
+});
+
+const inter = Inter({
+  variable: "--font-inter",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-mono",
+  subsets: ["latin"],
   display: "swap",
 });
 
@@ -169,7 +181,7 @@ export default function RootLayout({
         />
       </head>
       <body
-        className={`${cairo.variable} ${tajawal.variable} font-cairo antialiased bg-background text-foreground min-h-screen`}
+        className={`${cairo.variable} ${tajawal.variable} ${inter.variable} ${jetbrainsMono.variable} font-cairo antialiased bg-background text-foreground min-h-screen`}
       >
         <ThemeProvider>
           {children}

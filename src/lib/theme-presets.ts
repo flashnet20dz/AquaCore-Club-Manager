@@ -82,6 +82,16 @@ export interface ThemePreset {
 
 export const THEME_PRESETS: ThemePreset[] = [
   {
+    id: "saas-analytics",
+    name: "تحليلات السحاب (SaaS Analytics)",
+    nameEn: "SaaS Analytics",
+    description: "أزرق فولاذي وتيل مائي، تخطيطات رقمية مكثفة وحركة خاطفة فائقة الدقة",
+    primary: [0.55, 0.18, 250],
+    secondary: [0.70, 0.14, 180],
+    accent: [0.75, 0.16, 75],
+    swatches: { primary: "#3B82F6", secondary: "#14B8A6", accent: "#F59E0B" },
+  },
+  {
     id: "ocean",
     name: "أزرق المحيط",
     nameEn: "Ocean Blue",

@@ -30,14 +30,28 @@
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
   --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
   --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary-foreground: var(--secondary-foreground);
   --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --font-inter: var(--font-inter);
+  --font-mono: var(--font-mono);
+  --color-saas-bg: var(--saas-bg);
+  --color-saas-surface: var(--saas-surface);
+  --color-saas-surface-high: var(--saas-surface-high);
+  --color-saas-surface-highest: var(--saas-surface-highest);
+  --color-saas-outline: var(--saas-outline);
+  --color-saas-muted: var(--saas-muted);
+  --color-saas-primary: var(--saas-primary);
+  --color-saas-brand-blue: var(--saas-brand-blue);
+  --color-saas-secondary: var(--saas-secondary);
+  --color-saas-tertiary: var(--saas-tertiary);
+  --color-saas-quaternary: var(--saas-quaternary);
+  --color-saas-positive: var(--saas-positive);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -46,6 +60,19 @@
 
 :root {
   --radius: 0.875rem;
+  /* SaaS Analytics Design System (12-swatch palette) */
+  --saas-bg: #0a0a0f;
+  --saas-surface: #111118;
+  --saas-surface-high: #1f1f28;
+  --saas-surface-highest: #282832;
+  --saas-outline: #3a3a48;
+  --saas-muted: #7a7d8a;
+  --saas-primary: #3b82f6;
+  --saas-brand-blue: #60a5fa;
+  --saas-secondary: #14b8a6;
+  --saas-tertiary: #f59e0b;
+  --saas-quaternary: #ec4899;
+  --saas-positive: #22c55e;
   /* Default theme: Ocean Blue (premium modern palette) */
   /* Light mode: elegant soft slate-mist canvas with depth, not stark blinding white */
   --background: oklch(0.954 0.013 226);
@@ -438,3 +465,297 @@ html {
 .elegant-scroll::-webkit-scrollbar-thumb:hover {
   background: oklch(0.6 0.04 200 / 0.7);
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   ★ SaaS Analytics Design System Utilities
+   "Analysts scan numbers faster than words; the interface must vanish behind the data"
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Type System & Tabular Figures */
+.font-mono-data {
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Typography scale spec */
+.fs-xs { font-size: 11px; line-height: 1.4; font-weight: 500; }
+.fs-sm { font-size: 12px; line-height: 1.4; font-weight: 500; }
+.fs-md { font-size: 14px; line-height: 1.4; font-weight: 400; }
+.fs-lg { font-size: 15px; line-height: 1.4; font-weight: 600; }
+.fs-xl { font-size: 20px; line-height: 1.2; font-weight: 700; }
+.fs-2xl { font-size: 24px; line-height: 1.2; font-weight: 700; }
+
+/* Near-square radius scale (2, 4, 6, 8, 12, 16px) */
+.rounded-near-2xs { border-radius: 2px; }
+.rounded-near-xs { border-radius: 4px; }
+.rounded-near-sm { border-radius: 6px; }
+.rounded-near-md { border-radius: 8px; }
+.rounded-near-lg { border-radius: 12px; }
+.rounded-near-xl { border-radius: 16px; }
+
+/* Elevation scale (4 levels, subtle black-tinted shadows, no gradient backgrounds) */
+.elevation-1 {
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.35);
+}
+.elevation-2 {
+  box-shadow: 0 3px 6px -1px rgba(0, 0, 0, 0.45), 0 2px 4px -2px rgba(0, 0, 0, 0.4);
+}
+.elevation-3 {
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.55), 0 4px 6px -4px rgba(0, 0, 0, 0.5);
+}
+.elevation-4 {
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.65), 0 8px 10px -6px rgba(0, 0, 0, 0.6);
+}
+
+/* Snappy Motion System (fast: .12s, med: .22s, slow: .40s) */
+.motion-fast {
+  transition: all 0.12s cubic-bezier(0.2, 0, 0, 1);
+}
+.motion-med {
+  transition: all 0.22s cubic-bezier(0.2, 0, 0, 1);
+}
+.motion-slow {
+  transition: all 0.40s cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* Form Controls (Height: 38px standard, 3px primary glow focus ring) */
+.input-saas {
+  height: 38px;
+  border-radius: 6px;
+  border: 1px solid var(--saas-outline);
+  background-color: var(--saas-surface);
+  padding: 0 12px;
+  font-size: 14px;
+  transition: all 0.12s cubic-bezier(0.2, 0, 0, 1);
+}
+.input-saas:focus {
+  outline: none;
+  border-color: var(--saas-primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+}
+
+/* 6 Button styles */
+.btn-saas-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 38px;
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 6px;
+  background-color: var(--saas-primary);
+  color: #ffffff;
+  border: 1px solid transparent;
+  transition: all 0.12s cubic-bezier(0.2, 0, 0, 1);
+}
+.btn-saas-primary:hover {
+  background-color: #2563eb;
+  transform: translateY(-1px);
+}
+.btn-saas-primary:active {
+  transform: translateY(0);
+}
+
+.btn-saas-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 38px;
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 6px;
+  background-color: var(--saas-surface-high);
+  color: #f1f5f9;
+  border: 1px solid var(--saas-outline);
+  transition: all 0.12s cubic-bezier(0.2, 0, 0, 1);
+}
+.btn-saas-secondary:hover {
+  background-color: var(--saas-surface-highest);
+  border-color: #4b5563;
+}
+
+.btn-saas-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 38px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--saas-muted);
+  transition: all 0.12s cubic-bezier(0.2, 0, 0, 1);
+}
+.btn-saas-ghost:hover {
+  background-color: var(--saas-surface-high);
+  color: #ffffff;
+}
+
+.btn-pill-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 16px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 9999px;
+  background-color: var(--saas-primary);
+  color: #ffffff;
+  transition: all 0.12s cubic-bezier(0.2, 0, 0, 1);
+}
+.btn-pill-primary:hover {
+  background-color: #2563eb;
+}
+
+.btn-pill-accent {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 16px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 9999px;
+  background-color: var(--saas-secondary);
+  color: #ffffff;
+  transition: all 0.12s cubic-bezier(0.2, 0, 0, 1);
+}
+.btn-pill-accent:hover {
+  background-color: #0d9488;
+}
+
+.btn-outline-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 9999px;
+  background: transparent;
+  border: 1px solid var(--saas-outline);
+  color: #cbd5e1;
+  transition: all 0.12s cubic-bezier(0.2, 0, 0, 1);
+}
+.btn-outline-pill:hover {
+  border-color: var(--saas-primary);
+  color: #ffffff;
+}
+
+/* Chips / Status Badges */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.chip-filled {
+  background-color: var(--saas-surface-highest);
+  color: #f1f5f9;
+}
+.chip-accent {
+  background-color: rgba(20, 184, 166, 0.12);
+  color: #14b8a6;
+  border: 1px solid rgba(20, 184, 166, 0.3);
+}
+.chip-outline {
+  background: transparent;
+  border: 1px solid var(--saas-outline);
+  color: #94a3b8;
+}
+.chip-success {
+  background-color: rgba(34, 197, 94, 0.12);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+.chip-warn {
+  background-color: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+.chip-error {
+  background-color: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+/* Status dot */
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  display: inline-block;
+}
+.status-dot-success { background-color: #22c55e; box-shadow: 0 0 6px rgba(34, 197, 94, 0.5); }
+.status-dot-warn { background-color: #f59e0b; box-shadow: 0 0 6px rgba(245, 158, 11, 0.5); }
+.status-dot-error { background-color: #ef4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.5); }
+.status-dot-info { background-color: #3b82f6; box-shadow: 0 0 6px rgba(59, 130, 246, 0.5); }
+
+/* Dense Data Table (Compact 10px / 14px padding) */
+.table-dense {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+.table-dense th {
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--saas-muted);
+  border-bottom: 1px solid var(--saas-outline);
+  background-color: var(--saas-surface);
+  text-align: inherit;
+}
+.table-dense td {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(58, 58, 72, 0.4);
+  color: #e2e8f0;
+  transition: background-color 0.12s ease;
+}
+.table-dense tr:hover td {
+  background-color: rgba(31, 31, 40, 0.6);
+}
+
+/* Shimmer Loading Grid Animation */
+@keyframes shimmer-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+.shimmer-placeholder {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--saas-surface);
+  border-radius: 6px;
+}
+.shimmer-placeholder::after {
+  content: "";
+  position: absolute;
+  top: 0; right: 0; bottom: 0; left: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.04) 50%,
+    transparent 100%
+  );
+  animation: shimmer-sweep 1.6s infinite;
+}
+

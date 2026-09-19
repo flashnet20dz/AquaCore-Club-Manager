@@ -20,6 +20,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { CATEGORY_LABELS } from "@/components/financial/labels";
+import { AnalyticsMetricCard } from "@/components/ui/analytics-metric-card";
+import { ChartTooltipOverlay } from "@/components/ui/chart-tooltip-overlay";
+import { DateRangePresetPicker, type PresetRange } from "@/components/ui/date-range-preset-picker";
 
 interface ExecutiveDashboardProps {
   sessionUser: { name: string; role: string } | null;
@@ -151,6 +154,14 @@ export function ExecutiveDashboard({
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
+            <DateRangePresetPicker
+              activePreset={finPeriod === "today" ? "today" : finPeriod === "week" ? "7d" : "30d"}
+              onChangePreset={(p) => {
+                if (p === "today") onFinPeriodChange("today");
+                else if (p === "7d") onFinPeriodChange("week");
+                else onFinPeriodChange("month");
+              }}
+            />
             <Button
               size="sm"
               onClick={onQuickTx}
@@ -186,83 +197,66 @@ export function ExecutiveDashboard({
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
-          {/* 1: الرصيد الحالي */}
-          <div className="rounded-2xl border border-teal-500/30 bg-teal-500/10 p-3.5 space-y-1">
-            <span className="text-[11px] font-bold text-teal-800 dark:text-teal-300 truncate block">
-              الرصيد الحالي (الدفتر)
-            </span>
-            <div className="text-xl sm:text-2xl font-black text-teal-700 dark:text-teal-400 tabular-nums">
-              {currentBalance.toLocaleString()} <span className="text-xs font-normal">دج</span>
-            </div>
-            <span className="text-[10px] text-muted-foreground block">
-              السيولة المتاحة فعلياً
-            </span>
-          </div>
-
-          {/* 2: إجمالي المداخيل */}
-          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 space-y-1">
-            <span className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 truncate block">
-              إجمالي المداخيل
-            </span>
-            <div className="text-xl sm:text-2xl font-black text-emerald-700 dark:text-emerald-400 tabular-nums">
-              {totalIncome.toLocaleString()} <span className="text-xs font-normal">دج</span>
-            </div>
-            <span className="text-[10px] text-muted-foreground block">
-              المحصل من جميع الفئات
-            </span>
-          </div>
-
-          {/* 3: إجمالي المصاريف */}
-          <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-3.5 space-y-1">
-            <span className="text-[11px] font-bold text-rose-800 dark:text-rose-300 truncate block">
-              إجمالي المصاريف
-            </span>
-            <div className="text-xl sm:text-2xl font-black text-rose-700 dark:text-rose-400 tabular-nums">
-              {totalExpense.toLocaleString()} <span className="text-xs font-normal">دج</span>
-            </div>
-            <span className="text-[10px] text-muted-foreground block">
-              أجور، صيانة، نفقات
-            </span>
-          </div>
-
-          {/* 4: المستحقات للنادي */}
-          <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3.5 space-y-1">
-            <span className="text-[11px] font-bold text-amber-800 dark:text-amber-300 truncate block">
-              مستحقات على المنخرطين
-            </span>
-            <div className="text-xl sm:text-2xl font-black text-amber-700 dark:text-amber-400 tabular-nums">
-              {receivables.toLocaleString()} <span className="text-xs font-normal">دج</span>
-            </div>
-            <span className="text-[10px] text-muted-foreground block">
-              اشتراكات غير محصلة
-            </span>
-          </div>
-
-          {/* 5: الالتزامات على النادي */}
-          <div className="rounded-2xl border border-indigo-500/30 bg-indigo-500/10 p-3.5 space-y-1">
-            <span className="text-[11px] font-bold text-indigo-800 dark:text-indigo-300 truncate block">
-              التزامات وأجور معلقة
-            </span>
-            <div className="text-xl sm:text-2xl font-black text-indigo-700 dark:text-indigo-400 tabular-nums">
-              {payables.toLocaleString()} <span className="text-xs font-normal">دج</span>
-            </div>
-            <span className="text-[10px] text-muted-foreground block">
-              أجور عمال مستحقة
-            </span>
-          </div>
-
-          {/* 6: العمليات الملغاة */}
-          <div className="rounded-2xl border border-slate-500/30 bg-slate-500/10 p-3.5 space-y-1">
-            <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 truncate block">
-              العمليات الملغاة
-            </span>
-            <div className="text-xl sm:text-2xl font-black text-slate-600 dark:text-slate-400 tabular-nums">
-              {cancelledTotal.toLocaleString()} <span className="text-xs font-normal">دج</span>
-            </div>
-            <span className="text-[10px] text-muted-foreground block">
-              {cancelledCount} قيود مستبعدة
-            </span>
-          </div>
+          <AnalyticsMetricCard
+            label="الرصيد الحالي"
+            value={currentBalance}
+            suffix="دج"
+            variant="secondary"
+            icon={Wallet}
+            delta={{ value: 8.4, label: "فائض سيولة" }}
+            sparkline={[35, 45, 50, 60, 75, 85]}
+            onClick={() => onNavigateTab("financial-hub")}
+          />
+          <AnalyticsMetricCard
+            label="إجمالي المداخيل"
+            value={totalIncome}
+            suffix="دج"
+            variant="positive"
+            icon={TrendingUp}
+            delta={{ value: 14.2, label: "نمو فصلي" }}
+            sparkline={[40, 52, 65, 70, 82, 95]}
+            onClick={() => onNavigateTab("financial-hub")}
+          />
+          <AnalyticsMetricCard
+            label="إجمالي المصاريف"
+            value={totalExpense}
+            suffix="دج"
+            variant="default"
+            icon={TrendingDown}
+            delta={{ value: -3.5, label: "تحت السقف" }}
+            sparkline={[80, 70, 65, 55, 60, 48]}
+            onClick={() => onNavigateTab("financial-hub")}
+          />
+          <AnalyticsMetricCard
+            label="مستحقات المنخرطين"
+            value={receivables}
+            suffix="دج"
+            variant="warn"
+            icon={CreditCard}
+            delta={{ value: -2.1, label: "قيد التحصيل" }}
+            sparkline={[30, 25, 20, 28, 22, 18]}
+            onClick={() => onNavigateTab("financial-hub")}
+          />
+          <AnalyticsMetricCard
+            label="أجور والتزامات"
+            value={payables}
+            suffix="دج"
+            variant="primary"
+            icon={Landmark}
+            delta={{ value: 0, label: "مجدولة" }}
+            sparkline={[20, 25, 22, 20, 24, 22]}
+            onClick={() => onNavigateTab("financial-hub")}
+          />
+          <AnalyticsMetricCard
+            label="العمليات المستبعدة"
+            value={cancelledTotal}
+            suffix="دج"
+            variant="default"
+            icon={Ban}
+            delta={{ value: 0, label: `${cancelledCount} قيود` }}
+            sparkline={[10, 8, 4, 6, 2, 0]}
+            onClick={() => onNavigateTab("financial-hub")}
+          />
         </div>
       </section>
 
@@ -317,39 +311,34 @@ export function ExecutiveDashboard({
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.2} vertical={false} />
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.15} vertical={false} />
                     <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
-                    <Tooltip
-                      formatter={(val: any, name?: any) => [
-                        `${Number(val).toLocaleString()} دج`,
-                        name === "income" ? "المداخيل" : name === "expense" ? "المصاريف" : "الصافي",
-                      ]}
-                    />
-                    <Bar dataKey="income" name="income" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={32} />
-                    <Bar dataKey="expense" name="expense" fill="#f43f5e" radius={[4, 4, 0, 0]} maxBarSize={32} />
-                    <Line type="monotone" dataKey="net" name="net" stroke="#0d9488" strokeWidth={2.5} dot={{ r: 3 }} />
+                    <Tooltip content={<ChartTooltipOverlay unit="دج" />} />
+                    <Bar dataKey="income" name="income" fill="#14b8a6" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                    <Bar dataKey="expense" name="expense" fill="#f43f5e" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                    <Line type="monotone" dataKey="net" name="net" stroke="#3b82f6" strokeWidth={2.5} dot={{ r: 3 }} />
                   </ComposedChart>
                 </ResponsiveContainer>
               )}
             </div>
 
             <div className="flex items-center justify-center gap-6 pt-2 text-xs border-t mt-2">
-              <span className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400 font-bold">
-                <span className="h-3 w-3 rounded-sm bg-emerald-500 inline-block" /> المداخيل
+              <span className="flex items-center gap-1.5 text-teal-600 dark:text-teal-400 font-bold">
+                <span className="h-2.5 w-2.5 rounded-near-xs bg-teal-500 inline-block" /> المداخيل
               </span>
-              <span className="flex items-center gap-1.5 text-rose-700 dark:text-rose-400 font-bold">
-                <span className="h-3 w-3 rounded-sm bg-rose-500 inline-block" /> المصاريف
+              <span className="flex items-center gap-1.5 text-rose-600 dark:text-rose-400 font-bold">
+                <span className="h-2.5 w-2.5 rounded-near-xs bg-rose-500 inline-block" /> المصاريف
               </span>
-              <span className="flex items-center gap-1.5 text-teal-700 dark:text-teal-400 font-bold">
-                <span className="h-3 w-3 rounded-full bg-teal-600 inline-block" /> الصافي
+              <span className="flex items-center gap-1.5 text-blue-600 dark:text-blue-400 font-bold">
+                <span className="h-2.5 w-2.5 rounded-near-xs bg-blue-500 inline-block" /> الصافي
               </span>
             </div>
           </CardContent>
         </Card>
 
         {/* SECTION C: Income Sources (5 cols) */}
-        <Card className="lg:col-span-5 border-border/80 shadow-xs">
+        <Card className="lg:col-span-5 border-border/80 rounded-near-lg elevation-1">
           <CardHeader className="pb-2 border-b">
             <div className="flex items-center justify-between">
               <div>
@@ -383,23 +372,23 @@ export function ExecutiveDashboard({
                       {cat.key === "subscription" ? "📋" : cat.key === "renewal" ? "🔄" : cat.key === "insurance" ? "🛡️" : cat.key === "compound" || cat.key === "compound_rights" ? "🏛️" : "💰"}
                       {cat.label}
                     </span>
-                    <span className="font-black text-foreground tabular-nums">
+                    <span className="font-mono-data font-bold text-foreground tabular-nums">
                       {cat.amount.toLocaleString()} دج ({cat.percentage}%)
                     </span>
                   </div>
-                  <Progress value={cat.percentage} className="h-2 bg-muted" />
+                  <Progress value={cat.percentage} className="h-2 bg-muted rounded-near-xs" />
                 </div>
               ))
             )}
 
             <div className="pt-2 border-t flex items-center justify-between text-xs">
               <span className="font-extrabold text-foreground">الإجمالي الشامل المحصل:</span>
-              <span className="font-black text-emerald-700 dark:text-emerald-400 tabular-nums">
+              <span className="font-mono-data font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
                 {totalIncome.toLocaleString()} دج
               </span>
             </div>
             {isIncomeBalanced && (
-              <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 p-2 text-[11px] text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
+              <div className="rounded-near-md bg-emerald-500/10 border border-emerald-500/30 p-2 text-[11px] text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
                 <span>مجموع المصادر يطابق إجمالي الدفتر تماماً وبلا أي تقدير.</span>
               </div>
@@ -429,52 +418,52 @@ export function ExecutiveDashboard({
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
-          <div className="rounded-2xl border border-border/70 bg-card p-3 space-y-1">
+          <div className="rounded-near-md border border-border/70 bg-card p-3 space-y-1 elevation-1 hover:elevation-2 motion-fast hover:border-saas-outline-hi transition-all">
             <span className="text-[10px] text-muted-foreground block truncate">إجمالي المنخرطين</span>
-            <div className="text-xl font-black text-foreground tabular-nums">{totalSubscribers}</div>
+            <div className="text-xl font-mono-data font-bold text-foreground tabular-nums">{totalSubscribers}</div>
             <span className="text-[10px] text-teal-600 font-bold block">ملفات مسجلة</span>
           </div>
 
-          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-3 space-y-1">
+          <div className="rounded-near-md border border-emerald-500/30 bg-emerald-500/5 p-3 space-y-1 elevation-1 hover:elevation-2 motion-fast hover:border-emerald-500/50 transition-all">
             <span className="text-[10px] text-muted-foreground block truncate">المشتركون النشطون</span>
-            <div className="text-xl font-black text-emerald-700 dark:text-emerald-400 tabular-nums">{activePaidSubscribers}</div>
+            <div className="text-xl font-mono-data font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">{activePaidSubscribers}</div>
             <span className="text-[10px] text-emerald-600 font-bold block">اشتراك ساري</span>
           </div>
 
-          <div className="rounded-2xl border border-border/70 bg-card p-3 space-y-1">
+          <div className="rounded-near-md border border-border/70 bg-card p-3 space-y-1 elevation-1 hover:elevation-2 motion-fast hover:border-saas-outline-hi transition-all">
             <span className="text-[10px] text-muted-foreground block truncate">التجديدات السارية</span>
-            <div className="text-xl font-black text-sky-600 tabular-nums">{renewedCount}</div>
+            <div className="text-xl font-mono-data font-bold text-sky-600 tabular-nums">{renewedCount}</div>
             <span className="text-[10px] text-muted-foreground block">مجدد هذا الشهر</span>
           </div>
 
-          <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-3 space-y-1">
+          <div className="rounded-near-md border border-amber-500/30 bg-amber-500/5 p-3 space-y-1 elevation-1 hover:elevation-2 motion-fast hover:border-amber-500/50 transition-all">
             <span className="text-[10px] text-muted-foreground block truncate">تجديدات قريبة الانتهاء</span>
-            <div className="text-xl font-black text-amber-600 tabular-nums">{expiringCount}</div>
+            <div className="text-xl font-mono-data font-bold text-amber-600 tabular-nums">{expiringCount}</div>
             <span className="text-[10px] text-amber-700 font-bold block">بحاجة للتجديد</span>
           </div>
 
-          <div className="rounded-2xl border border-border/70 bg-card p-3 space-y-1">
+          <div className="rounded-near-md border border-border/70 bg-card p-3 space-y-1 elevation-1 hover:elevation-2 motion-fast hover:border-saas-outline-hi transition-all">
             <span className="text-[10px] text-muted-foreground block truncate">جلسات اليوم</span>
-            <div className="text-xl font-black text-foreground tabular-nums">{todaySessions}</div>
+            <div className="text-xl font-mono-data font-bold text-foreground tabular-nums">{todaySessions}</div>
             <span className="text-[10px] text-teal-600 font-bold block">جلسة مسبح</span>
           </div>
 
-          <div className="rounded-2xl border border-border/70 bg-card p-3 space-y-1">
+          <div className="rounded-near-md border border-border/70 bg-card p-3 space-y-1 elevation-1 hover:elevation-2 motion-fast hover:border-saas-outline-hi transition-all">
             <span className="text-[10px] text-muted-foreground block truncate">عدد العمال</span>
-            <div className="text-xl font-black text-foreground tabular-nums">{activeWorkers}</div>
+            <div className="text-xl font-mono-data font-bold text-foreground tabular-nums">{activeWorkers}</div>
             <span className="text-[10px] text-muted-foreground block">موظف / مدرب</span>
           </div>
 
-          <div className="rounded-2xl border border-teal-500/30 bg-teal-500/5 p-3 space-y-1">
+          <div className="rounded-near-md border border-teal-500/30 bg-teal-500/5 p-3 space-y-1 elevation-1 hover:elevation-2 motion-fast hover:border-teal-500/50 transition-all">
             <span className="text-[10px] text-muted-foreground block truncate">ساعات العمل</span>
-            <div className="text-xl font-black text-teal-700 dark:text-teal-400 tabular-nums">{approvedHoursMonth} سا</div>
+            <div className="text-xl font-mono-data font-bold text-teal-700 dark:text-teal-400 tabular-nums">{approvedHoursMonth} <span className="text-xs">سا</span></div>
             <span className="text-[10px] text-teal-700 font-bold block">ساعات معتمدة</span>
           </div>
         </div>
       </section>
 
       {/* ═══ SECTION E: آخر النشاطات (Recent Activities) ═══ */}
-      <Card className="border-border/80 shadow-xs">
+      <Card className="border-border/80 rounded-near-lg elevation-1">
         <CardHeader className="pb-2 border-b">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
@@ -487,28 +476,28 @@ export function ExecutiveDashboard({
               </CardDescription>
             </div>
 
-            <div className="flex items-center gap-1 bg-muted/60 border border-border/60 rounded-xl p-1 text-xs">
+            <div className="flex items-center gap-1 bg-muted/60 border border-border/60 rounded-near-md p-1 text-xs">
               <button
                 onClick={() => setActivityTab("all")}
-                className={cn("px-2.5 py-1 rounded-lg font-bold transition", activityTab === "all" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground")}
+                className={cn("px-2.5 py-1 rounded-near-xs font-bold transition motion-fast", activityTab === "all" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground")}
               >
                 الكل
               </button>
               <button
                 onClick={() => setActivityTab("financial")}
-                className={cn("px-2.5 py-1 rounded-lg font-bold transition", activityTab === "financial" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground")}
+                className={cn("px-2.5 py-1 rounded-near-xs font-bold transition motion-fast", activityTab === "financial" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground")}
               >
                 المالية
               </button>
               <button
                 onClick={() => setActivityTab("subscribers")}
-                className={cn("px-2.5 py-1 rounded-lg font-bold transition", activityTab === "subscribers" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground")}
+                className={cn("px-2.5 py-1 rounded-near-xs font-bold transition motion-fast", activityTab === "subscribers" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground")}
               >
                 التسجيلات
               </button>
               <button
                 onClick={() => setActivityTab("renewals")}
-                className={cn("px-2.5 py-1 rounded-lg font-bold transition", activityTab === "renewals" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground")}
+                className={cn("px-2.5 py-1 rounded-near-xs font-bold transition motion-fast", activityTab === "renewals" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground")}
               >
                 التجديدات
               </button>
@@ -526,16 +515,16 @@ export function ExecutiveDashboard({
               {filteredActivities.map((act) => (
                 <div
                   key={act.id}
-                  className="flex items-start gap-2.5 p-2.5 rounded-xl border border-border/60 hover:bg-accent/40 transition text-xs"
+                  className="flex items-start gap-2.5 p-2.5 rounded-near-md border border-border/60 hover:bg-accent/40 motion-fast transition-all text-xs"
                 >
-                  <div className="h-7 w-7 rounded-lg bg-muted flex items-center justify-center shrink-0 mt-0.5 font-bold">
+                  <div className="h-7 w-7 rounded-near-xs bg-muted flex items-center justify-center shrink-0 mt-0.5 font-bold">
                     {act.type?.includes("financial") ? "💰" : act.type?.includes("renewal") ? "🔄" : "👤"}
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold text-foreground/90 leading-tight line-clamp-2">
                       {act.description}
                     </p>
-                    <span className="text-[10px] text-muted-foreground mt-0.5 block">
+                    <span className="font-mono-data text-[10px] text-muted-foreground mt-0.5 block">
                       {new Date(act.createdAt).toLocaleString("ar-DZ", {
                         hour: "2-digit",
                         minute: "2-digit",
