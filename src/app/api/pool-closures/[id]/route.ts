@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { formatDate } from "@/lib/date-utils";
 
 /**
  * DELETE /api/pool-closures/[id]
@@ -40,7 +41,7 @@ export async function DELETE(
         clubId: closure.clubId,
         closureId: closure.id,
         action: "deleted",
-        description: `حذف إغلاق ${closure.date.toLocaleDateString("ar")} (${closure.reason})`,
+        description: `حذف إغلاق ${formatDate(closure.date)} (${closure.reason})`,
         oldValue: JSON.stringify({ closureId: id, reason: closure.reason, date: closure.date }),
         userId: currentUser.id,
       },

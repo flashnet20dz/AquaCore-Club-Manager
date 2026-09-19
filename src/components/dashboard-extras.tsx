@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { onFinancialUpdated } from "@/lib/financial-events";
+import { formatDateArabic } from "@/lib/date-utils";
 
 interface ChurnItem {
   subscriberId: string; name: string; fileNumber: string;
@@ -349,7 +350,7 @@ export function DashboardExtras() {
                 <div key={d.date} className="flex items-center gap-2">
                   <span className="w-5 text-xs font-bold text-muted-foreground">{i + 1}</span>
                   <span className="w-24 text-xs font-medium shrink-0">
-                    {new Date(d.date).toLocaleDateString("ar-DZ", { weekday: "short", day: "numeric", month: "short" })}
+                    {formatDateArabic(d.date, { weekday: "short", day: "numeric", month: "short" })}
                   </span>
                   <div className="flex-1 h-4 rounded-full bg-muted/60 overflow-hidden">
                     <motion.div

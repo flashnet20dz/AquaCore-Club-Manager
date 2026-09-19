@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { ExportButton } from "@/components/shared/export-button";
 import { TransactionDetailsDialog } from "@/components/financial/transaction-details-dialog";
 import { onFinancialUpdated } from "@/lib/financial-events";
+import { formatDate } from "@/lib/date-utils";
 
 interface MethodStat {
   method: string;
@@ -529,7 +530,7 @@ export function FinancialAnalyticsView({ role }: { role: string }) {
                             {tx.payeeName || (tx.subscriberFileNumber ? `منخرط #${tx.subscriberFileNumber}` : "جهة غير مسماة")}
                           </p>
                           <p className="text-[10px] text-muted-foreground truncate font-mono-data">
-                            {new Date(tx.date).toLocaleDateString("ar-DZ")} • {tx.paymentMethod === "cash" ? "نقدي" : tx.paymentMethod === "bank" ? "بنك" : "شيك"} {tx.note ? `• ${tx.note}` : ""}
+                            {formatDate(tx.date)} • {tx.paymentMethod === "cash" ? "نقدي" : tx.paymentMethod === "bank" ? "بنك" : "شيك"} {tx.note ? `• ${tx.note}` : ""}
                           </p>
                         </div>
                       </div>

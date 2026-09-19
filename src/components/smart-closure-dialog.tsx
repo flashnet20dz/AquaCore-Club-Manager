@@ -301,17 +301,17 @@ export function SmartClosureDialog({
     }
   };
 
-  // تنسيق التاريخ للعرض العربي
+  // تنسيق التاريخ للعرض العربي بأرقام عادية
   const formatArabicDate = (dateStr: string | null) => {
     if (!dateStr) return "—";
     try {
       const d = new Date(dateStr);
-      return d.toLocaleDateString("ar-EG", {
-        weekday: "short",
-        year: "numeric",
-        month: "numeric",
-        day: "numeric",
-      });
+      if (isNaN(d.getTime())) return dateStr;
+      const day = String(d.getDate()).padStart(2, "0");
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const year = d.getFullYear();
+      const weekday = d.toLocaleDateString("ar-DZ-u-nu-latn", { weekday: "short" });
+      return `${weekday} ${day}/${month}/${year}`;
     } catch {
       return dateStr;
     }

@@ -5,6 +5,7 @@ import {
   countCancelledSessionsInRange,
   calculateCompensationExpiryDate,
 } from "@/lib/rcs";
+import { formatDate } from "@/lib/date-utils";
 
 /**
  * GET /api/pool-closures
@@ -280,8 +281,8 @@ export async function POST(req: NextRequest) {
           type: "pool_closure",
           title: "إغلاق المسبح للصيانة وتعديل الاشتراكات",
           message: isMultiDay
-            ? `إغلاق المسبح من ${closureStart.toLocaleDateString("ar")} إلى ${closureEnd.toLocaleDateString("ar")} (${closureDays} أيام) بسبب: ${reason}.${extendSubscriptionDays ? ` تم استئناف وتمديد اشتراكك تلقائياً بـ ${closureDays} أيام إضافية.` : ""}`
-            : `إغلاق المسبح بتاريخ ${closureDate.toLocaleDateString("ar")} بسبب: ${reason}.${extendSubscriptionDays ? ` تم استئناف وتمديد اشتراكك بـ ${closureDays} يوم.` : ""}`,
+            ? `إغلاق المسبح من ${formatDate(closureStart)} إلى ${formatDate(closureEnd)} (${closureDays} أيام) بسبب: ${reason}.${extendSubscriptionDays ? ` تم استئناف وتمديد اشتراكك تلقائياً بـ ${closureDays} أيام إضافية.` : ""}`
+            : `إغلاق المسبح بتاريخ ${formatDate(closureDate)} بسبب: ${reason}.${extendSubscriptionDays ? ` تم استئناف وتمديد اشتراكك بـ ${closureDays} يوم.` : ""}`,
           link: `/dashboard/compensations?subscriberId=${s.id}`,
         })),
       });

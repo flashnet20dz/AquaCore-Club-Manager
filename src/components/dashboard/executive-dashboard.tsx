@@ -23,6 +23,7 @@ import { CATEGORY_LABELS } from "@/components/financial/labels";
 import { AnalyticsMetricCard } from "@/components/ui/analytics-metric-card";
 import { ChartTooltipOverlay } from "@/components/ui/chart-tooltip-overlay";
 import { DateRangePresetPicker, type PresetRange } from "@/components/ui/date-range-preset-picker";
+import { formatDateTime } from "@/lib/date-utils";
 
 interface ExecutiveDashboardProps {
   sessionUser: { name: string; role: string } | null;
@@ -525,12 +526,7 @@ export function ExecutiveDashboard({
                       {act.description}
                     </p>
                     <span className="font-mono-data text-[10px] text-muted-foreground mt-0.5 block">
-                      {new Date(act.createdAt).toLocaleString("ar-DZ", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                        day: "numeric",
-                        month: "short",
-                      })}
+                      {formatDateTime(act.createdAt)}
                     </span>
                   </div>
                 </div>

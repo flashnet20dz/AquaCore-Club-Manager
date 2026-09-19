@@ -78,6 +78,7 @@ import { LocalNetworkCard } from "@/components/local-network-card";
 import { WhatsAppReminders } from "@/components/whatsapp-reminders";
 import { hasPermission, ROLE_LABELS, ROLE_ICONS } from "@/lib/roles";
 import { onFinancialUpdated } from "@/lib/financial-events";
+import { formatDate } from "@/lib/date-utils";
 import { fetchFinancialDashboard } from "@/lib/financial-query";
 import { notifyClick, notifySuccess } from "@/lib/sounds";
 import { toast } from "sonner";
@@ -1553,7 +1554,7 @@ function CategorySubscriberList({ subscribers, categoryTitle }: {
       table{border-collapse:collapse;width:100%}th{background:#0f766e;color:white;padding:5px;border:1px solid #ccc}
       td{padding:5px;border:1px solid #ccc}tr:nth-child(even){background:#f0fdfa}</style></head><body>
       <h2 style="color:#0f766e;text-align:center">${categoryTitle}</h2>
-      <p style="text-align:center;color:#555">عدد المنخرطين: ${filtered.length} — ${new Date().toLocaleDateString("ar-DZ")}</p>
+      <p style="text-align:center;color:#555">عدد المنخرطين: ${filtered.length} — ${formatDate(new Date())}</p>
       <table><thead><tr><th>#</th><th>رقم الملف</th><th>اللقب</th><th>الاسم</th><th>الميلاد</th><th>الجنس</th><th>العمر</th><th>نوع الاشتراك</th><th>حالة الدفع</th></tr></thead>
       <tbody>${tableRows}</tbody></table></body></html>`;
     const blob = new Blob([html], { type: "application/msword; charset=utf-8" });

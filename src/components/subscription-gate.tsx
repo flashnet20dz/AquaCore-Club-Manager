@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { generateHardwareFingerprint } from "@/lib/activation-codes";
+import { formatDate } from "@/lib/date-utils";
 
 interface SubscriptionStatus {
   state: "pending" | "trial" | "active" | "grace" | "locked" | "suspended";
@@ -248,11 +249,11 @@ export function ActivationModal({ open, onClose, onActivated }: ActivationModalP
                   <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 sm:p-4 space-y-2 text-right">
                     <div className="flex justify-between text-xs sm:text-sm">
                       <span className="text-white/60">تاريخ البداية:</span>
-                      <span className="text-white font-medium">{result.startDate ? new Date(result.startDate).toLocaleDateString("ar-DZ") : "—"}</span>
+                      <span className="text-white font-medium font-mono-data">{formatDate(result.startDate)}</span>
                     </div>
                     <div className="flex justify-between text-xs sm:text-sm">
                       <span className="text-white/60">تاريخ النهاية:</span>
-                      <span className="text-emerald-400 font-bold">{result.endDate ? new Date(result.endDate).toLocaleDateString("ar-DZ") : "—"}</span>
+                      <span className="text-emerald-400 font-bold font-mono-data">{formatDate(result.endDate)}</span>
                     </div>
                     <div className="flex justify-between text-xs sm:text-sm">
                       <span className="text-white/60">الأيام المتبقية:</span>

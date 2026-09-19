@@ -20,6 +20,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useSwimConfig } from "@/hooks/use-swim-config";
+import { formatDate } from "@/lib/date-utils";
 
 interface WaitlistEntry {
   id: string;
@@ -162,7 +163,7 @@ export function WaitlistPanel() {
                 <p className="text-xs text-muted-foreground">
                   الحصة المطلوبة: {e.desiredSwimmingDays} — {e.desiredTimeSlot}
                   <span className="mx-1">·</span>
-                  منذ {new Date(e.createdAt).toLocaleDateString("ar")}
+                  منذ {formatDate(e.createdAt)}
                 </p>
                 {e.note && <p className="text-xs text-muted-foreground">ملاحظة: {e.note}</p>}
               </div>

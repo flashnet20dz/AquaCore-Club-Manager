@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { calculateExpiryDate, calculateRenewalStatus } from "@/lib/rcs";
+import { formatDate } from "@/lib/date-utils";
 
 /**
  * POST /api/attendance/bulk
@@ -114,7 +115,7 @@ export async function POST(req: NextRequest) {
             data: {
               clubId,
               type: "attendance",
-              description: `تسجيل جماعي لـ ${checkedIn} منخرط ${timeSlot ? `فوج ${timeSlot}` : ""} بتاريخ ${today.toLocaleDateString("ar-DZ")}`,
+              description: `تسجيل جماعي لـ ${checkedIn} منخرط ${timeSlot ? `فوج ${timeSlot}` : ""} بتاريخ ${formatDate(today)}`,
             },
           });
         }

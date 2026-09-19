@@ -52,6 +52,7 @@ import { ExportButton, type ExportColumn } from "@/components/shared/export-butt
 import { TransactionDetailsDialog } from "@/components/financial/transaction-details-dialog";
 import { categoryLabel, paymentMethodLabel, typeLabel } from "@/components/financial/labels";
 import { openReceiptPrint } from "@/components/financial/receipt";
+import { formatDate as fmtDate, formatDateTime as fmtDateTime } from "@/lib/date-utils";
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -141,7 +142,11 @@ function formatDA(n: number): string {
 
 function formatDayMonth(s: string): string {
   try {
-    return new Date(s).toLocaleDateString("ar-DZ", { day: "2-digit", month: "2-digit" });
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return s;
+    const day = String(d.getDate()).padStart(2, "0");
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    return `${day}/${month}`;
   } catch {
     return s;
   }
@@ -149,7 +154,7 @@ function formatDayMonth(s: string): string {
 
 function formatDate(s: string): string {
   try {
-    return new Date(s).toLocaleDateString("ar-DZ", { day: "2-digit", month: "2-digit", year: "numeric" });
+    return fmtDate(s);
   } catch {
     return s;
   }
@@ -157,9 +162,7 @@ function formatDate(s: string): string {
 
 function formatDateTime(s: string): string {
   try {
-    return new Date(s).toLocaleString("ar-DZ", {
-      day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
-    });
+    return fmtDateTime(s);
   } catch {
     return s;
   }

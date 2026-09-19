@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { computeSubscriberFields } from "@/lib/rcs";
 import { getCurrentUser } from "@/lib/session";
 import { getFeatureSettings } from "@/lib/feature-settings";
+import { formatDate } from "@/lib/date-utils";
 
 // 🔒 مقارنة آمنة زمنياً للأسرار (تمنع timing attacks)
 function timingSafeEqualStr(a: string, b: string): boolean {
@@ -113,7 +114,7 @@ export async function GET(req: NextRequest) {
               userId: admin.id,
               type: "renewal",
               title: "اشتراك قريب الانتهاء",
-              message: `${sub.lastName} ${sub.firstName} (${sub.fileNumber}) — ينتهي في ${sub.expiryDate ? new Date(sub.expiryDate).toLocaleDateString("ar-DZ") : "قريب"}`,
+              message: `${sub.lastName} ${sub.firstName} (${sub.fileNumber}) — ينتهي في ${sub.expiryDate ? formatDate(sub.expiryDate) : "قريب"}`,
               link: "/?tab=renewals",
             },
           });

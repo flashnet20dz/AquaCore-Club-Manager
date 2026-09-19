@@ -20,6 +20,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+import { formatDate } from "@/lib/date-utils";
 
 interface Pin {
   id: string;
@@ -178,7 +179,7 @@ export function CashierPinManagement() {
                   <p className="font-semibold text-sm truncate">{p.label}</p>
                   <p className="text-xs text-muted-foreground">{ROLE_LABELS[p.role] || p.role}</p>
                   <p className="text-[10px] text-muted-foreground/70 mt-0.5">
-                    أنشئ في {new Date(p.createdAt).toLocaleDateString("ar-DZ")}
+                    أنشئ في {formatDate(p.createdAt)}
                   </p>
                 </div>
                 <Badge variant="outline" className="text-[9px] bg-emerald-500/10 text-emerald-700 border-emerald-500/30 shrink-0">

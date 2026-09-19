@@ -20,6 +20,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useSubscriptionTypes } from "@/hooks/use-subscription-types";
+import { formatDate } from "@/lib/date-utils";
 
 // ──────────────── Types ────────────────
 interface ErrorDetail {
@@ -440,7 +441,7 @@ export function ImportPanel() {
     doc.setFontSize(16);
     doc.text("تقرير أخطاء الاستيراد", 148, 15, { align: "center" });
     doc.setFontSize(10);
-    doc.text(`عدد الصفوف: ${errorRows.length} | التاريخ: ${new Date().toLocaleDateString("ar-DZ")}`, 148, 22, { align: "center" });
+    doc.text(`عدد الصفوف: ${errorRows.length} | التاريخ: ${formatDate(new Date())}`, 148, 22, { align: "center" });
     autoTable(doc, {
       startY: 28,
       head: [["الصف", "اللقب", "الاسم", "الحالة", "العمود", "القيمة", "المتوقع", "السبب"]],

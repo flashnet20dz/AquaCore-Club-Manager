@@ -5,6 +5,7 @@ import { rateLimit, getClientIp } from "@/lib/rate-limit";
 import ZAI from "z-ai-web-dev-sdk";
 import { parseSwimmingDays } from "@/lib/rcs";
 import { generateLocalAIResponse } from "@/lib/local-ai-engine";
+import { formatDateArabic } from "@/lib/date-utils";
 
 /**
  * POST /api/ai/ask
@@ -156,7 +157,7 @@ export async function POST(req: NextRequest) {
 
     const metrics = {
       النادي: club?.name || "النادي",
-      التاريخ: today.toLocaleDateString("ar-DZ", { weekday: "long", day: "numeric", month: "long", year: "numeric" }),
+      التاريخ: formatDateArabic(today, { weekday: "long", day: "numeric", month: "long", year: "numeric" }),
       المنخرطون: {
         الإجمالي: totalSubs,
         حسب_حالة_الدفع: paymentBreakdown,

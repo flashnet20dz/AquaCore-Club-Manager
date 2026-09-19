@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { formatDateArabic, formatTime } from "@/lib/date-utils";
 
 interface CashClosureDialogProps {
   open: boolean;
@@ -62,16 +63,13 @@ export function CashDrawerClosureDialog({
     }
 
     const now = new Date();
-    const dateStr = now.toLocaleDateString("ar-DZ", {
+    const dateStr = formatDateArabic(now, {
       weekday: "long",
       year: "numeric",
       month: "long",
       day: "numeric",
     });
-    const timeStr = now.toLocaleTimeString("ar-DZ", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    const timeStr = formatTime(now);
 
     const html = `<!DOCTYPE html>
 <html dir="rtl" lang="ar">

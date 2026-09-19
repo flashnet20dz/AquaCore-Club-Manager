@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { formatWallTime } from "@/lib/wall-clock";
+import { formatDate } from "@/lib/date-utils";
 import { useSwimConfig } from "@/hooks/use-swim-config";
 import {
   sessionsForDay, todayDayKey, isOperatingDay, POOL_DAY_LABELS,
@@ -185,7 +186,7 @@ export function PointagePanel() {
   };
 
   const todayName = DAY_NAMES[new Date().getDay()];
-  const todayDate = new Date().toLocaleDateString("ar-DZ");
+  const todayDate = formatDate(new Date());
 
   return (
     <div className="space-y-4">

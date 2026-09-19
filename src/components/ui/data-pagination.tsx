@@ -81,11 +81,11 @@ export function DataPagination({
         <div className="flex items-center gap-1 font-medium">
           <span>عرض</span>
           <span className="font-bold text-foreground font-mono">
-            {startItem.toLocaleString("ar-DZ")} - {endItem.toLocaleString("ar-DZ")}
+            {startItem} - {endItem}
           </span>
           <span>من أصل</span>
           <span className="font-bold text-primary font-mono">
-            {totalItems.toLocaleString("ar-DZ")}
+            {totalItems}
           </span>
           <span>{itemLabel}</span>
         </div>

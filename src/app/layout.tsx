@@ -1,9 +1,11 @@
 import type { Metadata, Viewport } from "next";
 import { Cairo, Tajawal, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import "@/lib/date-utils";
 import { Toaster } from "@/components/ui/sonner";
 import { PWAInstaller } from "@/components/pwa-installer";
 import { ThemeProvider } from "@/lib/theme-context";
+import { LatinDigitsGuard } from "@/components/latin-digits-guard";
 
 const cairo = Cairo({
   variable: "--font-cairo",
@@ -176,6 +178,45 @@ export default function RootLayout({
 
               console.log('✓ Offline fetch interceptor installed');
               })();
+
+              // ═══ Global Latin Digits Enforcer ═══
+              (function() {
+                var eastern = '٠١٢٣٤٥٦٧٨٩', persian = '۰۱۲۳۴۵۶۷۸۹';
+                function toLatin(s) {
+                  return String(s || '').replace(/[٠-٩]/g, function(d) { return eastern.indexOf(d); }).replace(/[۰-۹]/g, function(d) { return persian.indexOf(d); }).replace(/[\u200e\u200f\u061c]/g, '');
+                }
+                function fixLoc(l) {
+                  if (!l) return 'ar-DZ-u-nu-latn';
+                  if (typeof l === 'string' && l.indexOf('ar') === 0 && l.indexOf('nu-latn') === -1) return l + '-u-nu-latn';
+                  return l;
+                }
+                var origD = Date.prototype.toLocaleDateString;
+                Date.prototype.toLocaleDateString = function(l, o) {
+                  var opts = Object.assign({}, o, { numberingSystem: 'latn' });
+                  return toLatin(origD.call(this, fixLoc(l), opts));
+                };
+                var origS = Date.prototype.toLocaleString;
+                Date.prototype.toLocaleString = function(l, o) {
+                  var opts = Object.assign({}, o, { numberingSystem: 'latn' });
+                  return toLatin(origS.call(this, fixLoc(l), opts));
+                };
+                var origT = Date.prototype.toLocaleTimeString;
+                Date.prototype.toLocaleTimeString = function(l, o) {
+                  var opts = Object.assign({}, o, { numberingSystem: 'latn' });
+                  return toLatin(origT.call(this, fixLoc(l), opts));
+                };
+                var origN = Number.prototype.toLocaleString;
+                Number.prototype.toLocaleString = function(l, o) {
+                  var opts = Object.assign({}, o, { numberingSystem: 'latn' });
+                  return toLatin(origN.call(this, fixLoc(l), opts));
+                };
+                if (typeof Intl !== 'undefined' && Intl.DateTimeFormat) {
+                  var origFmt = Intl.DateTimeFormat.prototype.format;
+                  Intl.DateTimeFormat.prototype.format = function(d) {
+                    return toLatin(origFmt.call(this, d));
+                  };
+                }
+              })();
             `,
           }}
         />
@@ -183,6 +224,7 @@ export default function RootLayout({
       <body
         className={`${cairo.variable} ${tajawal.variable} ${inter.variable} ${jetbrainsMono.variable} font-cairo antialiased bg-background text-foreground min-h-screen`}
       >
+        <LatinDigitsGuard />
         <ThemeProvider>
           {children}
         </ThemeProvider>

@@ -22,6 +22,7 @@ import {
   DropdownMenuTrigger, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
+import { formatDate } from "@/lib/date-utils";
 
 export interface ExportColumn<T> {
   key: string;
@@ -86,7 +87,7 @@ function openPrintable<T>(rows: T[], columns: Array<ExportColumn<T>>, title: str
   const bodyHtml = matrix.slice(1).map((r) =>
     `<tr>${r.map((c) => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`
   ).join("");
-  const dt = new Date().toLocaleDateString("ar-DZ", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const dt = formatDate(new Date());
   win.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}

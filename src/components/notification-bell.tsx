@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { formatDateTime } from "@/lib/date-utils";
 
 interface Notification {
   id: string;
@@ -217,10 +218,8 @@ export function NotificationBell() {
                             {!n.read && <span className="h-2 w-2 rounded-full bg-primary shrink-0" />}
                           </div>
                           <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{n.message}</p>
-                          <p className="text-[10px] text-muted-foreground/70 mt-1">
-                            {new Date(n.createdAt).toLocaleString("ar-DZ", {
-                              hour: "2-digit", minute: "2-digit", day: "numeric", month: "short"
-                            })}
+                          <p className="text-[10px] text-muted-foreground/70 mt-1 font-mono-data">
+                            {formatDateTime(n.createdAt)}
                           </p>
                         </div>
                         <button

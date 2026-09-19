@@ -19,6 +19,7 @@ import { FinancialTransactionDialog } from "@/components/financial-transaction-d
 import { TransactionDetailsDialog } from "@/components/financial/transaction-details-dialog";
 import { onFinancialUpdated } from "@/lib/financial-events";
 import { CATEGORY_LABELS, PAYMENT_METHOD_LABELS } from "@/components/financial/labels";
+import { formatDate } from "@/lib/date-utils";
 
 interface ExpensesViewProps {
   role: string;
@@ -73,7 +74,7 @@ export function ExpensesView({ role }: ExpensesViewProps) {
 
   const exportRows = filteredTransactions.map((t: any) => ({
     number: t.number,
-    date: new Date(t.date).toLocaleDateString("ar-DZ"),
+    date: formatDate(t.date),
     category: CATEGORY_LABELS[t.category] || t.category,
     payee: t.payeeName || "—",
     amount: `${t.amount.toLocaleString()} دج`,
@@ -307,8 +308,8 @@ export function ExpensesView({ role }: ExpensesViewProps) {
                         <p className="font-bold text-foreground truncate">
                           {tx.payeeName || "جهة غير مسماة"}
                         </p>
-                        <p className="text-[10px] text-muted-foreground truncate">
-                          {new Date(tx.date).toLocaleDateString("ar-DZ")} • {PAYMENT_METHOD_LABELS[tx.paymentMethod] || tx.paymentMethod} {tx.note ? `• ${tx.note}` : ""}
+                        <p className="text-[10px] text-muted-foreground truncate font-mono-data">
+                          {formatDate(tx.date)} • {PAYMENT_METHOD_LABELS[tx.paymentMethod] || tx.paymentMethod} {tx.note ? `• ${tx.note}` : ""}
                         </p>
                       </div>
                     </div>

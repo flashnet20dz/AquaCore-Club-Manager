@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { QRScanner } from "@/components/qr-scanner";
 import { notifySuccess, notifyWarning, notifyClick, notifyError } from "@/lib/sounds";
 import type { SubscriberWithComputed } from "@/lib/rcs";
+import { formatDateArabic } from "@/lib/date-utils";
 
 interface Attendance {
   id: string;
@@ -371,8 +372,8 @@ export function AttendancePanel({ subscribers, onRefresh }: AttendancePanelProps
             onChange={(e) => setSelectedDate(e.target.value)}
             className="h-10 w-44"
           />
-          <Badge variant="outline" className="h-7">
-            {new Date(selectedDate).toLocaleDateString("ar-DZ", { weekday: "long", day: "numeric", month: "long" })}
+          <Badge variant="outline" className="h-7 font-mono-data">
+            {formatDateArabic(selectedDate, { weekday: "long", day: "numeric", month: "long" })}
           </Badge>
           <Select
             value={filterGroup}
