@@ -22,7 +22,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Wallet, Users, Clock, CalendarDays, RefreshCw, CalendarRange, Loader2, Banknote,
-  BadgeCheck, CircleDashed, CircleAlert, ChevronRight, ChevronLeft, History, XCircle,
+  BadgeCheck, CircleDashed, CircleAlert, ChevronRight, ChevronLeft, History, XCircle, Printer,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,6 +45,7 @@ import { toast } from "sonner";
 import { notifyFinancialUpdated } from "@/lib/financial-events";
 import { toLocalYMD } from "@/lib/wall-clock";
 import { ExportButton } from "@/components/shared/export-button";
+import { openWageReceiptPrint, type WageReceiptData } from "./wage-receipt";
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -175,6 +176,26 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
   const [voidReason, setVoidReason] = useState("");
   const [voiding, setVoiding] = useState(false);
 
+  // ★ وصل استلام المستحقات — بعد التسديد + من سجل التسديدات
+  const [paidSuccess, setPaidSuccess] = useState<{ paymentId: string; workerName: string; amount: number } | null>(null);
+  const [receiptBusy, setReceiptBusy] = useState(false);
+
+  /** جلب بيانات الوصل وفتح نافذة الطباعة (يدعم السجلات القديمة legacy) */
+  const printReceipt = useCallback(async (paymentId: string, legacy = false) => {
+    setReceiptBusy(true);
+    try {
+      const res = await fetch(`/api/wages/receipt?id=${encodeURIComponent(paymentId)}${legacy ? "&legacy=1" : ""}`, { cache: "no-store" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "فشل تحميل بيانات الوصل");
+      const ok = openWageReceiptPrint(json as WageReceiptData);
+      if (!ok) toast.error("المتصفح حجب نافذة الطباعة — اسمح بالنوافذ المنبثقة لهذا الموقع");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "فشل طباعة الوصل");
+    } finally {
+      setReceiptBusy(false);
+    }
+  }, []);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -240,6 +261,10 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
       notifyFinancialUpdated();
       setPayTarget(null);
       setPayNote("");
+      // ★ وصل الاستلام — يُعرض مباشرة بعد نجاح التسديد ليُطبع ويُمضّيه العامل
+      if (json.wagePaymentId) {
+        setPaidSuccess({ paymentId: json.wagePaymentId, workerName: payTarget.name, amount: amt });
+      }
       await fetchData();
       onChanged?.();
     } catch (e) {
@@ -577,6 +602,19 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
                   <Badge variant="outline" className={cn("tabular-nums shrink-0", p.status === "cancelled" ? "bg-muted text-muted-foreground border-border line-through" : "bg-emerald-500/15 text-emerald-700 border-emerald-500/30")}>
                     {formatDA(p.amount)}
                   </Badge>
+                  {!p.legacy && p.status !== "cancelled" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => printReceipt(p.id)}
+                      disabled={receiptBusy}
+                      className="h-7 px-2.5 text-xs gap-1 shrink-0 text-teal-700 border-teal-500/40 hover:bg-teal-500/10 hover:text-teal-800"
+                      title="طباعة وصل استلام المستحقات ليُمضّيه العامل"
+                      aria-label={`طباعة وصل استلام ${formatDA(p.amount)} للعامل ${p.workerName}`}
+                    >
+                      <Printer className="h-3.5 w-3.5" /> وصل
+                    </Button>
+                  )}
                   {canVoid && p.status !== "cancelled" && (
                     <Button
                       variant="outline"
@@ -629,6 +667,19 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
                 <Badge variant="outline" className={cn("tabular-nums shrink-0", p.status === "cancelled" ? "bg-muted text-muted-foreground border-border line-through" : "bg-emerald-500/15 text-emerald-700 border-emerald-500/30")}>
                   {formatDA(p.amount)}
                 </Badge>
+                {p.status !== "cancelled" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => printReceipt(p.id, p.legacy)}
+                    disabled={receiptBusy}
+                    className="h-7 px-2.5 text-xs gap-1 shrink-0 text-teal-700 border-teal-500/40 hover:bg-teal-500/10 hover:text-teal-800"
+                    title="طباعة وصل استلام المستحقات ليُمضّيه العامل"
+                    aria-label={`طباعة وصل استلام ${formatDA(p.amount)} للعامل ${p.workerName}`}
+                  >
+                    <Printer className="h-3.5 w-3.5" /> وصل
+                  </Button>
+                )}
                 {canVoid && p.status !== "cancelled" && (
                   <Button
                     variant="outline"
@@ -719,6 +770,38 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
             <Button onClick={handlePay} disabled={paying} className="bg-amber-600 hover:bg-amber-700 text-white">
               {paying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Banknote className="h-4 w-4 ml-1" />}
               تأكيد الدفع
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══ حوار ما بعد التسديد — طباعة وصل الاستلام فوراً ═══ */}
+      <Dialog open={!!paidSuccess} onOpenChange={(o) => !o && setPaidSuccess(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <BadgeCheck className="h-5 w-5 text-emerald-600" /> تم التسديد بنجاح
+            </DialogTitle>
+            <DialogDescription className="text-xs leading-relaxed">
+              سُجّلت الدفعة وأُنشئ قيدها المالي في المركز المالي. طبعاً وصل الاستلام يوقّعه العامل لتوثيق الاستلام.
+            </DialogDescription>
+          </DialogHeader>
+          {paidSuccess && (
+            <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/25 p-3 text-center">
+              <p className="text-xs text-muted-foreground">وصل استلام مستحقات مالية</p>
+              <p className="font-bold text-sm mt-0.5">{paidSuccess.workerName}</p>
+              <p className="text-emerald-700 font-extrabold tabular-nums text-lg">{formatDA(paidSuccess.amount)}</p>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setPaidSuccess(null)}>لاحقاً</Button>
+            <Button
+              onClick={() => { if (paidSuccess) printReceipt(paidSuccess.paymentId); setPaidSuccess(null); }}
+              disabled={receiptBusy}
+              className="bg-teal-600 hover:bg-teal-700 text-white gap-1"
+            >
+              {receiptBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+              طباعة الوصل
             </Button>
           </DialogFooter>
         </DialogContent>
