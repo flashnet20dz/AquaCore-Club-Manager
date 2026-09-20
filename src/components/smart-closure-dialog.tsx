@@ -741,11 +741,8 @@ export function SmartClosureDialog({
                       <th className="p-2 font-semibold min-w-[140px]">المنخرط</th>
                       <th className="p-2 font-semibold min-w-[100px]">الفوج والتوقيت</th>
                       <th className="p-2 font-semibold text-center whitespace-nowrap">الحصص</th>
-                      <th className="p-2 font-semibold whitespace-nowrap">تاريخ الانتهاء</th>
                       <th className="p-2 font-semibold whitespace-nowrap">
-                        {extendSubscriptionDays
-                          ? `+${closureDays} يوم بعد الفتح`
-                          : "تاريخ الانتهاء"}
+                        {extendSubscriptionDays ? "تاريخ الانتهاء (حالي → جديد)" : "تاريخ الانتهاء"}
                       </th>
                     </tr>
                   </thead>
@@ -794,13 +791,13 @@ export function SmartClosureDialog({
                             </Badge>
                           </td>
 
-                          {/* تاريخ الانتهاء الحالي */}
+                          {/* تاريخ الانتهاء (مدمج) */}
                           <td className="p-2">
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1 flex-wrap">
                               <Badge
                                 variant="secondary"
                                 className={cn(
-                                  "text-[10px] font-mono",
+                                  "text-[10px]",
                                   s.isUnexpired
                                     ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
                                     : "bg-rose-500/15 text-rose-700 dark:text-rose-300"
@@ -811,24 +808,15 @@ export function SmartClosureDialog({
                               <span className="font-mono text-[11px] text-muted-foreground">
                                 {formatArabicDate(s.currentExpiryDate)}
                               </span>
+                              {extendSubscriptionDays && s.newExpiryDate && (
+                                <>
+                                  <ArrowRight className="h-3 w-3 rotate-180 text-emerald-500 shrink-0" />
+                                  <span className="font-mono text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                                    {formatArabicDate(s.newExpiryDate)}
+                                  </span>
+                                </>
+                              )}
                             </div>
-                          </td>
-
-                          {/* تاريخ الانتهاء الجديد بعد الاستئناف */}
-                          <td className="p-2">
-                            {extendSubscriptionDays && s.newExpiryDate ? (
-                              <div className="flex items-center gap-1.5 font-mono text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">
-                                <ArrowRight className="h-3 w-3 rotate-180 text-emerald-500" />
-                                <span>{formatArabicDate(s.newExpiryDate)}</span>
-                                <Badge variant="outline" className="text-[9px] bg-emerald-500/10 text-emerald-600 border-emerald-500/30">
-                                  +{closureDays} يوم
-                                </Badge>
-                              </div>
-                            ) : (
-                              <span className="text-muted-foreground font-mono text-[11px]">
-                                {formatArabicDate(s.currentExpiryDate)}
-                              </span>
-                            )}
                           </td>
                         </tr>
                       );
