@@ -247,6 +247,36 @@ export default function RootLayout({
                     return toLatin(origFmt.call(this, d));
                   };
                 }
+
+                // ═══ Date Input DD/MM/YYYY Enforcer ═══
+                // Chrome uses the html[lang] to pick date format.
+                // Since html[lang]="ar", Chrome may show YYYY/MM/DD or MM/DD/YYYY.
+                // We force lang="en-GB" on every input[type=date] to guarantee DD/MM/YYYY.
+                function fixDateInputs(root) {
+                  var inputs = (root || document).querySelectorAll('input[type="date"]');
+                  for (var i = 0; i < inputs.length; i++) {
+                    if (!inputs[i].getAttribute('lang')) {
+                      inputs[i].setAttribute('lang', 'en-GB');
+                    }
+                  }
+                }
+                // Run once on DOMContentLoaded
+                document.addEventListener('DOMContentLoaded', function() { fixDateInputs(document); });
+                // Watch for dynamic inputs added by React
+                var _mo = new MutationObserver(function(mutations) {
+                  for (var i = 0; i < mutations.length; i++) {
+                    var nodes = mutations[i].addedNodes;
+                    for (var j = 0; j < nodes.length; j++) {
+                      if (nodes[j].nodeType === 1) {
+                        if (nodes[j].tagName === 'INPUT' && nodes[j].type === 'date' && !nodes[j].getAttribute('lang')) {
+                          nodes[j].setAttribute('lang', 'en-GB');
+                        }
+                        if (nodes[j].querySelectorAll) { fixDateInputs(nodes[j]); }
+                      }
+                    }
+                  }
+                });
+                _mo.observe(document.documentElement, { childList: true, subtree: true });
               })();
             `,
           }}
