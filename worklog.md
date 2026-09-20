@@ -1135,3 +1135,20 @@ Deployment (wifi-groups-maintenance-speed):
 - Vercel auto-deploy نجح — حزمة الإنتاج تحتوي «إغلاق يوم محدد بتاريخ» (تم التحقق من chunk 06pmccqmfymxu.js)
 - دخان الإنتاج: login 200 (superadmin)، /login 200، / 200، pool-closures 200، auth/me 200، swimming-days 403 (متوقع: superadmin بلا clubId)، لا يوجد أي 5xx
 - إصلاح جانبي: استعادة src/app/api/upload/club-logo/route.ts المحذوفة في بيئة العمل (تستدعيها theme-settings-panel)
+
+---
+Task ID: github-auto-push
+Agent: Z.ai Code (main)
+Task: تعليمة دائمة من المستخدم: «كل اضافة او تغيير او تحديث بعده ارفع تلقائيا على GITHUB» + توحيد عمل الفروع المتشعبة (الوصل استلام محلياً ↔ latin-dates/4-fixes على origin)
+
+Work Log:
+- 🔍 اكتشاف الانقسام: المستودع المحلي (my-project) فيه ميزة «وصل استلام» كاملة (6cc1a0f) بينما origin/main فيه 14 commit من جلسة الإنتاج (latin-dates e914a00+884a3cb، إصلاحات الواي فاي/الأفواج/يوم الصيانة 4e5348a، قاعدة بيانات مزدوجة ba75bd9، ثيمات) — وكلٌّ بلا الآخر
+- 🔀 merge origin/main → main: تعارض وحيد في worklog.md (فقرات مستقلة من الجانبين) حُلّ بالإبقاء على الفقرات الثلاث كاملة — wages-section.tsx اندمج آلياً (الوصل + إصلاحات التاريخ معاً)
+- ✅ تحقق ما بعد الدمج: tsc --noEmit نظيف (EXIT 0)؛ متصفح حي: تسجيل دخول admin@rcs.dz → ساعات العمل → أجور العمال — صفر أرقام شرقية، تواريخ لاتينية D/M/Y (14/09/2026...)، زرا «طباعة وصل استلام 5 250 دج» حاضران، النقر يفتح الوصل كاملاً (رقم 1/2026، التفقيط، التوقيعات) — الميزتان تعملان معاً في شجرة واحدة
+- ⚙️ ضبط الرفع التلقائي: remote origin أُعيد كتابته بـ token flashnet20dz (inline) + credential.helper=store + ~/.git-credentials — كل push قادم يعمل بلا تدخل
+- 🚀 الرفع: 5fbc82e..d5549c5 main → GitHub (بلا force) — Vercel ينشر آلياً
+
+Stage Summary:
+- ✅ شجرة موحدة: وصل استلام أجور العمال + latin-dates + إصلاحات الواي فاي/الأفواج/الصيانة/الأداء + قاعدة بيانات مزدوجة — كلها على origin/main (d5549c5)
+- ✅ «الرفع التلقائي بعد كل تغيير» أصبح معياراً دائماً: كل مهمة تُختتم بـ commit + push origin main (token مدمج)
+- 🔜 قائمة الانتظار: ثيم Expressive Brand (b01bdcf موجود على origin ويحتاج توثيق)، «الحساب لا يعمل»، مهلة التسجيل الجماعي
