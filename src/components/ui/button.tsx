@@ -20,12 +20,26 @@ const buttonVariants = cva(
         ghost:
           "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
         link: "text-primary underline-offset-4 hover:underline",
+        saasPrimary:
+          "rounded-near-sm bg-saas-primary text-white hover:bg-blue-600 shadow-xs motion-fast font-semibold focus-visible:ring-saas-primary/30 focus-visible:ring-[3px]",
+        saasSecondary:
+          "rounded-near-sm border border-saas-outline-hi bg-saas-surface text-foreground hover:bg-saas-surface-high motion-fast font-semibold",
+        saasGhost:
+          "rounded-near-sm text-foreground hover:bg-saas-surface-high hover:text-saas-brand-blue motion-fast",
+        pillPrimary:
+          "rounded-full bg-saas-primary text-white hover:bg-blue-600 shadow-xs motion-fast font-semibold",
+        pillAccent:
+          "rounded-full bg-saas-secondary text-white hover:bg-teal-600 shadow-xs motion-fast font-semibold",
+        outlinePill:
+          "rounded-full border border-saas-outline-hi bg-transparent text-foreground hover:bg-muted/50 motion-fast font-medium",
       },
       size: {
         default: "h-9 px-4 py-2 has-[>svg]:px-3",
         sm: "h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5",
         lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
         icon: "size-9",
+        saas: "h-[38px] px-4 text-xs font-semibold rounded-near-sm",
+        pill: "h-[38px] px-5 text-xs font-semibold rounded-full",
       },
     },
     defaultVariants: {

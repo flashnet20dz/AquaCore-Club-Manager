@@ -130,7 +130,11 @@ function monthName(ym: string): string {
 
 function fmtDateTime(iso: string): string {
   try {
-    return new Date(iso).toLocaleDateString("fr-DZ", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const d = new Date(iso);
+    const day = String(d.getDate()).padStart(2, "0");
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
   } catch { return iso; }
 }
 

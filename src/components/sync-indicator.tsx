@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { syncNow, type SyncResult } from "@/lib/sync";
 import { getMeta } from "@/lib/local-db";
 import { toast } from "sonner";
+import { formatDate } from "@/lib/date-utils";
 
 type ConnectionState = "online" | "offline";
 type SyncState = "idle" | "syncing" | "success" | "error";
@@ -75,7 +76,7 @@ export function SyncIndicator() {
     if (diff < 60000) return "الآن";
     if (diff < 3600000) return `منذ ${Math.floor(diff / 60000)} د`;
     if (diff < 86400000) return `منذ ${Math.floor(diff / 3600000)} س`;
-    return new Date(ts).toLocaleDateString("ar-DZ");
+    return formatDate(ts);
   };
 
   return (

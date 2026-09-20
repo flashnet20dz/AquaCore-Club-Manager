@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { ensureRuntimeColumns } from "@/lib/runtime-schema";
 import { financialNumber } from "@/lib/financial-posting";
+import { formatDateArabic } from "@/lib/date-utils";
 
 /**
  * GET /api/reports/monthly?year=2026&month=7
@@ -31,7 +32,7 @@ export async function GET(req: NextRequest) {
     const monthStart = new Date(year, month, 1);
     const monthEnd = new Date(year, month + 1, 1);
 
-    const monthName = new Date(year, month, 1).toLocaleDateString("ar-DZ", { month: "long", year: "numeric" });
+    const monthName = formatDateArabic(new Date(year, month, 1), { month: "long", year: "numeric" });
     const clubFilter = user.role === "superadmin" ? {} : { clubId: user.clubId };
 
     const [newSubscribers, renewals, attendances, incomeAgg, expenseAgg, incomeByCat, expenseByCat, recentTx] =

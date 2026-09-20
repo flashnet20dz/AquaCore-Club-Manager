@@ -9,6 +9,7 @@ import {
 } from "@/lib/activation-codes";
 import { computeGracePeriod } from "@/lib/subscription-state";
 import { auditLogWithRequest } from "@/lib/audit";
+import { formatDate } from "@/lib/date-utils";
 import crypto from "crypto";
 
 /**
@@ -216,7 +217,7 @@ export async function POST(req: NextRequest) {
         data: {
           clubId: currentUser.clubId!,
           type: "create",
-          description: `تم تفعيل اشتراك ${planDef.label} (${verification.durationDays} يوم) بكود ${code.substring(0, 14)}... — ينتهي في ${newEndDate.toLocaleDateString("ar-DZ")}`,
+          description: `تم تفعيل اشتراك ${planDef.label} (${verification.durationDays} يوم) بكود ${code.substring(0, 14)}... — ينتهي في ${formatDate(newEndDate)}`,
         },
       });
     });
@@ -228,7 +229,7 @@ export async function POST(req: NextRequest) {
       action: "activate",
       entityType: "activation_code",
       entityId: existingCode.id,
-      description: `تفعيل كود اشتراك ${planDef.label} (${verification.durationDays} يوم) — ينتهي ${newEndDate.toLocaleDateString("ar-DZ")}`,
+      description: `تفعيل كود اشتراك ${planDef.label} (${verification.durationDays} يوم) — ينتهي ${formatDate(newEndDate)}`,
       metadata: {
         code: code.substring(0, 14) + "...",
         plan: verification.plan,
@@ -239,7 +240,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `تم تفعيل اشتراك ${planDef.label} بنجاح! ينتهي في ${newEndDate.toLocaleDateString("ar-DZ")}`,
+      message: `تم تفعيل اشتراك ${planDef.label} بنجاح! ينتهي في ${formatDate(newEndDate)}`,
       activated: {
         plan: verification.plan,
         planLabel: planDef.label,

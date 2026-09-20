@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { formatDate as fmtDate, formatDateArabic, formatTime } from "@/lib/date-utils";
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -125,7 +126,7 @@ function formatNum(n: number): string {
 
 function formatDate(s: string): string {
   try {
-    return new Date(s).toLocaleDateString("ar-DZ", { day: "2-digit", month: "2-digit", year: "numeric" });
+    return fmtDate(s);
   } catch {
     return s;
   }
@@ -1199,11 +1200,11 @@ function DailyStatementReport({ data }: { data: DailyStatementData | null }) {
     );
   }
   const fmtD = (s: string) => {
-    try { return new Date(s).toLocaleDateString("ar-DZ", { weekday: "long", day: "2-digit", month: "long", year: "numeric" }); }
+    try { return formatDateArabic(s, { weekday: "long", day: "2-digit", month: "long", year: "numeric" }); }
     catch { return s; }
   };
   const fmtT = (s: string) => {
-    try { return new Date(s).toLocaleTimeString("ar-DZ", { hour: "2-digit", minute: "2-digit" }); }
+    try { return formatTime(s); }
     catch { return ""; }
   };
   return (

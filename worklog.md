@@ -1091,3 +1091,47 @@ Work Log (ملخص — التنفيذ تم في الجلسة السابقة):
 - 🐞 إصلاح إضافي: انهيار WagesSection (data?.period?.label + data?.workers?.filter)
 - 🧪 تحقق: bun/JSC 20/20 + Node/V8 7/7 + متصفح حي: كل الشاشات (لوحة/المنخرطون/التجديدات/المالية/ساعات العمل) صفر أرقام شرقية، التواريخ D/M/Y تُقرأ يسار→يمين، لا أخطاء كونسول
 - 📁 ملفات: src/lib/date-utils.ts، src/app/layout.tsx، src/app/member/[token]/page.tsx، src/components/wages/wages-section.tsx + 17 ملف حقول تاريخ
+
+---
+Task ID: wifi-groups-maintenance-speed
+Agent: Main Agent (Z.ai Code)
+Task: 4 إصلاحات — ①الاتصال المحلي عبر الواي فاي بدون إنترنت لا يعمل ②الأفواج المزدوجة والمخصصة لا تظهر كلها في شاشة التسجيل ③يوم مغلق للصيانة — المدير يختار اليوم/الفوج ④بطء استجابة تحديد أيام فتح المسبح الأسبوعية
+
+Work Log:
+- 🔍 شخّص جذر مشكلة الواي فاي: electron/main.js كان يربط خادم Next.js المحلي (standalone) على HOSTNAME=127.0.0.1 → الهواتف على نفس الواي فاي تُرفض (ERR_CONNECTION_REFUSED) — وأيضاً ملفات bat تفتح منفذ 3000 فقط بينما نسخة Electron تعمل على 3872
+- ⚙️ أصلح electron/main.js + electron/main.ts: HOSTNAME → 0.0.0.0 (قبول اتصالات كل واجهات الشبكة)
+- ⚙️ أعدت كتابة تفعيل_الاتصال_بالهاتف.bat وscripts/fix-local-network.bat: فتح المنفذين 3000 و3872 + طباعة العنوانين + نصائح «البقاء متصلاً» و«إيقاف 4G»
+- ⚙️ أعدت بناء local-network-card.tsx ذكياً: يكشف الوضع تلقائياً (محلي localhost/LAN-IP vs سحابي vercel.app) — محلياً يعرض عناوين LAN الحقيقية + QR، سحابياً يعرض رابط النسخة السحابية + إرشادات التشغيل المحلي + شريط «اختبار اتصال» حي + استكشاف أخطاء شامل (جدار الحماية، AP Isolation، Hotspot)
+- ⚙️ أصلح subscriber-form.tsx: أزلت الإخفاء التلقائي للأفواج عند إغلاق أحد أيامها — كل الأفواج النشطة تظهر دائماً في التسجيل والقرار لمفتاح «تفعيل الفوج» عند المدير (المطلب: «أنا أختار»)
+- ⚙️ أضفت لنافذة التسجيل تعليقاً يوضح أن الظهور قرار المدير
+- ⚙️ بنيت في swimming-schedule-hub.tsx نافذة «إغلاق يوم محدد بتاريخ للصيانة»: تاريخ حر + نطاق يختاره المدير (كل المنخرطين أو فوج مزدوج محدد) + سبب + تمديد اشتراكات آلي → تربط POST /api/pool-closures (تعويضات + إشعارات آلية)
+- ⚙️ أضفت أيقونة مفتاح (Wrench) على كل يوم في شريط الأيام السبعة: نقرة واحدة تفتح نافذة الصيانة بتاريخ أقرب حدوث لذلك اليوم مسبقاً (nextOccurrenceOf)
+- ⚙️ حسّنت الأداء: toggleOperatingDay أصبح optimistic بلا قفل global (disabled=savingDays كان يجمّد كل الأزرار) + debounce 450ms يجمع النقرات السريعة في حفظ واحد + seedSwimConfigCache بذر فوري للكاش بلا إعادة جلب شبكية
+- ⚙️ عدّلت use-swim-config.ts: أضفت seedSwimConfigCache() + مستمع المكوّنات يطبّق الكاش المبذور فوراً بدل refresh(true) القسري (كان يعيد جلب شبكي في كل مكوّن مفتوح عند كل تعديل)
+- ⚙️ حسّنت PATCH /api/swimming-days: upsert + 7 updateMany صارت db.$transaction([...]) مجمّعة في دفعة واحدة (كانت 8 طلبات متتالية)
+- 🐞 اكتشفت وأصلحت خطأ off-by-one موروث في pool-closures POST + preview: closureDays كان +1 (يوم واحد مغلق = round(0.99999)+1=2) → كانت تُمدد الاشتراكات يوماً زائداً لكل إغلاق — الصيغة الصحيحة بدون +1
+- ✅ تحقق: tsc --noEmit نظيف، lint نظيف للملفات المعدلة (15 خطأ موروث في scripts/ وملفات أخرى لم ألمسها)، اختبارات API (PATCH معاملة مجمعة 200، pool-closures نطاق فوج محفوظ، closureDays=1 بعد الإصلاح)، اختبار متصفح شامل
+
+Stage Summary:
+- ✅ الواي فاي المحلي يعمل في الحالتين: مع الإنترنت (النسخة السحابية) وبدونه (خادم سطح المكتب على 0.0.0.0:3872 + جدار حماية مفتوح بالمنفذين)
+- ✅ بطاقة الشبكة تكشف وضعها تلقائياً وتعرض QR الصحيح لكل وضع + اختبار اتصال حي
+- ✅ شاشة التسجيل تعرض كل الأفواج النشطة دائماً (بما فيها فوج أيامه المغلقة) — القرار للمدير
+- ✅ «يوم مغلق للصيانة» أصبح قرار المدير: تاريخ محدد + نطاق (كل الأفواج/فوج مزدوج) عبر زر مخصص أو أيقونة المفتاح على كل يوم
+- ✅ تبديل أيام التشغيل فوري (optimistic + بلا قفل) والنقرات السريعة تُجمع في حفظ واحد — تحقق: 3 تبديلات سريعة حفظت الحالة النهائية كاملة
+- ✅ انعكاس التعديلات على كل الشاشات المفتوحة لحظياً بلا إعادة جلب شبكية (seed cache)
+- ✅ إصلاح off-by-one في تمديد الاشتراكات بعد الإغلاق (+1 يوم زائد لكل إغلاق)
+Files modified:
+- electron/main.js + electron/main.ts (HOSTNAME 0.0.0.0)
+- تفعيل_الاتصال_بالهاتف.bat + scripts/fix-local-network.bat (المنفذان 3000+3872)
+- src/components/local-network-card.tsx (إعادة بناء ذكية)
+- src/components/subscriber-form.tsx (إزالة الإخفاء التلقائي)
+- src/components/swimming-schedule-hub.tsx (نافذة الصيانة + debounce + seed)
+- src/hooks/use-swim-config.ts (seedSwimConfigCache + مستمع ذكي)
+- src/app/api/swimming-days/route.ts (معاملة مجمعة)
+- src/app/api/pool-closures/route.ts + preview/route.ts (إصلاح closureDays off-by-one)
+
+Deployment (wifi-groups-maintenance-speed):
+- commit f58513a → rebase على 9ee5391 (remote) → push كـ 4e5348a إلى flashnet20dz/AquaCore-Club-Manager
+- Vercel auto-deploy نجح — حزمة الإنتاج تحتوي «إغلاق يوم محدد بتاريخ» (تم التحقق من chunk 06pmccqmfymxu.js)
+- دخان الإنتاج: login 200 (superadmin)، /login 200، / 200، pool-closures 200، auth/me 200، swimming-days 403 (متوقع: superadmin بلا clubId)، لا يوجد أي 5xx
+- إصلاح جانبي: استعادة src/app/api/upload/club-logo/route.ts المحذوفة في بيئة العمل (تستدعيها theme-settings-panel)

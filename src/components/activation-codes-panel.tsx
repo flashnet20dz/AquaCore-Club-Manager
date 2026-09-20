@@ -19,6 +19,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { formatDate } from "@/lib/date-utils";
 
 interface Batch {
   id: string;
@@ -213,9 +214,14 @@ export function ActivationCodesPanel({ open, onClose }: { open: boolean; onClose
 
   const exportCsv = (codesList: CodeEntry[], batchName: string) => {
     const header = "الكود,الخطة,المدة(يوم),الحالة,النادي,تاريخ التفعيل,تاريخ الانتهاء\n";
-    const rows = codesList.map((c) =>
-      `${c.code},${c.planLabel},${c.durationDays},${STATUS_LABELS[c.status]?.label || c.status},${c.club?.name || "—"},${c.activatedAt ? new Date(c.activatedAt).toLocaleDateString("en-GB") : "—"},${c.expiresAt ? new Date(c.expiresAt).toLocaleDateString("en-GB") : "—"}`
-    ).join("\n");
+    const rows = codesList.map((c) => {
+      const fmt = (v: string | null | undefined) => {
+        if (!v) return "—";
+        const d = new Date(v);
+        return `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`;
+      };
+      return `${c.code},${c.planLabel},${c.durationDays},${STATUS_LABELS[c.status]?.label || c.status},${c.club?.name || "—"},${fmt(c.activatedAt)},${fmt(c.expiresAt)}`;
+    }).join("\n");
     const blob = new Blob(["\ufeff" + header + rows], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -329,7 +335,7 @@ export function ActivationCodesPanel({ open, onClose }: { open: boolean; onClose
                         <div className="flex items-center gap-2 text-[10px] text-muted-foreground mb-2">
                           <span>{b.count} كود</span>
                           <span>•</span>
-                          <span>{new Date(b.createdAt).toLocaleDateString("ar-DZ")}</span>
+                          <span>{formatDate(b.createdAt)}</span>
                           <span>•</span>
                           <span>بواسطة {b.generatedBy}</span>
                         </div>
@@ -416,7 +422,7 @@ export function ActivationCodesPanel({ open, onClose }: { open: boolean; onClose
                               </div>
                               <div className="flex items-center gap-2 text-[10px] text-muted-foreground shrink-0">
                                 {c.club && <span className="hidden sm:inline">→ {c.club.name}</span>}
-                                {c.expiresAt && <span>حتى {new Date(c.expiresAt).toLocaleDateString("ar-DZ")}</span>}
+                                {c.expiresAt && <span>حتى {formatDate(c.expiresAt)}</span>}
                                 {c.status === "unused" && (
                                   <button
                                     onClick={() => { navigator.clipboard.writeText(c.code); toast.success("تم النسخ"); }}
@@ -649,13 +655,13 @@ export function ActivationCodesPanel({ open, onClose }: { open: boolean; onClose
                             {verifyResult.activatedAt && (
                               <div className="flex justify-between">
                                 <span className="text-muted-foreground">تاريخ التفعيل:</span>
-                                <span className="font-semibold">{new Date(verifyResult.activatedAt).toLocaleDateString("ar-DZ")}</span>
+                                <span className="font-semibold">{formatDate(verifyResult.activatedAt)}</span>
                               </div>
                             )}
                             {verifyResult.expiresAt && (
                               <div className="flex justify-between">
                                 <span className="text-muted-foreground">ينتهي في:</span>
-                                <span className="font-semibold">{new Date(verifyResult.expiresAt).toLocaleDateString("ar-DZ")}</span>
+                                <span className="font-semibold">{formatDate(verifyResult.expiresAt)}</span>
                               </div>
                             )}
                           </>

@@ -15,5 +15,6 @@
     "src/app/api/backup/route.ts": {
       "maxDuration": 60
     }
-  }
+  },
+  "regions": ["cdg1"]
 }

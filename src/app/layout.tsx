@@ -1,9 +1,11 @@
 import type { Metadata, Viewport } from "next";
-import { Cairo, Tajawal } from "next/font/google";
+import { Cairo, Tajawal, Unbounded, Manrope, Azeret_Mono, Cairo_Play, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import "@/lib/date-utils";
 import { Toaster } from "@/components/ui/sonner";
 import { PWAInstaller } from "@/components/pwa-installer";
 import { ThemeProvider } from "@/lib/theme-context";
+import { LatinDigitsGuard } from "@/components/latin-digits-guard";
 
 const cairo = Cairo({
   variable: "--font-cairo",
@@ -16,6 +18,46 @@ const tajawal = Tajawal({
   variable: "--font-tajawal",
   subsets: ["arabic", "latin"],
   weight: ["300", "400", "500", "700", "800"],
+  display: "swap",
+});
+
+// ── SaaS Analytics fonts (dense tables / mono metrics) ──
+const inter = Inter({
+  variable: "--font-inter",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-mono",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+// ── Expressive Brand fonts ──
+// Unbounded carries display, Manrope carries UI, Azeret Mono marks energy.
+// Cairo Play is the expressive Arabic display fallback (Unbounded has no Arabic).
+const unbounded = Unbounded({
+  variable: "--font-unbounded",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+const manrope = Manrope({
+  variable: "--font-manrope",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+const azeretMono = Azeret_Mono({
+  variable: "--font-azeret",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+const cairoPlay = Cairo_Play({
+  variable: "--font-cairo-play",
+  subsets: ["arabic", "latin"],
   display: "swap",
 });
 
@@ -51,8 +93,8 @@ export const viewport: Viewport = {
   maximumScale: 5,
   userScalable: true,
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#0b1220" },
+    { media: "(prefers-color-scheme: light)", color: "#faf7fb" },
+    { media: "(prefers-color-scheme: dark)", color: "#0d0b10" },
   ],
 };
 
@@ -69,7 +111,10 @@ export default function RootLayout({
             __html: `
               try {
                 const theme = localStorage.getItem('rcs-theme');
-                if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                // ?_theme=dark|light deep-link override (useful for QA + screenshots)
+                const qp = new URLSearchParams(location.search).get('_theme');
+                const wantsDark = qp === 'dark' || (!qp && theme === 'dark') || (!qp && !theme && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                if (wantsDark) {
                   document.documentElement.classList.add('dark');
                 }
               } catch (e) {}
@@ -164,13 +209,83 @@ export default function RootLayout({
 
               console.log('✓ Offline fetch interceptor installed');
               })();
+
+              // ═══ Global Latin Digits Enforcer ═══
+              (function() {
+                var eastern = '٠١٢٣٤٥٦٧٨٩', persian = '۰۱۲۳۴۵۶۷۸۹';
+                function toLatin(s) {
+                  return String(s || '').replace(/[٠-٩]/g, function(d) { return eastern.indexOf(d); }).replace(/[۰-۹]/g, function(d) { return persian.indexOf(d); }).replace(/[\u200e\u200f\u061c]/g, '');
+                }
+                function fixLoc(l) {
+                  if (!l) return 'ar-DZ-u-nu-latn';
+                  if (typeof l === 'string' && l.indexOf('ar') === 0 && l.indexOf('nu-latn') === -1) return l + '-u-nu-latn';
+                  return l;
+                }
+                var origD = Date.prototype.toLocaleDateString;
+                Date.prototype.toLocaleDateString = function(l, o) {
+                  var opts = Object.assign({}, o, { numberingSystem: 'latn' });
+                  return toLatin(origD.call(this, fixLoc(l), opts));
+                };
+                var origS = Date.prototype.toLocaleString;
+                Date.prototype.toLocaleString = function(l, o) {
+                  var opts = Object.assign({}, o, { numberingSystem: 'latn' });
+                  return toLatin(origS.call(this, fixLoc(l), opts));
+                };
+                var origT = Date.prototype.toLocaleTimeString;
+                Date.prototype.toLocaleTimeString = function(l, o) {
+                  var opts = Object.assign({}, o, { numberingSystem: 'latn' });
+                  return toLatin(origT.call(this, fixLoc(l), opts));
+                };
+                var origN = Number.prototype.toLocaleString;
+                Number.prototype.toLocaleString = function(l, o) {
+                  var opts = Object.assign({}, o, { numberingSystem: 'latn' });
+                  return toLatin(origN.call(this, fixLoc(l), opts));
+                };
+                if (typeof Intl !== 'undefined' && Intl.DateTimeFormat) {
+                  var origFmt = Intl.DateTimeFormat.prototype.format;
+                  Intl.DateTimeFormat.prototype.format = function(d) {
+                    return toLatin(origFmt.call(this, d));
+                  };
+                }
+
+                // ═══ Date Input DD/MM/YYYY Enforcer ═══
+                // Chrome uses the html[lang] to pick date format.
+                // Since html[lang]="ar", Chrome may show YYYY/MM/DD or MM/DD/YYYY.
+                // We force lang="en-GB" on every input[type=date] to guarantee DD/MM/YYYY.
+                function fixDateInputs(root) {
+                  var inputs = (root || document).querySelectorAll('input[type="date"]');
+                  for (var i = 0; i < inputs.length; i++) {
+                    if (!inputs[i].getAttribute('lang')) {
+                      inputs[i].setAttribute('lang', 'en-GB');
+                    }
+                  }
+                }
+                // Run once on DOMContentLoaded
+                document.addEventListener('DOMContentLoaded', function() { fixDateInputs(document); });
+                // Watch for dynamic inputs added by React
+                var _mo = new MutationObserver(function(mutations) {
+                  for (var i = 0; i < mutations.length; i++) {
+                    var nodes = mutations[i].addedNodes;
+                    for (var j = 0; j < nodes.length; j++) {
+                      if (nodes[j].nodeType === 1) {
+                        if (nodes[j].tagName === 'INPUT' && nodes[j].type === 'date' && !nodes[j].getAttribute('lang')) {
+                          nodes[j].setAttribute('lang', 'en-GB');
+                        }
+                        if (nodes[j].querySelectorAll) { fixDateInputs(nodes[j]); }
+                      }
+                    }
+                  }
+                });
+                _mo.observe(document.documentElement, { childList: true, subtree: true });
+              })();
             `,
           }}
         />
       </head>
       <body
-        className={`${cairo.variable} ${tajawal.variable} font-cairo antialiased bg-background text-foreground min-h-screen`}
+        className={`${cairo.variable} ${tajawal.variable} ${inter.variable} ${jetbrainsMono.variable} ${unbounded.variable} ${manrope.variable} ${azeretMono.variable} ${cairoPlay.variable} font-cairo antialiased bg-background text-foreground min-h-screen`}
       >
+        <LatinDigitsGuard />
         <ThemeProvider>
           {children}
         </ThemeProvider>

@@ -82,6 +82,26 @@ export interface ThemePreset {
 
 export const THEME_PRESETS: ThemePreset[] = [
   {
+    id: "expressive",
+    name: "إنكسبرسيف — الحبر والماجنتا",
+    nameEn: "Ink & Magenta Expressive",
+    description: "الثيم الصاخب: ماجنتا لامعة على حبر داكن مع لمسات ليمونية وطاقة الملصقات",
+    primary: [0.65, 0.19, 350],
+    secondary: [0.87, 0.19, 128],
+    accent: [0.55, 0.21, 5],
+    swatches: { primary: "#e04fa4", secondary: "#bef264", accent: "#d6336c" },
+  },
+  {
+    id: "saas-analytics",
+    name: "تحليلات السحاب (SaaS Analytics)",
+    nameEn: "SaaS Analytics",
+    description: "أزرق فولاذي وتيل مائي، تخطيطات رقمية مكثفة وحركة خاطفة فائقة الدقة",
+    primary: [0.55, 0.18, 250],
+    secondary: [0.70, 0.14, 180],
+    accent: [0.75, 0.16, 75],
+    swatches: { primary: "#3B82F6", secondary: "#14B8A6", accent: "#F59E0B" },
+  },
+  {
     id: "ocean",
     name: "أزرق المحيط",
     nameEn: "Ocean Blue",
@@ -163,6 +183,55 @@ export const THEME_PRESETS: ThemePreset[] = [
   },
 ];
 
+// ════════════ Expressive Brand — Ink & Magenta (exact tokens) ════════════
+// The "brand as experience" system: hot magenta primary, fuchsia kinetic accents,
+// lime energy marks. Dark is canonical; light flips for daytime sessions.
+const EXPRESSIVE_TOKENS: ThemeTokens = {
+  // ── Light (daytime flip) ──
+  primary: "#d6336c",
+  secondary: "#f3edf6",
+  accent: "#eef5d8",
+  background: "#faf7fb",
+  foreground: "#211c2a",
+  card: "#ffffff",
+  cardForeground: "#211c2a",
+  popover: "#ffffff",
+  popoverForeground: "#211c2a",
+  muted: "#f3edf6",
+  mutedForeground: "#6b6377",
+  border: "#e7e0ea",
+  input: "#e7e0ea",
+  ring: "#d6336c",
+  destructive: "#dc2626",
+  success: "#16a34a",
+  warning: "#ca8a04",
+  info: "#a21caf",
+  // ── Dark (canonical ink) ──
+  primaryDark: "#e04fa4",
+  secondaryDark: "#211c2a",
+  accentDark: "#bef264",
+  backgroundDark: "#0d0b10",
+  foregroundDark: "#f5f2f7",
+  cardDark: "#141119",
+  cardForegroundDark: "#f5f2f7",
+  popoverDark: "#1a1622",
+  popoverForegroundDark: "#f5f2f7",
+  mutedDark: "#211c2a",
+  mutedForegroundDark: "#948da3",
+  borderDark: "#2d2437",
+  inputDark: "#2d2437",
+  ringDark: "#e04fa4",
+  destructiveDark: "#f87171",
+  successDark: "#4ade80",
+  warningDark: "#fde047",
+  infoDark: "#d6336c",
+  sidebarDark: "#141119",
+  sidebarForegroundDark: "#f5f2f7",
+  sidebarPrimaryDark: "#e04fa4",
+  sidebarAccentDark: "#211c2a",
+  sidebarBorderDark: "#2d2437",
+};
+
 // ════════════ Token generation from primary color ════════════
 
 /** Format oklch tuple as CSS string */
@@ -173,12 +242,15 @@ function oklch(l: number, c: number, h: number): string {
 /**
  * Generate full token set from a primary color (oklch L,C,H).
  * Derives all other tokens via perceptual offsets — no manual dark/light needed.
+ * The "expressive" preset bypasses generation and returns the exact brand tokens.
  */
 export function generateTokens(
   primary: [number, number, number],
   secondary: [number, number, number],
-  accent: [number, number, number]
+  accent: [number, number, number],
+  presetId?: string | null
 ): ThemeTokens {
+  if (presetId === "expressive") return EXPRESSIVE_TOKENS;
   const [pL, pC, pH] = primary;
   const [sL, sC, sH] = secondary;
   const [aL, aC, aH] = accent;
@@ -262,6 +334,7 @@ export function applyThemeConfig(config: ClubThemeConfig): void {
   let accent: [number, number, number];
 
   const preset = getPreset(config.themePreset);
+  const isExpressive = config.themePreset === "expressive";
   primary = preset.primary;
   secondary = preset.secondary;
   accent = preset.accent;
@@ -280,17 +353,18 @@ export function applyThemeConfig(config: ClubThemeConfig): void {
     if (parsed) accent = parsed;
   }
 
-  // 2. Generate tokens
-  const tokens = generateTokens(primary, secondary, accent);
+  // 2. Generate tokens (expressive returns the exact brand set)
+  const tokens = generateTokens(primary, secondary, accent, config.themePreset);
 
   // 3. Apply light theme CSS variables
   const style = root.style;
   style.setProperty("--primary", tokens.primary);
-  style.setProperty("--primary-foreground", "oklch(0.99 0 0)");
+  // Expressive: ink text on lime/light accents, white on deep magenta (light mode)
+  style.setProperty("--primary-foreground", isExpressive ? "#ffffff" : "oklch(0.99 0 0)");
   style.setProperty("--secondary", tokens.secondary);
-  style.setProperty("--secondary-foreground", "oklch(0.99 0 0)");
+  style.setProperty("--secondary-foreground", isExpressive ? "#211c2a" : "oklch(0.99 0 0)");
   style.setProperty("--accent", tokens.accent);
-  style.setProperty("--accent-foreground", "oklch(0.99 0 0)");
+  style.setProperty("--accent-foreground", isExpressive ? "#1a2e05" : "oklch(0.99 0 0)");
   style.setProperty("--background", tokens.background);
   style.setProperty("--foreground", tokens.foreground);
   style.setProperty("--card", tokens.card);
@@ -317,7 +391,16 @@ export function applyThemeConfig(config: ClubThemeConfig): void {
 
   // Dark theme overrides — applied via a dynamically injected style tag
   ensureDarkStyleTag();
-  const darkCss = `
+  let darkCss = "";
+  // Expressive dark mode: ink text on lighter magenta + ink on lime
+  const expressiveDarkExtras = isExpressive
+    ? `
+      --primary-foreground: #170d13 !important;
+      --secondary-foreground: #f5f2f7 !important;
+      --accent-foreground: #141119 !important;
+    `
+    : "";
+  darkCss = `
     .dark {
       --primary: ${tokens.primaryDark} !important;
       --secondary: ${tokens.secondaryDark} !important;
@@ -340,11 +423,11 @@ export function applyThemeConfig(config: ClubThemeConfig): void {
       --sidebar: ${tokens.sidebarDark} !important;
       --sidebar-foreground: ${tokens.sidebarForegroundDark} !important;
       --sidebar-primary: ${tokens.sidebarPrimaryDark} !important;
-      --sidebar-primary-foreground: oklch(0.99 0 0) !important;
+      --sidebar-primary-foreground: ${isExpressive ? "#170d13" : "oklch(0.99 0 0)"} !important;
       --sidebar-accent: ${tokens.sidebarAccentDark} !important;
       --sidebar-accent-foreground: ${tokens.sidebarForegroundDark} !important;
       --sidebar-border: ${tokens.sidebarBorderDark} !important;
-      --sidebar-ring: ${tokens.sidebarPrimaryDark} !important;
+      --sidebar-ring: ${tokens.sidebarPrimaryDark} !important;${expressiveDarkExtras}
     }
   `;
   const tag = document.getElementById("aquacore-dark-theme");
@@ -356,7 +439,10 @@ export function applyThemeConfig(config: ClubThemeConfig): void {
     medium: "0.875rem",
     full: "1.5rem",
   };
-  const radius = radiusMap[(config.borderRadius as BorderRadius)] || "0.875rem";
+  // Expressive is pill-dominant: default/unset/medium radius upgrades to pill
+  const radius = isExpressive && (!config.borderRadius || config.borderRadius === "medium")
+    ? "1.5rem"
+    : radiusMap[(config.borderRadius as BorderRadius)] || "0.875rem";
   style.setProperty("--radius", radius);
 
   // 6. Density (spacing scale factor)
@@ -454,10 +540,10 @@ export function checkContrast(primaryL: number): {
   return { passes: false, ratio: Math.max(withWhite, withBlack), suggestion };
 }
 
-// ════════════ Default config (Ocean Blue) ════════════
+// ════════════ Default config (Ink & Magenta Expressive) ════════════
 export const DEFAULT_THEME_CONFIG: ClubThemeConfig = {
-  themePreset: "ocean",
-  borderRadius: "medium",
+  themePreset: "expressive",
+  borderRadius: "full",
   density: "normal",
   fontFamily: "cairo",
 };

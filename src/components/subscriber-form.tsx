@@ -155,27 +155,21 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
     dayNames: swimDayNames,
     slotLabels: swimSlotLabels,
     activeGroups,
-    operatingDays,
   } = useSwimConfig();
 
-  // 🏊 خيارات أيام السباحة: الأفواج المزدوجة والمخصصة المعتمدة من الإعدادات
-  // الفوج يختفي تلقائياً إن أُغلق أحد أيامه (مثل عطلة وصيانة)
+  // 🏊 خيارات أيام السباحة: كل الأفواج المزدوجة والمخصصة النشطة تظهر دائماً في التسجيل
+  // 🔑 القرار يعود للمدير: يتحكم في ظهور الفوج من مفتاح «تفعيل الفوج» في مركز تشغيل المسبح.
+  // لم نعد نخفي الفوج تلقائياً عند إغلاق أحد أيامه (عطلة/صيانة) — لأن المدير قد يرغب
+  // في تسجيل منخرطين للفوج الآن ثم تعويضهم لاحقاً، أو لأن الإغلاق مؤقت لا يشمله.
   const dayOptions = useMemo(() => {
     if (activeGroups && activeGroups.length > 0) {
-      const valid = activeGroups.filter((g) => {
-        if (g.name === "كل الأيام") return true;
-        if (!g.dayKeys || g.dayKeys.length === 0) return true;
-        return g.dayKeys.every((k) => operatingDays.includes(String(k)));
-      });
-      if (valid.length > 0) {
-        return valid.map((g) => ({
-          value: g.name,
-          label: g.name,
-        }));
-      }
+      return activeGroups.map((g) => ({
+        value: g.name,
+        label: g.name,
+      }));
     }
     return swimDayNames.map((d) => ({ value: d, label: d }));
-  }, [activeGroups, operatingDays, swimDayNames]);
+  }, [activeGroups, swimDayNames]);
 
   // التوقيتات المتاحة: إذا اختار المنخرط فوجاً وله حصص متطابقة مخصصة، نظهرها أولاً
   const selectedGroup = useMemo(() => {

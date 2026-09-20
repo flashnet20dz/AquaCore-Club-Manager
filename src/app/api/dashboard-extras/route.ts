@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { calculateExpiryDate, getTypeConfig, parseSwimmingDays } from "@/lib/rcs";
+import { formatDateArabic } from "@/lib/date-utils";
 
 /**
  * GET /api/dashboard-extras
@@ -198,7 +199,7 @@ export async function GET() {
         target,
         achieved: monthPayments._sum.amount || 0,
         prevMonth: prevPayments._sum.amount || 0,
-        monthName: monthStart.toLocaleDateString("ar-DZ", { month: "long", year: "numeric" }),
+        monthName: formatDateArabic(monthStart, { month: "long", year: "numeric" }),
       },
       schedule,
       roster,

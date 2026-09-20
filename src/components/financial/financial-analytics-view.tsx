@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { ExportButton } from "@/components/shared/export-button";
 import { TransactionDetailsDialog } from "@/components/financial/transaction-details-dialog";
 import { onFinancialUpdated } from "@/lib/financial-events";
+import { formatDate } from "@/lib/date-utils";
 
 interface MethodStat {
   method: string;
@@ -223,17 +224,17 @@ export function FinancialAnalyticsView({ role }: { role: string }) {
       {/* ═══ Summary Cards (Guaranteed 100% Match) ═══ */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {/* Total Income */}
-        <Card className="border-emerald-500/30 bg-emerald-500/5">
+        <Card className="border-emerald-500/30 bg-emerald-500/5 rounded-near-md elevation-1 hover:elevation-2 motion-fast transition-all">
           <CardHeader className="pb-1 pt-3.5 px-4 flex flex-row items-center justify-between">
             <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">إجمالي المداخيل المحصلة</span>
             <ArrowDownRight className="h-4 w-4 text-emerald-600" />
           </CardHeader>
           <CardContent className="px-4 pb-3">
             {loading ? (
-              <Skeleton className="h-8 w-32" />
+              <div className="h-8 w-32 shimmer-placeholder rounded-near-xs" />
             ) : (
               <>
-                <div className="text-2xl font-black text-emerald-700 dark:text-emerald-400 tabular-nums">
+                <div className="text-2xl font-mono-data font-black text-emerald-700 dark:text-emerald-400 tabular-nums">
                   {(data?.totalIncome ?? 0).toLocaleString()} <span className="text-xs font-normal">دج</span>
                 </div>
                 <div className="flex items-center gap-1.5 mt-1 text-[11px] text-emerald-800/80 dark:text-emerald-300/80">
@@ -246,17 +247,17 @@ export function FinancialAnalyticsView({ role }: { role: string }) {
         </Card>
 
         {/* Total Expense */}
-        <Card className="border-rose-500/30 bg-rose-500/5">
+        <Card className="border-rose-500/30 bg-rose-500/5 rounded-near-md elevation-1 hover:elevation-2 motion-fast transition-all">
           <CardHeader className="pb-1 pt-3.5 px-4 flex flex-row items-center justify-between">
             <span className="text-xs font-bold text-rose-800 dark:text-rose-300">إجمالي المصاريف المسددة</span>
             <ArrowUpRight className="h-4 w-4 text-rose-600" />
           </CardHeader>
           <CardContent className="px-4 pb-3">
             {loading ? (
-              <Skeleton className="h-8 w-32" />
+              <div className="h-8 w-32 shimmer-placeholder rounded-near-xs" />
             ) : (
               <>
-                <div className="text-2xl font-black text-rose-700 dark:text-rose-400 tabular-nums">
+                <div className="text-2xl font-mono-data font-black text-rose-700 dark:text-rose-400 tabular-nums">
                   {(data?.totalExpense ?? 0).toLocaleString()} <span className="text-xs font-normal">دج</span>
                 </div>
                 <div className="flex items-center gap-1.5 mt-1 text-[11px] text-rose-800/80 dark:text-rose-300/80">
@@ -269,17 +270,17 @@ export function FinancialAnalyticsView({ role }: { role: string }) {
         </Card>
 
         {/* Net Cash Flow */}
-        <Card className="border-teal-500/30 bg-teal-500/5">
+        <Card className="border-teal-500/30 bg-teal-500/5 rounded-near-md elevation-1 hover:elevation-2 motion-fast transition-all">
           <CardHeader className="pb-1 pt-3.5 px-4 flex flex-row items-center justify-between">
             <span className="text-xs font-bold text-teal-800 dark:text-teal-300">صافي التدفق المالي للفترة</span>
             <Wallet className="h-4 w-4 text-teal-600" />
           </CardHeader>
           <CardContent className="px-4 pb-3">
             {loading ? (
-              <Skeleton className="h-8 w-32" />
+              <div className="h-8 w-32 shimmer-placeholder rounded-near-xs" />
             ) : (
               <>
-                <div className="text-2xl font-black text-teal-700 dark:text-teal-400 tabular-nums">
+                <div className="text-2xl font-mono-data font-black text-teal-700 dark:text-teal-400 tabular-nums">
                   {(data?.netCash ?? 0).toLocaleString()} <span className="text-xs font-normal">دج</span>
                 </div>
                 <div className="text-[11px] text-muted-foreground mt-1">
@@ -292,7 +293,7 @@ export function FinancialAnalyticsView({ role }: { role: string }) {
       </div>
 
       {/* ═══ Detailed Income Breakdown ═══ */}
-      <Card className="border-border/80 shadow-xs">
+      <Card className="border-border/80 rounded-near-lg elevation-1">
         <CardHeader className="pb-3 border-b border-border/50">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div>
@@ -328,11 +329,11 @@ export function FinancialAnalyticsView({ role }: { role: string }) {
                 <div
                   key={cat.key}
                   onClick={() => openCategoryDrillDown(cat.key)}
-                  className="rounded-xl border border-border/70 hover:border-emerald-500/50 hover:bg-emerald-500/5 transition-all p-3.5 cursor-pointer group space-y-2"
+                  className="rounded-near-md border border-border/70 hover:border-emerald-500/50 hover:bg-emerald-500/5 motion-fast transition-all p-3.5 cursor-pointer group space-y-2 elevation-1"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <div className="h-7 w-7 rounded-lg bg-emerald-500/15 text-emerald-600 flex items-center justify-center font-bold text-xs">
+                      <div className="h-7 w-7 rounded-near-xs bg-emerald-500/15 text-emerald-600 flex items-center justify-center font-bold text-xs">
                         {cat.key === "subscription" ? "📋" : cat.key === "renewal" ? "🔄" : cat.key === "insurance" ? "🛡️" : cat.key === "compound" || cat.key === "compound_rights" ? "🏛️" : "💰"}
                       </div>
                       <div>
@@ -344,10 +345,10 @@ export function FinancialAnalyticsView({ role }: { role: string }) {
                     </div>
 
                     <div className="text-left">
-                      <div className="font-black text-sm sm:text-base text-foreground tabular-nums">
+                      <div className="font-mono-data font-bold text-sm sm:text-base text-foreground tabular-nums">
                         {cat.amount.toLocaleString()} <span className="text-xs font-normal">دج</span>
                       </div>
-                      <Badge variant="secondary" className="text-[10px] font-bold px-1.5 py-0">
+                      <Badge variant="secondary" className="rounded-near-xs text-[10px] font-bold px-1.5 py-0">
                         {cat.percentage}% من المداخيل
                       </Badge>
                     </div>
@@ -355,13 +356,13 @@ export function FinancialAnalyticsView({ role }: { role: string }) {
 
                   {/* Progress Bar */}
                   <div className="space-y-1">
-                    <Progress value={cat.percentage} className="h-2 bg-emerald-950/10 dark:bg-emerald-500/10" />
+                    <Progress value={cat.percentage} className="h-2 rounded-near-xs bg-emerald-950/10 dark:bg-emerald-500/10" />
                   </div>
 
                   {/* Methods breakdown chips */}
                   <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[10px] text-muted-foreground">
                     {cat.methods.map((m) => (
-                      <span key={m.method} className="bg-muted px-2 py-0.5 rounded-md">
+                      <span key={m.method} className="bg-muted px-2 py-0.5 rounded-near-xs font-mono-data">
                         {m.method === "cash" ? "نقدي" : m.method === "bank" ? "بنك" : "شيك"}: {m.amount.toLocaleString()} دج ({m.count})
                       </span>
                     ))}
@@ -377,7 +378,7 @@ export function FinancialAnalyticsView({ role }: { role: string }) {
       </Card>
 
       {/* ═══ Detailed Expense Breakdown ═══ */}
-      <Card className="border-border/80 shadow-xs">
+      <Card className="border-border/80 rounded-near-lg elevation-1">
         <CardHeader className="pb-3 border-b border-border/50">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div>
@@ -400,7 +401,7 @@ export function FinancialAnalyticsView({ role }: { role: string }) {
           {loading ? (
             <div className="space-y-3">
               {Array.from({ length: 4 }).map((_, i) => (
-                <Skeleton key={i} className="h-16 w-full rounded-xl" />
+                <div key={i} className="h-16 w-full shimmer-placeholder rounded-near-md" />
               ))}
             </div>
           ) : data?.expenseCategories.length === 0 ? (
@@ -413,11 +414,11 @@ export function FinancialAnalyticsView({ role }: { role: string }) {
                 <div
                   key={cat.key}
                   onClick={() => openCategoryDrillDown(cat.key)}
-                  className="rounded-xl border border-border/70 hover:border-rose-500/50 hover:bg-rose-500/5 transition-all p-3.5 cursor-pointer group space-y-2"
+                  className="rounded-near-md border border-border/70 hover:border-rose-500/50 hover:bg-rose-500/5 motion-fast transition-all p-3.5 cursor-pointer group space-y-2 elevation-1"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <div className="h-7 w-7 rounded-lg bg-rose-500/15 text-rose-600 flex items-center justify-center font-bold text-xs">
+                      <div className="h-7 w-7 rounded-near-xs bg-rose-500/15 text-rose-600 flex items-center justify-center font-bold text-xs">
                         {cat.key === "wages" ? "👥" : cat.key === "maintenance" ? "🔧" : cat.key === "equipment" || cat.key === "purchases" ? "📦" : cat.key === "administrative" || cat.key === "office_supplies" ? "📑" : "💸"}
                       </div>
                       <div>
@@ -429,10 +430,10 @@ export function FinancialAnalyticsView({ role }: { role: string }) {
                     </div>
 
                     <div className="text-left">
-                      <div className="font-black text-sm sm:text-base text-foreground tabular-nums">
+                      <div className="font-mono-data font-bold text-sm sm:text-base text-foreground tabular-nums">
                         {cat.amount.toLocaleString()} <span className="text-xs font-normal">دج</span>
                       </div>
-                      <Badge variant="secondary" className="text-[10px] font-bold px-1.5 py-0">
+                      <Badge variant="secondary" className="rounded-near-xs text-[10px] font-bold px-1.5 py-0">
                         {cat.percentage}% من المصاريف
                       </Badge>
                     </div>
@@ -440,13 +441,13 @@ export function FinancialAnalyticsView({ role }: { role: string }) {
 
                   {/* Progress Bar */}
                   <div className="space-y-1">
-                    <Progress value={cat.percentage} className="h-2 bg-rose-950/10 dark:bg-rose-500/10" />
+                    <Progress value={cat.percentage} className="h-2 rounded-near-xs bg-rose-950/10 dark:bg-rose-500/10" />
                   </div>
 
                   {/* Methods breakdown chips */}
                   <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[10px] text-muted-foreground">
                     {cat.methods.map((m) => (
-                      <span key={m.method} className="bg-muted px-2 py-0.5 rounded-md">
+                      <span key={m.method} className="bg-muted px-2 py-0.5 rounded-near-xs font-mono-data">
                         {m.method === "cash" ? "نقدي" : m.method === "bank" ? "بنك" : "شيك"}: {m.amount.toLocaleString()} دج ({m.count})
                       </span>
                     ))}
@@ -490,16 +491,16 @@ export function FinancialAnalyticsView({ role }: { role: string }) {
             <div className="flex-1 overflow-y-auto space-y-4 py-2">
               {/* Subscription Types breakdown if available */}
               {drillDownData.bySubscriptionType.length > 0 && (
-                <div className="rounded-xl border border-border/70 bg-muted/30 p-3 space-y-2">
+                <div className="rounded-near-md border border-border/70 bg-muted/30 p-3 space-y-2">
                   <h5 className="text-xs font-bold text-foreground flex items-center gap-1.5">
                     <Users className="h-3.5 w-3.5 text-teal-600" /> التوزيع حسب نوع الاشتراك
                   </h5>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {drillDownData.bySubscriptionType.map((st) => (
-                      <div key={st.type} className="rounded-lg bg-card border p-2 text-xs">
+                      <div key={st.type} className="rounded-near-sm bg-card border p-2 text-xs">
                         <div className="text-muted-foreground text-[11px] truncate">{st.type}</div>
-                        <div className="font-extrabold text-foreground tabular-nums">{st.amount.toLocaleString()} دج</div>
-                        <div className="text-[10px] text-muted-foreground">{st.count} مشترك</div>
+                        <div className="font-mono-data font-bold text-foreground tabular-nums">{st.amount.toLocaleString()} دج</div>
+                        <div className="text-[10px] text-muted-foreground font-mono-data">{st.count} مشترك</div>
                       </div>
                     ))}
                   </div>
@@ -518,24 +519,24 @@ export function FinancialAnalyticsView({ role }: { role: string }) {
                     <div
                       key={tx.id}
                       onClick={() => setSelectedTxId(tx.id)}
-                      className="flex items-center justify-between gap-3 p-2.5 rounded-xl border border-border/70 hover:border-teal-500/50 hover:bg-accent/40 transition cursor-pointer text-xs"
+                      className="flex items-center justify-between gap-3 p-2.5 rounded-near-md border border-border/70 hover:border-teal-500/50 hover:bg-accent/40 motion-fast transition-all cursor-pointer text-xs"
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
-                        <span className="font-mono text-[11px] font-bold text-muted-foreground shrink-0">
+                        <span className="font-mono-data text-[11px] font-bold text-muted-foreground shrink-0">
                           {tx.number}
                         </span>
                         <div className="min-w-0">
                           <p className="font-bold text-foreground truncate">
                             {tx.payeeName || (tx.subscriberFileNumber ? `منخرط #${tx.subscriberFileNumber}` : "جهة غير مسماة")}
                           </p>
-                          <p className="text-[10px] text-muted-foreground truncate">
-                            {new Date(tx.date).toLocaleDateString("ar-DZ")} • {tx.paymentMethod === "cash" ? "نقدي" : tx.paymentMethod === "bank" ? "بنك" : "شيك"} {tx.note ? `• ${tx.note}` : ""}
+                          <p className="text-[10px] text-muted-foreground truncate font-mono-data">
+                            {formatDate(tx.date)} • {tx.paymentMethod === "cash" ? "نقدي" : tx.paymentMethod === "bank" ? "بنك" : "شيك"} {tx.note ? `• ${tx.note}` : ""}
                           </p>
                         </div>
                       </div>
 
                       <div className="text-left shrink-0">
-                        <span className="font-black text-xs sm:text-sm tabular-nums text-foreground">
+                        <span className="font-mono-data font-bold text-xs sm:text-sm tabular-nums text-foreground">
                           {tx.amount.toLocaleString()} دج
                         </span>
                         <div className="text-[10px] text-teal-600 font-bold flex items-center gap-0.5 justify-end">

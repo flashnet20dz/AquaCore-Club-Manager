@@ -116,7 +116,9 @@ function startLocalServer() {
                 NEXTAUTH_SECRET: "rcs-club-desktop-secret-2024-offline",
                 NEXTAUTH_URL: LOCAL_URL,
                 PORT: "3872",
-                HOSTNAME: "127.0.0.1",
+                // 🔑 0.0.0.0 = الخادم يقبل الاتصالات من كل واجهات الشبكة (الواي فاي المحلي)
+                // كان 127.0.0.1 → الهواتف على نفس الواي فاي تفشل (ERR_CONNECTION_REFUSED)
+                HOSTNAME: "0.0.0.0",
                 NODE_ENV: "production",
             };
             console.log("[Server] Starting Next.js standalone server...");

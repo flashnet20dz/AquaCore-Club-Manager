@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { startTrial } from "@/lib/subscription-state";
+import { formatDate } from "@/lib/date-utils";
 
 /**
  * PATCH /api/clubs/[id] — SuperAdmin: update club status
@@ -46,7 +47,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           clubId: club.id,
           type: "create",
           description: trial
-            ? `تمت الموافقة على النادي — بدأت فترة تجربة مجانية لمدة 7 أيام (تنتهي في ${trial.trialEndDate.toLocaleDateString("ar-DZ")})`
+            ? `تمت الموافقة على النادي — بدأت فترة تجربة مجانية لمدة 7 أيام (تنتهي في ${formatDate(trial.trialEndDate)})`
             : `تمت الموافقة على النادي`,
         },
       }).catch(() => {/* تجاهل إن لم يُنشأ */});

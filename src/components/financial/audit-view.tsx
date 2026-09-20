@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { CashDrawerClosureDialog } from "@/components/financial/cash-drawer-closure-dialog";
 import { TransactionDetailsDialog } from "@/components/financial/transaction-details-dialog";
 import { onFinancialUpdated, notifyFinancialUpdated } from "@/lib/financial-events";
+import { formatDate } from "@/lib/date-utils";
 
 interface AuditViewProps {
   role: string;
@@ -216,8 +217,8 @@ export function AuditView({ role }: AuditViewProps) {
                       <p className="font-bold text-foreground truncate">
                         {tx.payeeName || "جهة غير مسماة"} — <span className="line-through text-muted-foreground">{tx.amount.toLocaleString()} دج</span>
                       </p>
-                      <p className="text-[10px] text-muted-foreground truncate">
-                        {new Date(tx.date).toLocaleDateString("ar-DZ")} • سبب الإلغاء: {tx.cancellationReason || "لم يحدد سبب"}
+                      <p className="text-[10px] text-muted-foreground truncate font-mono-data">
+                        {formatDate(tx.date)} • سبب الإلغاء: {tx.cancellationReason || "لم يحدد سبب"}
                       </p>
                     </div>
                   </div>

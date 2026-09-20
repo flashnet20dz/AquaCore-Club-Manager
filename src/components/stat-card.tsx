@@ -12,6 +12,10 @@ interface StatCardProps {
   sublabel?: string;
   delay?: number;
   suffix?: string;
+  delta?: {
+    value: number;
+    label?: string;
+  };
 }
 
 const accentClasses = {
@@ -71,47 +75,57 @@ export function StatCard({
   sublabel,
   delay = 0,
   suffix,
+  delta,
 }: StatCardProps) {
   const colors = colorMap[accent];
+  const isPositive = delta ? delta.value > 0 : null;
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, delay, ease: "easeOut" }}
-      whileHover={{ y: -3 }}
+      transition={{ duration: 0.18, delay, ease: [0.2, 0, 0, 1] }}
+      whileHover={{ y: -2 }}
       className={cn(
-        "relative overflow-hidden rounded-2xl border border-border/80 bg-card p-5",
-        "shadow-xs hover:shadow-lg hover:border-primary/40 transition-all duration-300",
-        "dark:shadow-[0_4px_20px_rgba(0,0,0,0.35)] dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] dark:hover:border-cyan-500/35",
+        "relative overflow-hidden rounded-near-md border border-border/80 bg-card p-4",
+        "elevation-1 hover:elevation-2 hover:border-primary/50 motion-fast select-none",
         colors.glow
       )}
     >
-      {/* Decorative gradient blob */}
-      <div className={cn(
-        "absolute -top-8 -left-8 h-32 w-32 rounded-full bg-gradient-to-br to-transparent blur-2xl opacity-60",
-        colors.ring
-      )} />
-
       <div className="relative flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide truncate">
+          <p className="text-[12px] font-medium text-muted-foreground uppercase tracking-wider truncate">
             {label}
           </p>
-          <div className="mt-2 flex items-baseline gap-1">
-            <span className={cn("text-3xl font-extrabold tabular-nums", colors.value)}>
+          <div className="mt-1.5 flex items-baseline gap-1.5">
+            <span className={cn("font-mono-data text-2xl font-bold tracking-tight", colors.value)}>
               {typeof value === "number" ? value.toLocaleString("en-US") : value}
             </span>
             {suffix && (
-              <span className="text-sm font-semibold text-muted-foreground">{suffix}</span>
+              <span className="text-xs font-semibold text-muted-foreground">{suffix}</span>
             )}
           </div>
-          {sublabel && (
-            <p className="mt-1 text-xs text-muted-foreground truncate">{sublabel}</p>
+          {delta && (
+            <div className="mt-1.5 flex items-center gap-1">
+              <span
+                className={cn(
+                  "inline-flex items-center px-1.5 py-0.5 rounded-near-2xs text-[10px] font-mono-data font-semibold",
+                  isPositive ? "bg-[#22c55e]/15 text-[#22c55e]" : "bg-[#ef4444]/15 text-[#ef4444]"
+                )}
+              >
+                {isPositive ? "+" : ""}{delta.value}%
+              </span>
+              {delta.label && (
+                <span className="text-[10px] text-muted-foreground truncate">{delta.label}</span>
+              )}
+            </div>
+          )}
+          {sublabel && !delta && (
+            <p className="mt-1 text-[11px] text-muted-foreground truncate">{sublabel}</p>
           )}
         </div>
-        <div className={cn("flex h-12 w-12 shrink-0 items-center justify-center rounded-xl", colors.bg)}>
-          <Icon className={cn("h-6 w-6", colors.text)} />
+        <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-near-sm", colors.bg)}>
+          <Icon className={cn("h-5 w-5", colors.text)} />
         </div>
       </div>
     </motion.div>

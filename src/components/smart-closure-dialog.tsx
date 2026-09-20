@@ -301,17 +301,17 @@ export function SmartClosureDialog({
     }
   };
 
-  // تنسيق التاريخ للعرض العربي
+  // تنسيق التاريخ للعرض العربي بأرقام عادية
   const formatArabicDate = (dateStr: string | null) => {
     if (!dateStr) return "—";
     try {
       const d = new Date(dateStr);
-      return d.toLocaleDateString("ar-EG", {
-        weekday: "short",
-        year: "numeric",
-        month: "numeric",
-        day: "numeric",
-      });
+      if (isNaN(d.getTime())) return dateStr;
+      const day = String(d.getDate()).padStart(2, "0");
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const year = d.getFullYear();
+      const weekday = d.toLocaleDateString("ar-DZ-u-nu-latn", { weekday: "short" });
+      return `${weekday} ${day}/${month}/${year}`;
     } catch {
       return dateStr;
     }
@@ -716,7 +716,7 @@ export function SmartClosureDialog({
             </div>
 
             {/* الجدول */}
-            <div className="border rounded-lg overflow-x-auto max-h-64 overflow-y-auto">
+            <div className="border rounded-lg overflow-x-auto max-h-[360px] overflow-y-auto">
               {loadingPreview ? (
                 <div className="flex items-center justify-center p-8 text-muted-foreground gap-2">
                   <Loader2 className="h-5 w-5 animate-spin text-primary" />
@@ -728,24 +728,21 @@ export function SmartClosureDialog({
                   <p className="text-xs font-semibold">لا يوجد منخرطين يطابقون شروط البحث والتصفية</p>
                 </div>
               ) : (
-                <table className="w-full text-xs text-right">
+                <table className="w-full min-w-[640px] text-xs text-right">
                   <thead className="bg-muted/50 text-muted-foreground sticky top-0 z-10 border-b">
                     <tr>
-                      <th className="p-2.5 w-10 text-center">
+                      <th className="p-2 w-9 text-center">
                         <Checkbox
                           checked={isAllDisplayedSelected}
                           onCheckedChange={(c) => handleToggleSelectAll(!!c)}
                           aria-label="تحديد الكل"
                         />
                       </th>
-                      <th className="p-2.5 font-semibold">المنخرط</th>
-                      <th className="p-2.5 font-semibold">الفوج والتوقيت</th>
-                      <th className="p-2.5 font-semibold text-center">الحصص الملغاة</th>
-                      <th className="p-2.5 font-semibold">تاريخ الانتهاء الحالي</th>
-                      <th className="p-2.5 font-semibold">
-                        {extendSubscriptionDays
-                          ? `الانتهاء الجديد بعد الاستئناف (+${closureDays} يوم)`
-                          : "تاريخ الانتهاء"}
+                      <th className="p-2 font-semibold min-w-[140px]">المنخرط</th>
+                      <th className="p-2 font-semibold min-w-[100px]">الفوج والتوقيت</th>
+                      <th className="p-2 font-semibold text-center whitespace-nowrap">الحصص</th>
+                      <th className="p-2 font-semibold whitespace-nowrap">
+                        {extendSubscriptionDays ? "تاريخ الانتهاء (حالي → جديد)" : "تاريخ الانتهاء"}
                       </th>
                     </tr>
                   </thead>
@@ -761,7 +758,7 @@ export function SmartClosureDialog({
                             isSelected ? "bg-primary/5" : "opacity-75"
                           )}
                         >
-                          <td className="p-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                          <td className="p-2 text-center" onClick={(e) => e.stopPropagation()}>
                             <Checkbox
                               checked={isSelected}
                               onCheckedChange={(c) => handleToggleSelectOne(s.id, !!c)}
@@ -769,38 +766,38 @@ export function SmartClosureDialog({
                           </td>
 
                           {/* بيانات المنخرط */}
-                          <td className="p-2.5">
-                            <div className="font-semibold text-foreground flex items-center gap-1.5">
-                              <span>{s.fullName}</span>
-                              <span className="font-mono text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground">
+                          <td className="p-2">
+                            <div className="font-semibold text-foreground flex items-center gap-1">
+                              <span className="truncate max-w-[100px]">{s.fullName}</span>
+                              <span className="font-mono text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground shrink-0">
                                 #{s.fileNumber}
                               </span>
                             </div>
-                            <div className="text-[11px] text-muted-foreground">
-                              {s.subscriptionType} {s.phone ? `• ${s.phone}` : ""}
+                            <div className="text-[11px] text-muted-foreground truncate max-w-[130px]">
+                              {s.subscriptionType}
                             </div>
                           </td>
 
                           {/* الفوج */}
-                          <td className="p-2.5">
-                            <div className="text-foreground">{s.swimmingDays || "غير محدد"}</div>
+                          <td className="p-2">
+                            <div className="text-foreground text-[11px]">{s.swimmingDays || "غير محدد"}</div>
                             <div className="text-[10px] text-muted-foreground font-mono">{s.timeSlot || "—"}</div>
                           </td>
 
                           {/* الحصص الملغاة */}
-                          <td className="p-2.5 text-center">
+                          <td className="p-2 text-center">
                             <Badge variant="outline" className="text-[10px] font-mono">
                               {s.cancelledSessionsCount} حصة
                             </Badge>
                           </td>
 
-                          {/* تاريخ الانتهاء الحالي */}
-                          <td className="p-2.5">
-                            <div className="flex items-center gap-1">
+                          {/* تاريخ الانتهاء (مدمج) */}
+                          <td className="p-2">
+                            <div className="flex items-center gap-1 flex-wrap">
                               <Badge
                                 variant="secondary"
                                 className={cn(
-                                  "text-[10px] font-mono",
+                                  "text-[10px]",
                                   s.isUnexpired
                                     ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
                                     : "bg-rose-500/15 text-rose-700 dark:text-rose-300"
@@ -811,24 +808,15 @@ export function SmartClosureDialog({
                               <span className="font-mono text-[11px] text-muted-foreground">
                                 {formatArabicDate(s.currentExpiryDate)}
                               </span>
+                              {extendSubscriptionDays && s.newExpiryDate && (
+                                <>
+                                  <ArrowRight className="h-3 w-3 rotate-180 text-emerald-500 shrink-0" />
+                                  <span className="font-mono text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                                    {formatArabicDate(s.newExpiryDate)}
+                                  </span>
+                                </>
+                              )}
                             </div>
-                          </td>
-
-                          {/* تاريخ الانتهاء الجديد بعد الاستئناف */}
-                          <td className="p-2.5">
-                            {extendSubscriptionDays && s.newExpiryDate ? (
-                              <div className="flex items-center gap-1.5 font-mono text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">
-                                <ArrowRight className="h-3 w-3 rotate-180 text-emerald-500" />
-                                <span>{formatArabicDate(s.newExpiryDate)}</span>
-                                <Badge variant="outline" className="text-[9px] bg-emerald-500/10 text-emerald-600 border-emerald-500/30">
-                                  +{closureDays} يوم
-                                </Badge>
-                              </div>
-                            ) : (
-                              <span className="text-muted-foreground font-mono text-[11px]">
-                                {formatArabicDate(s.currentExpiryDate)}
-                              </span>
-                            )}
                           </td>
                         </tr>
                       );

@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { formatDateArabic } from "@/lib/date-utils";
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -78,7 +79,7 @@ function todayLocalISO(): string {
 
 function dayLabel(iso: string): string {
   try {
-    return new Date(iso + "T12:00:00").toLocaleDateString("ar-DZ", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
+    return formatDateArabic(new Date(iso + "T12:00:00"), { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
   } catch {
     return iso;
   }

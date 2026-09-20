@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Eye, EyeOff, Settings, Save, RefreshCw, Layout, Palette, FileText, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { formatDateTime } from "@/lib/date-utils";
 
 // ═══════════════════════════════════════════════════════════════
 //  الأنواع
@@ -281,7 +282,7 @@ function InterfaceConfigCard({
       )}
 
       <div className="text-[10px] text-muted-foreground mt-2">
-        آخر تحديث: {new Date(iface.updatedAt).toLocaleString("ar-DZ")}
+        آخر تحديث: {formatDateTime(iface.updatedAt)}
       </div>
     </div>
   );

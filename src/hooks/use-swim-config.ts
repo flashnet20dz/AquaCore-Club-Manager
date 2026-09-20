@@ -68,6 +68,27 @@ export function invalidateSwimConfig() {
   }
 }
 
+/**
+ * ⚡ بذر فوري للكاش بقيم معلومة (بدون إعادة جلب شبكية) + إبلاغ كل المكوّنات.
+ * تُستخدم بعد نجاح PATCH في مركز تشغيل المسبح حتى تنعكس التغييرات
+ * لحظياً على كل الشاشات المفتوحة (التسجيل، الحضور، ساعات العمل…) بأسرع وقت.
+ */
+export function seedSwimConfigCache(patch: {
+  days?: SwimDayOption[];
+  slots?: SwimSlotOption[];
+  groups?: SwimmingDayGroup[];
+  operatingDays?: string[];
+}) {
+  if (patch.days) cachedDays = patch.days;
+  if (patch.slots) cachedSlots = patch.slots;
+  if (patch.groups) cachedGroups = patch.groups;
+  if (patch.operatingDays) cachedOperatingDays = patch.operatingDays;
+  cacheTimestamp = Date.now();
+  for (const l of listeners) {
+    try { l(); } catch { /* تجاهل */ }
+  }
+}
+
 /** تحويل أيام قاعدة البيانات إلى قائمة أسماء صالحة للاستخدام (الفعّالة فقط) */
 export function activeDayNames(days: SwimDayOption[]): string[] {
   const names = days.filter((d) => d.active).map((d) => d.name);
@@ -135,9 +156,21 @@ export function useSwimConfig(options?: { immediate?: boolean }) {
     if (immediate) refresh();
   }, [immediate, refresh]);
 
-  // 🔗 اشتراك فوري: تعديل من الإعدادات ⟵ إعادة جلب تلقائية بلا إعادة تحميل
+  // 🔗 اشتراك فوري: تعديل من الإعدادات ⟵ انعكاس لحظي بلا إعادة تحميل
+  // ⚡ إن كان الكاش مبذوراً (seedSwimConfigCache) نطبّقه فوراً بلا أي طلب شبكة،
+  //   وإن كان باطلاً (invalidateSwimConfig) نجلب من جديد.
   useEffect(() => {
-    const l = () => { refresh(true); };
+    const l = () => {
+      if (cachedDays && cachedGroups) {
+        setDays(cachedDays);
+        setSlots(cachedSlots || []);
+        setGroups(cachedGroups);
+        if (cachedOperatingDays) setOperatingDays(cachedOperatingDays);
+        setLoading(false);
+      } else {
+        refresh(true);
+      }
+    };
     listeners.add(l);
     return () => { listeners.delete(l); };
   }, [refresh]);

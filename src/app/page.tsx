@@ -78,6 +78,7 @@ import { LocalNetworkCard } from "@/components/local-network-card";
 import { WhatsAppReminders } from "@/components/whatsapp-reminders";
 import { hasPermission, ROLE_LABELS, ROLE_ICONS } from "@/lib/roles";
 import { onFinancialUpdated } from "@/lib/financial-events";
+import { formatDate } from "@/lib/date-utils";
 import { fetchFinancialDashboard } from "@/lib/financial-query";
 import { notifyClick, notifySuccess } from "@/lib/sounds";
 import { toast } from "sonner";
@@ -1522,9 +1523,11 @@ function CategorySubscriberList({ subscribers, categoryTitle }: {
   const handleCopy = async () => {
     if (filtered.length === 0) { toast.error("لا يوجد منخرطون للنسخ"); return; }
     const header = "#\tرقم الملف\tاللقب\tالاسم\tالميلاد\tالجنس\tالعمر\tنوع الاشتراك\tحالة الدفع";
-    const rows = filtered.map((s, i) =>
-      `${i + 1}\t${s.fileNumber}\t${s.lastName}\t${s.firstName}\t${s.birthDate ? new Date(s.birthDate).toLocaleDateString("en-GB") : "—"}\t${s.gender}\t${s.age}\t${s.subscriptionType}\t${s.paymentStatus}`
-    ).join("\n");
+    const rows = filtered.map((s, i) => {
+      const bd = s.birthDate ? new Date(s.birthDate) : null;
+      const bdStr = bd ? `${String(bd.getDate()).padStart(2,"0")}/${String(bd.getMonth()+1).padStart(2,"0")}/${bd.getFullYear()}` : "—";
+      return `${i + 1}\t${s.fileNumber}\t${s.lastName}\t${s.firstName}\t${bdStr}\t${s.gender}\t${s.age}\t${s.subscriptionType}\t${s.paymentStatus}`;
+    }).join("\n");
     const text = `${categoryTitle}\n\n${header}\n${rows}\n\nالإجمالي: ${filtered.length} منخرط`;
     try {
       await navigator.clipboard.writeText(text);
@@ -1542,7 +1545,7 @@ function CategorySubscriberList({ subscribers, categoryTitle }: {
       <td style="text-align:center;font-family:monospace;padding:5px;border:1px solid #ccc;">${s.fileNumber}</td>
       <td style="padding:5px;border:1px solid #ccc;">${s.lastName}</td>
       <td style="padding:5px;border:1px solid #ccc;">${s.firstName}</td>
-      <td style="text-align:center;padding:5px;border:1px solid #ccc;">${s.birthDate ? new Date(s.birthDate).toLocaleDateString("en-GB") : "—"}</td>
+      <td style="text-align:center;padding:5px;border:1px solid #ccc;">${s.birthDate ? (() => { const _d = new Date(s.birthDate); return `${String(_d.getDate()).padStart(2,'0')}/${String(_d.getMonth()+1).padStart(2,'0')}/${_d.getFullYear()}`; })() : '—'}</td>
       <td style="text-align:center;padding:5px;border:1px solid #ccc;">${s.gender}</td>
       <td style="text-align:center;padding:5px;border:1px solid #ccc;">${s.age}</td>
       <td style="text-align:center;padding:5px;border:1px solid #ccc;">${s.subscriptionType}</td>
@@ -1553,7 +1556,7 @@ function CategorySubscriberList({ subscribers, categoryTitle }: {
       table{border-collapse:collapse;width:100%}th{background:#0f766e;color:white;padding:5px;border:1px solid #ccc}
       td{padding:5px;border:1px solid #ccc}tr:nth-child(even){background:#f0fdfa}</style></head><body>
       <h2 style="color:#0f766e;text-align:center">${categoryTitle}</h2>
-      <p style="text-align:center;color:#555">عدد المنخرطين: ${filtered.length} — ${new Date().toLocaleDateString("ar-DZ")}</p>
+      <p style="text-align:center;color:#555">عدد المنخرطين: ${filtered.length} — ${formatDate(new Date())}</p>
       <table><thead><tr><th>#</th><th>رقم الملف</th><th>اللقب</th><th>الاسم</th><th>الميلاد</th><th>الجنس</th><th>العمر</th><th>نوع الاشتراك</th><th>حالة الدفع</th></tr></thead>
       <tbody>${tableRows}</tbody></table></body></html>`;
     const blob = new Blob([html], { type: "application/msword; charset=utf-8" });
@@ -1570,7 +1573,7 @@ function CategorySubscriberList({ subscribers, categoryTitle }: {
     import("xlsx").then((XLSX) => {
       const data = filtered.map((s, i) => ({
         "#": i + 1, "رقم الملف": s.fileNumber, "اللقب": s.lastName, "الاسم": s.firstName,
-        "الميلاد": s.birthDate ? new Date(s.birthDate).toLocaleDateString("en-GB") : "—",
+        "الميلاد": s.birthDate ? (() => { const _d = new Date(s.birthDate); return `${String(_d.getDate()).padStart(2,'0')}/${String(_d.getMonth()+1).padStart(2,'0')}/${_d.getFullYear()}`; })() : "—",
         "الجنس": s.gender, "العمر": s.age, "نوع الاشتراك": s.subscriptionType, "حالة الدفع": s.paymentStatus,
       }));
       const ws = XLSX.utils.json_to_sheet(data);
@@ -1626,7 +1629,7 @@ function CategorySubscriberList({ subscribers, categoryTitle }: {
                   <td className="p-2 text-center font-mono text-xs">{s.fileNumber}</td>
                   <td className="p-2 font-medium">{s.lastName}</td>
                   <td className="p-2 font-medium">{s.firstName}</td>
-                  <td className="p-2 text-center text-xs">{s.birthDate ? new Date(s.birthDate).toLocaleDateString("en-GB") : "—"}</td>
+                  <td className="p-2 text-center text-xs">{s.birthDate ? (() => { const _d = new Date(s.birthDate); return `${String(_d.getDate()).padStart(2,'0')}/${String(_d.getMonth()+1).padStart(2,'0')}/${_d.getFullYear()}`; })() : "—"}</td>
                   <td className="p-2 text-center">{s.gender === "ذكر" ? "♂" : "♀"}</td>
                   <td className="p-2 text-center text-xs">{s.age}</td>
                   <td className="p-2 text-center"><Badge variant="outline" className="text-[9px]">{s.subscriptionType}</Badge></td>

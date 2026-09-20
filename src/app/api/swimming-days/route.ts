@@ -102,20 +102,23 @@ export async function PATCH(req: NextRequest) {
     // أ) تحديث أيام تشغيل المسبح (تزامن فوري بين poolOperatingDays و SwimmingDay)
     if (Array.isArray(body.operatingDays)) {
       const opDays = body.operatingDays.map(String);
-      await db.setting.upsert({
-        where: { clubId_key: { clubId: user.clubId, key: POOL_OPERATING_DAYS_SETTING_KEY } },
-        update: { value: JSON.stringify(opDays) },
-        create: { clubId: user.clubId, key: POOL_OPERATING_DAYS_SETTING_KEY, value: JSON.stringify(opDays) },
-      });
+      const clubId = user.clubId; // narrowed: string
 
-      // مزامنة حالة جدول SwimmingDay لكل يوم
-      for (const w of WEEK_DAYS_MAP) {
-        const isActive = opDays.includes(String(w.key));
-        await db.swimmingDay.updateMany({
-          where: { clubId: user.clubId, name: w.name },
-          data: { active: isActive },
-        });
-      }
+      // ⚡ معاملة مجمّعة واحدة: upsert + مزامنة 7 أيام في دفعة واحدة
+      // (كانت 8 طلبات متتالية = بطء ملحوظ عند تبديل أيام التشغيل، خاصة على الإنترنت)
+      await db.$transaction([
+        db.setting.upsert({
+          where: { clubId_key: { clubId, key: POOL_OPERATING_DAYS_SETTING_KEY } },
+          update: { value: JSON.stringify(opDays) },
+          create: { clubId, key: POOL_OPERATING_DAYS_SETTING_KEY, value: JSON.stringify(opDays) },
+        }),
+        ...WEEK_DAYS_MAP.map((w) =>
+          db.swimmingDay.updateMany({
+            where: { clubId, name: w.name },
+            data: { active: opDays.includes(String(w.key)) },
+          })
+        ),
+      ]);
     }
 
     // ب) تحديث أفواج السباحة المزدوجة والمخصصة

@@ -23,6 +23,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { formatDate, formatDateArabic } from "@/lib/date-utils";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -341,8 +342,8 @@ export function CompensationsPanel() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-semibold text-sm">
                           {isMultiDay
-                            ? `${new Date(closure.startDate!).toLocaleDateString("ar")} ← ${new Date(closure.endDate!).toLocaleDateString("ar")}`
-                            : new Date(closure.date).toLocaleDateString("ar", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+                            ? `${formatDate(closure.startDate)} ← ${formatDate(closure.endDate)}`
+                            : formatDateArabic(closure.date)}
                         </span>
                         {isMultiDay && <Badge variant="outline" className="text-xs bg-primary/10 text-primary">إغلاق متعدد</Badge>}
                         <Badge variant="outline" className="text-xs">{closure.swimmingDays || "كل الأيام"}</Badge>
@@ -432,7 +433,7 @@ export function CompensationsPanel() {
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    الحصة الأصلية: {new Date(comp.originalDate).toLocaleDateString("ar")} —{" "}
+                    الحصة الأصلية: {formatDate(comp.originalDate)} —{" "}
                     {comp.originalSwimmingDays || "—"} / {comp.originalTimeSlot || "—"}
                     <span className="mx-1">·</span>
                     سبب الإغلاق: {comp.closure.reason}
@@ -440,7 +441,7 @@ export function CompensationsPanel() {
                   {comp.compensationDate && (
                     <p className="text-xs text-emerald-700 flex items-center gap-1">
                       <CalendarCheck className="h-3 w-3" />
-                      الحصة التعويضية: {new Date(comp.compensationDate).toLocaleDateString("ar")} —{" "}
+                      الحصة التعويضية: {formatDate(comp.compensationDate)} —{" "}
                       {comp.compensationTimeSlot}
                     </p>
                   )}
@@ -1255,7 +1256,7 @@ function ExpiryBadge({ expiryDate }: { expiryDate: string }) {
   }
   return (
     <Badge variant="outline" className="text-[10px] bg-muted/50 text-muted-foreground">
-      صالح حتى {expiry.toLocaleDateString("ar")}
+      صالح حتى {formatDate(expiry)}
     </Badge>
   );
 }

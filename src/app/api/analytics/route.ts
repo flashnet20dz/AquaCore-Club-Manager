@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { computeSubscriberFields } from "@/lib/rcs";
 import { getCurrentUser } from "@/lib/session";
+import { formatDateArabic } from "@/lib/date-utils";
 
 export async function GET() {
   try {
@@ -50,7 +51,7 @@ export async function GET() {
         return cd >= d && cd < next;
       });
       months.push({
-        label: d.toLocaleDateString("ar-DZ", { month: "short" }),
+        label: formatDateArabic(d, { month: "short" }),
         revenue: revBuckets.get(`${d.getFullYear()}-${d.getMonth()}`) || 0,
         subscribers: monthSubs.length,
       });
@@ -69,7 +70,7 @@ export async function GET() {
         return ad >= d && ad < next;
       }).length;
       attendanceTrend.push({
-        date: d.toLocaleDateString("ar-DZ", { day: "numeric", month: "numeric" }),
+        date: `${d.getDate()}/${d.getMonth() + 1}`,
         count,
       });
     }

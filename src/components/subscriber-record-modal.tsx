@@ -17,6 +17,7 @@ import { notifyClick } from "@/lib/sounds";
 import type { SubscriberWithComputed } from "@/lib/rcs";
 import { ContractTab } from "@/components/contract-tab";
 import { ExternalLink } from "lucide-react";
+import { formatDate, formatDateTime, formatTime } from "@/lib/date-utils";
 
 interface RecordData {
   subscriber: {
@@ -221,9 +222,9 @@ export function SubscriberRecordModal({ subscriber, open, onOpenChange }: Subscr
                           <Wallet className="h-3.5 w-3.5" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-semibold">{p.category} — {p.amount.toLocaleString("en-US")} دج</p>
-                          <p className="text-xs text-muted-foreground">
-                            {new Date(p.date).toLocaleDateString("ar-DZ")} • {p.method}
+                          <p className="font-semibold font-mono-data">{p.category} — {p.amount.toLocaleString("en-US")} دج</p>
+                          <p className="text-xs text-muted-foreground font-mono-data">
+                            {formatDate(p.date)} • {p.method}
                           </p>
                         </div>
                       </div>
@@ -243,9 +244,9 @@ export function SubscriberRecordModal({ subscriber, open, onOpenChange }: Subscr
                           <RefreshCw className="h-3.5 w-3.5" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-semibold">{r.amount.toLocaleString("en-US")} دج — {r.paymentStatus}</p>
-                          <p className="text-xs text-muted-foreground">
-                            تجديد: {new Date(r.renewalDate).toLocaleDateString("ar-DZ")} → ينتهي: {new Date(r.expiryDate).toLocaleDateString("ar-DZ")}
+                          <p className="font-semibold font-mono-data">{r.amount.toLocaleString("en-US")} دج — {r.paymentStatus}</p>
+                          <p className="text-xs text-muted-foreground font-mono-data">
+                            تجديد: {formatDate(r.renewalDate)} → ينتهي: {formatDate(r.expiryDate)}
                           </p>
                         </div>
                       </div>
@@ -264,11 +265,11 @@ export function SubscriberRecordModal({ subscriber, open, onOpenChange }: Subscr
                         <div className="flex h-7 w-7 items-center justify-center rounded-md bg-violet-500/15 text-violet-600">
                           <Calendar className="h-3.5 w-3.5" />
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold">{new Date(a.date).toLocaleDateString("ar-DZ")}</p>
+                        <div className="flex-1 min-w-0 font-mono-data">
+                          <p className="font-semibold">{formatDate(a.date)}</p>
                           <p className="text-xs text-muted-foreground">
-                            {new Date(a.checkInTime).toLocaleTimeString("ar-DZ", { hour: "2-digit", minute: "2-digit" })}
-                            {a.checkOutTime && ` → ${new Date(a.checkOutTime).toLocaleTimeString("ar-DZ", { hour: "2-digit", minute: "2-digit" })}`}
+                            {formatTime(a.checkInTime)}
+                            {a.checkOutTime && ` → ${formatTime(a.checkOutTime)}`}
                             {" • "}{a.method === "qr" ? "QR" : "يدوي"}
                           </p>
                         </div>
@@ -290,7 +291,7 @@ export function SubscriberRecordModal({ subscriber, open, onOpenChange }: Subscr
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-xs">{a.description}</p>
-                          <p className="text-[10px] text-muted-foreground">{new Date(a.createdAt).toLocaleString("ar-DZ")}</p>
+                          <p className="text-[10px] text-muted-foreground font-mono-data">{formatDateTime(a.createdAt)}</p>
                         </div>
                       </div>
                     ))}

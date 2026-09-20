@@ -283,11 +283,10 @@ function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
   try {
     const d = new Date(iso);
-    return d.toLocaleDateString("fr-DZ", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
+    const day = String(d.getDate()).padStart(2, "0");
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
   } catch {
     return "—";
   }
@@ -297,13 +296,12 @@ function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return "—";
   try {
     const d = new Date(iso);
-    return d.toLocaleString("fr-DZ", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    const day = String(d.getDate()).padStart(2, "0");
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const year = d.getFullYear();
+    const h = String(d.getHours()).padStart(2, "0");
+    const m = String(d.getMinutes()).padStart(2, "0");
+    return `${day}/${month}/${year} ${h}:${m}`;
   } catch {
     return "—";
   }
@@ -1591,7 +1589,7 @@ export function StaffCompensationsPanel({ canManage = true }: { canManage?: bool
       </div>
     </div>
     <div style="text-align: left; font-size: 11px; color: #6b7280;">
-      <p>تاريخ الإصدار: ${new Date().toLocaleDateString("fr-DZ")}</p>
+      <p>تاريخ الإصدار: ${(() => { const _n=new Date(); return `${String(_n.getDate()).padStart(2,'0')}/${String(_n.getMonth()+1).padStart(2,'0')}/${_n.getFullYear()}`; })()}</p>
       <p>عدد السجلات: ${list.length}</p>
     </div>
   </div>
@@ -1622,7 +1620,7 @@ export function StaffCompensationsPanel({ canManage = true }: { canManage?: bool
     <div class="sig-block"><div class="role">اعتماد الرئيس</div><div class="name">التوقيع والختم</div></div>
   </div>
 
-  <div class="footer">AquaCore Club Manager — وثيقة رسمية ${new Date().toLocaleString("fr-DZ")}</div>
+  <div class="footer">AquaCore Club Manager — وثيقة رسمية ${(() => { const _n=new Date(); return `${String(_n.getDate()).padStart(2,'0')}/${String(_n.getMonth()+1).padStart(2,'0')}/${_n.getFullYear()} ${String(_n.getHours()).padStart(2,'0')}:${String(_n.getMinutes()).padStart(2,'0')}`; })()}</div>
 
   <div class="no-print" style="text-align:center; margin-top: 20px;">
     <button onclick="window.print()" style="background:#0d9488;color:white;border:none;padding:10px 24px;border-radius:8px;font-size:14px;cursor:pointer;">طباعة</button>

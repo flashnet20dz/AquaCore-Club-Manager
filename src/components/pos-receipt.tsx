@@ -60,8 +60,8 @@ export function POSReceipt({ open, onClose, subscriber }: POSReceiptProps) {
       const width = paperSize === "80mm" ? "80mm" : "58mm";
       const padding = paperSize === "80mm" ? "8mm" : "4mm";
       const now = new Date();
-      const dateStr = now.toLocaleDateString("en-GB");
-      const timeStr = now.toLocaleTimeString("ar-DZ", { hour: "2-digit", minute: "2-digit" });
+      const dateStr = `${String(now.getDate()).padStart(2,"0")}/${String(now.getMonth()+1).padStart(2,"0")}/${now.getFullYear()}`;
+      const timeStr = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
 
       // ★ بناء HTML للإيصال — مهيأ للطباعة الحرارية
       const html = `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8">

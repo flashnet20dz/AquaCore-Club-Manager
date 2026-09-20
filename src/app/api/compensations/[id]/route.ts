@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { formatDate } from "@/lib/date-utils";
 
 /**
  * PATCH /api/compensations/[id]
@@ -105,7 +106,7 @@ export async function PATCH(
           clubId,
           compensationId: id,
           action: "scheduled",
-          description: `تحديد حصة تعويضية بتاريخ ${newDate.toLocaleDateString("ar")} — ${compensationTimeSlot}`,
+          description: `تحديد حصة تعويضية بتاريخ ${formatDate(newDate)} — ${compensationTimeSlot}`,
           oldValue: JSON.stringify({ status: compensation.status, compensationDate: compensation.compensationDate }),
           newValue: JSON.stringify({ status: "scheduled", compensationDate: newDate.toISOString(), compensationTimeSlot }),
           userId: currentUser.id,
@@ -117,7 +118,7 @@ export async function PATCH(
           clubId,
           type: "compensation_scheduled",
           title: "تم تحديد حصة تعويضية",
-          message: `تم تحديد حصة تعويضية للمنخرط ${compensation.subscriber.firstName} ${compensation.subscriber.lastName} بتاريخ ${newDate.toLocaleDateString("ar")} — ${compensationTimeSlot}.`,
+          message: `تم تحديد حصة تعويضية للمنخرط ${compensation.subscriber.firstName} ${compensation.subscriber.lastName} بتاريخ ${formatDate(newDate)} — ${compensationTimeSlot}.`,
           link: `/dashboard/compensations`,
         },
       });
@@ -145,7 +146,7 @@ export async function PATCH(
           checkInTime: new Date(),
           method: "compensation",
           isCompensation: true,
-          note: `حصة تعويضية عن إغلاق بتاريخ ${compensation.originalDate.toLocaleDateString("ar")}`,
+          note: `حصة تعويضية عن إغلاق بتاريخ ${formatDate(compensation.originalDate)}`,
         },
       });
 
@@ -170,7 +171,7 @@ export async function PATCH(
           clubId,
           compensationId: id,
           action: "used",
-          description: `حضور الحصة التعويضية (${newCompensatedCount}/${compensation.cancelledSessionsCount}) — ${compensation.compensationDate?.toLocaleDateString("ar")}`,
+          description: `حضور الحصة التعويضية (${newCompensatedCount}/${compensation.cancelledSessionsCount}) — ${formatDate(compensation.compensationDate)}`,
           oldValue: JSON.stringify({ status: compensation.status, compensatedCount: compensation.compensatedCount }),
           newValue: JSON.stringify({ status: newStatus, compensatedCount: newCompensatedCount, attendanceId: attendance.id }),
           userId: currentUser.id,

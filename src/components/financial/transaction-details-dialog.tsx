@@ -60,6 +60,7 @@ import { notifyFinancialUpdated } from "@/lib/financial-events";
 import { amountToDzdWords } from "@/lib/amount-in-words";
 import { categoryLabel, paymentMethodLabel, typeLabel } from "./labels";
 import { openReceiptPrint } from "./receipt";
+import { formatDate as fmtDate, formatDateTime as fmtDateTime } from "@/lib/date-utils";
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -127,7 +128,7 @@ function formatDA(n: number): string {
 
 function formatDate(s: string): string {
   try {
-    return new Date(s).toLocaleDateString("ar-DZ", { day: "2-digit", month: "2-digit", year: "numeric" });
+    return fmtDate(s);
   } catch {
     return s;
   }
@@ -135,9 +136,7 @@ function formatDate(s: string): string {
 
 function formatDateTime(s: string): string {
   try {
-    return new Date(s).toLocaleString("ar-DZ", {
-      day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
-    });
+    return fmtDateTime(s);
   } catch {
     return s;
   }

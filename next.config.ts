@@ -8,6 +8,8 @@ const nextConfig: NextConfig = {
   reactStrictMode: false,
   experimental: {
     optimizePackageImports: ["lucide-react", "framer-motion"],
+    // ★ خفض ذروة ذاكرة webpack أثناء التطوير (بيئات RAM المحدودة 4GB)
+    webpackMemoryOptimizations: true,
   },
   // 🔑 السماح بعرض صور Cloudinary عبر Next/Image
   images: {

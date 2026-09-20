@@ -185,7 +185,11 @@ function formatShort(n: number): string {
 
 function formatDate(s: string): string {
   try {
-    return new Date(s).toLocaleDateString("ar-DZ", { day: "2-digit", month: "2-digit" });
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return s;
+    const day = String(d.getDate()).padStart(2, "0");
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    return `${day}/${month}`;
   } catch {
     return s;
   }

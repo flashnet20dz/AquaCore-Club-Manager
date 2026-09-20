@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { formatDate } from "@/lib/date-utils";
 
 /**
  * PATCH /api/compensations/bulk
@@ -121,7 +122,7 @@ export async function PATCH(req: NextRequest) {
           clubId,
           type: "compensation_scheduled",
           title: "تم تحديد حصة تعويضية",
-          message: `تم تحديد حصة تعويضية للمنخرط ${c.subscriber.firstName} ${c.subscriber.lastName} بتاريخ ${newDate.toLocaleDateString("ar")} — ${compensationTimeSlot}.`,
+          message: `تم تحديد حصة تعويضية للمنخرط ${c.subscriber.firstName} ${c.subscriber.lastName} بتاريخ ${formatDate(newDate)} — ${compensationTimeSlot}.`,
           link: `/dashboard/compensations`,
         })),
       });
