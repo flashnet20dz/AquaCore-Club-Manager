@@ -214,9 +214,14 @@ export function ActivationCodesPanel({ open, onClose }: { open: boolean; onClose
 
   const exportCsv = (codesList: CodeEntry[], batchName: string) => {
     const header = "الكود,الخطة,المدة(يوم),الحالة,النادي,تاريخ التفعيل,تاريخ الانتهاء\n";
-    const rows = codesList.map((c) =>
-      `${c.code},${c.planLabel},${c.durationDays},${STATUS_LABELS[c.status]?.label || c.status},${c.club?.name || "—"},${c.activatedAt ? new Date(c.activatedAt).toLocaleDateString("en-GB") : "—"},${c.expiresAt ? new Date(c.expiresAt).toLocaleDateString("en-GB") : "—"}`
-    ).join("\n");
+    const rows = codesList.map((c) => {
+      const fmt = (v: string | null | undefined) => {
+        if (!v) return "—";
+        const d = new Date(v);
+        return `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`;
+      };
+      return `${c.code},${c.planLabel},${c.durationDays},${STATUS_LABELS[c.status]?.label || c.status},${c.club?.name || "—"},${fmt(c.activatedAt)},${fmt(c.expiresAt)}`;
+    }).join("\n");
     const blob = new Blob(["\ufeff" + header + rows], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
