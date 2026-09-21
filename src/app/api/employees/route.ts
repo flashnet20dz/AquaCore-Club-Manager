@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { resolveTargetClubId } from "@/lib/tenant";
+import { ensureRuntimeColumns } from "@/lib/runtime-schema";
 
 /**
  * /api/employees — إدارة العمال (المرحلة 5 — §3)
@@ -32,6 +33,8 @@ function normalizeStatus(raw: unknown): { status: string; active: boolean } {
 
 export async function GET(req: NextRequest) {
   try {
+    // 🛡️ ضمان أعمدة وصل الاستلام على الإنتاج (نمط الذاكِل الذاتي المُثبَت)
+    await ensureRuntimeColumns().catch(() => undefined);
     const user = await getCurrentUser();
     if (!user || !hasEmployeesView(user.role)) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
@@ -77,6 +80,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    // 🛡️ ضمان أعمدة وصل الاستلام على الإنتاج قبل الكتابة
+    await ensureRuntimeColumns().catch(() => undefined);
     const user = await getCurrentUser();
     if (!user || (user.role !== "admin" && user.role !== "superadmin")) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
