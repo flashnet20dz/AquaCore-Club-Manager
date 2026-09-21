@@ -1174,3 +1174,24 @@ Stage Summary:
 - ✅ «اختيار من يمضي» متاح قبل كل طباعة: توقيع المعني(ة) بالأمر + ختم وتوقيع إدارة النادي (أمين المال/رئيس النادي/كلاهما) + ختم مصالح البلدية (الخيار الثالث الجديد)
 - 📁 ملفات: prisma/schema.prisma، src/app/api/employees/route.ts، src/app/api/employees/[id]/route.ts، src/app/api/wages/receipt/route.ts، src/components/contracts-panel.tsx، src/components/wages/wage-receipt.ts، src/components/wages/wages-section.tsx
 - ⚠️ درس: skip-worktree على schema.prisma يمنع git من تحديثه عند الدمج — راجع diff يدوياً بعد كل merge؛ وبعد قتل خوادم dev المتكررة قد تضيع صفحات WAL يتيمة — لا تعتمد على WAL غير مُدمج
+
+---
+Task ID: github-deploy-fix
+Agent: Z.ai Code (main)
+Task: «الرفع لم يتم» — المستخدم يرى الإنتاج بلا آخر التحديثات رغم نجاح الـpush — مع توكن GitHub مرفقاً
+
+Work Log:
+- 🔍 تحقق أولي: التوكن صالح (login: flashnet20dz) و93809ea موجود فعلاً على GitHub — لكن فحص chunks الإنتاج كشف: «خيارات وصل الاستلام» غائبة عن كل الـ16 chunk + age≈21h → آخر دفعة لم تُنشر (Vercel build يفشل صامتاً ويترك النشر القديم حياً)
+- 🧨 الجذر: skip-worktree على prisma/schema.prisma جعل git يتجاهل تعديلاتي المحلية عند git add — الحقول الجديدة (nationalIdIssueDate/Place) لم تدخل أي commit إطلاقاً؛ والنسخة المُ commitment على GitHub postgresql بينما محلياً sqlite
+- 💥 الأثر: بناء Vercel يولّد عميل Prisma من schema بلا الحقول → next build يفشل TS → لا نشر منذ الدمج
+- ⚙️ الإصلاح الثلاثي: ①no-skip-worktree + ترقيع النسخة الـpostgresql المُ commitment بالحقول (جراحة +3 أسطر) ②schema.sqlite.prisma حُدّثت بالحقول أيضاً ③migration SQL يدوي بالاتفاقية المتّبعة (prisma/migrations/20260921100000_wage_receipt_employee_fields: ALTER TABLE Employee ADD COLUMN ×2) — migrate deploy في بناء Vercel يضيف العمودين إلى Neon
+- 🔄 أُعيد محلياً: schema.prisma → provider sqlite + الحقول (للتطوير المحلي) + skip-worktree مفعّل من جديد
+- 🚀 الدفعات: 00f6f0b (empty commit لإعادة التشغيل — لم يكفِ لأن البناء كان سيفشل أيضاً) ثم 68adad2 (الإصلاح الحقيقي)
+- ✅ التحقق: new-chooser chunks: 1 + /api/wages/receipt → 403 + age: 13s → **النشر الجديد حي** — migrate deploy نجح ضمن البناء وإلا لما حُدّث النشر
+- 🌱 إعادة زرع بيانات الاختبار المحلية مجدداً (كانت اختفت مع نفس مشكلة WAL)
+
+Stage Summary:
+- ✅ «الرفع التلقائي» صار مضموناً آلياً: أي تعديل على schema يمر حصراً عبر النسخة المُ commitment (postgres) + migration SQL — ولا يُعتمد على ملف skip-worktree للمزامنة
+- ✅ الإنتاج aladine-pool-manager.vercel.app يشغّل آخر شيفرة: وصل الاستلام بخيارات الموقّعين + معلومات العامل الآلية
+- 📁 ملفات: prisma/schema.prisma (postgres+fields)، prisma/schema.sqlite.prisma، prisma/migrations/20260921100000_wage_receipt_employee_fields/migration.sql
+- ⚠️ درس مضاعف: ①skip-worktree يخفي التعديلات عن git add — راجع دائماً git status بعد commit مهم ②فشل بناء Vercel صامت محلياً — افحص chunks الإنتاج بحثاً عن سلسلة مميزة من آخر ميزة للتأكد من النشر
