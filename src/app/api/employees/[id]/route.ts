@@ -47,6 +47,9 @@ export async function PATCH(
     if ("address" in body) data.address = body.address ? String(body.address).trim() : null;
     if ("birthPlace" in body) data.birthPlace = body.birthPlace ? String(body.birthPlace).trim() : null;
     if ("nationalId" in body) data.nationalId = body.nationalId ? String(body.nationalId).trim() : null;
+    // ★ وصل الاستلام: تاريخ ومكان صدور بطاقة التعريف
+    if ("nationalIdIssueDate" in body) data.nationalIdIssueDate = body.nationalIdIssueDate ? new Date(body.nationalIdIssueDate) : null;
+    if ("nationalIdIssuePlace" in body) data.nationalIdIssuePlace = body.nationalIdIssuePlace ? String(body.nationalIdIssuePlace).trim() : null;
     if ("birthDate" in body) data.birthDate = body.birthDate ? new Date(body.birthDate) : null;
     if ("hireDate" in body) data.hireDate = body.hireDate ? new Date(body.hireDate) : existing.hireDate;
     if (body.position && (POSITIONS as readonly string[]).includes(body.position)) data.position = body.position;

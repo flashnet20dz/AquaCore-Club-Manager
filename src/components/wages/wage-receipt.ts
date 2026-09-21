@@ -33,9 +33,24 @@ export interface WageReceiptData {
     name: string;
     jobTitle: string | null;
     nationalId: string | null;
+    nationalIdIssueDate: string | null; // ISO — «الصادرة بتاريخ» تُملأ آلياً من ملف العامل
+    nationalIdIssuePlace: string | null; // الدائرة / البلدية المُصدِرة
   };
   club: { name: string; city: string };
 }
+
+/** اختيار من يمضي في آخر الوصل — كل خانة قابلة للتشغيل/الإطفاء */
+export interface WageReceiptSignatories {
+  recipient: boolean; // توقيع واستلام المعني(ة) بالأمر
+  clubTitle: "both" | "treasurer" | "president" | null; // ختم وتوقيع إدارة النادي (null = بلا خانة)
+  municipality: boolean; // ختم مصالح البلدية
+}
+
+export const DEFAULT_SIGNATORIES: WageReceiptSignatories = {
+  recipient: true,
+  clubTitle: "both",
+  municipality: false,
+};
 
 const DOTTED = "..................................................";
 
@@ -73,7 +88,7 @@ const METHOD_RECEIPT_LINES: Record<string, string> = {
   cheque: "صك بريدي / بنكي",
 };
 
-export function openWageReceiptPrint(data: WageReceiptData): boolean {
+export function openWageReceiptPrint(data: WageReceiptData, signatories: WageReceiptSignatories = DEFAULT_SIGNATORIES): boolean {
   const win = window.open("", "_blank", "width=900,height=980");
   if (!win) return false;
 
@@ -98,6 +113,24 @@ export function openWageReceiptPrint(data: WageReceiptData): boolean {
           payment.prevPaid ? ` — المدفوع سابقاً: ${fmtAmount(payment.prevPaid)} دج` : ""
         })</div>`
       : "";
+
+  // ═══ خانات التوقيع — حسب اختيار من يمضي (§ وصل الاستلام) ═══
+  const CLUB_SIG_TITLES: Record<string, string> = {
+    both: "ختم وتوقيع إدارة النادي<br/>(أمين المال / رئيس النادي)",
+    treasurer: "ختم وتوقيع إدارة النادي<br/>(أمين المال)",
+    president: "ختم وتوقيع إدارة النادي<br/>(رئيس النادي)",
+  };
+  const sigBlocks: string[] = [];
+  if (signatories.recipient) {
+    sigBlocks.push(`<div class="sig"><div class="lbl">توقيع واستلام المعني(ة) بالأمر</div><div class="line">الاسم والتوقيع</div></div>`);
+  }
+  if (signatories.clubTitle) {
+    sigBlocks.push(`<div class="sig"><div class="lbl">${CLUB_SIG_TITLES[signatories.clubTitle] || CLUB_SIG_TITLES.both}</div><div class="line">الختم والتوقيع</div></div>`);
+  }
+  if (signatories.municipality) {
+    sigBlocks.push(`<div class="sig"><div class="lbl">ختم مصالح البلدية</div><div class="line">الختم والتوقيع</div></div>`);
+  }
+  const signsHtml = sigBlocks.length ? sigBlocks.join("\n        ") : `<div class="sig"><div class="lbl">الختم والتوقيع</div><div class="line">—</div></div>`;
 
   const html = `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -156,7 +189,11 @@ export function openWageReceiptPrint(data: WageReceiptData): boolean {
         <tr><th>الاسم واللقب</th><td>${escapeHtml(worker.name)}</td></tr>
         <tr><th>الصفة / الوظيفة</th><td class="${worker.jobTitle ? "" : "dots"}">${worker.jobTitle ? escapeHtml(worker.jobTitle) : DOTTED}</td></tr>
         <tr><th>رقم بطاقة التعريف الوطنية</th><td class="${worker.nationalId ? "" : "dots"}" ${worker.nationalId ? 'dir="ltr" style="unicode-bidi:isolate"' : ""}>${worker.nationalId ? escapeHtml(worker.nationalId) : DOTTED}</td></tr>
-        <tr><th>تاريخ ومكان الصدور</th><td class="dots">الصادرة بتاريخ: ${DOTTED} عن دائرة / بلدية: ${DOTTED}</td></tr>
+        <tr><th>تاريخ ومكان الصدور</th><td>${
+          worker.nationalIdIssueDate || worker.nationalIdIssuePlace
+            ? `الصادرة بتاريخ: ${worker.nationalIdIssueDate ? `<span dir="ltr" style="unicode-bidi:isolate">${fmtDate(worker.nationalIdIssueDate)}</span>` : DOTTED} عن دائرة / بلدية: ${worker.nationalIdIssuePlace ? escapeHtml(worker.nationalIdIssuePlace) : DOTTED}`
+            : `<span class="dots">الصادرة بتاريخ: ${DOTTED} عن دائرة / بلدية: ${DOTTED}</span>`
+        }</td></tr>
       </table>
 
       <div class="sec-title">2. إقرار بالاستلام والمبلغ</div>
@@ -178,14 +215,7 @@ export function openWageReceiptPrint(data: WageReceiptData): boolean {
       <div class="issued">حُرّر ${city ? `بـ${city}` : ""} في: ${fmtDate(payment.paidAt)}</div>
 
       <div class="signs">
-        <div class="sig">
-          <div class="lbl">توقيع واستلام المعني(ة) بالأمر</div>
-          <div class="line">الاسم والتوقيع</div>
-        </div>
-        <div class="sig">
-          <div class="lbl">ختم وتوقيع إدارة النادي<br/>(أمين المال / رئيس النادي)</div>
-          <div class="line">الختم والتوقيع</div>
-        </div>
+        ${signsHtml}
       </div>
     </div>
     <div class="foot">

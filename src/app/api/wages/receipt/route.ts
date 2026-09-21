@@ -65,6 +65,8 @@ export async function GET(req: NextRequest) {
           name: p.user?.name || "—",
           jobTitle: null,
           nationalId: null,
+          nationalIdIssueDate: null,
+          nationalIdIssuePlace: null,
         },
         club,
       });
@@ -95,7 +97,7 @@ export async function GET(req: NextRequest) {
           { userId: wp.userId },
         ],
       },
-      select: { firstName: true, lastName: true, nationalId: true, position: true },
+      select: { firstName: true, lastName: true, nationalId: true, position: true, nationalIdIssueDate: true, nationalIdIssuePlace: true },
     });
 
     // رقم الوصل التسلسلي: ترتيب زمني للتسديدات النشطة داخل سنة الوصل
@@ -144,6 +146,8 @@ export async function GET(req: NextRequest) {
         name: wp.user?.name || [employee?.lastName, employee?.firstName].filter(Boolean).join(" ") || "—",
         jobTitle: employee?.position ? (POSITION_LABELS[employee.position] || employee.position) : null,
         nationalId: employee?.nationalId ?? null,
+        nationalIdIssueDate: employee?.nationalIdIssueDate ? employee.nationalIdIssueDate.toISOString() : null,
+        nationalIdIssuePlace: employee?.nationalIdIssuePlace ?? null,
       },
       club,
     });

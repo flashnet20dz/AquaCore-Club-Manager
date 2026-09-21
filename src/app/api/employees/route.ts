@@ -101,6 +101,9 @@ export async function POST(req: NextRequest) {
         birthDate: body.birthDate ? new Date(body.birthDate) : null,
         birthPlace: body.birthPlace ? String(body.birthPlace).trim() : null,
         nationalId: body.nationalId ? String(body.nationalId).trim() : null,
+        // ★ وصل الاستلام: تاريخ ومكان صدور بطاقة التعريف
+        nationalIdIssueDate: body.nationalIdIssueDate ? new Date(body.nationalIdIssueDate) : null,
+        nationalIdIssuePlace: body.nationalIdIssuePlace ? String(body.nationalIdIssuePlace).trim() : null,
         position,
         hourRate,
         hireDate: body.hireDate ? new Date(body.hireDate) : new Date(),

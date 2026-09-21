@@ -45,7 +45,8 @@ import { toast } from "sonner";
 import { notifyFinancialUpdated } from "@/lib/financial-events";
 import { toLocalYMD } from "@/lib/wall-clock";
 import { ExportButton } from "@/components/shared/export-button";
-import { openWageReceiptPrint, type WageReceiptData } from "./wage-receipt";
+import { openWageReceiptPrint, DEFAULT_SIGNATORIES, type WageReceiptData, type WageReceiptSignatories } from "./wage-receipt";
+import { Checkbox } from "@/components/ui/checkbox";
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -183,22 +184,31 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
   // ★ وصل استلام المستحقات — بعد التسديد + من سجل التسديدات
   const [paidSuccess, setPaidSuccess] = useState<{ paymentId: string; workerName: string; amount: number } | null>(null);
   const [receiptBusy, setReceiptBusy] = useState(false);
+  // ★ اختيار من يمضي في آخر الوصل — حوار خيارات قبل الطباعة
+  const [receiptTarget, setReceiptTarget] = useState<{ paymentId: string; legacy: boolean; workerName: string } | null>(null);
+  const [sigOpts, setSigOpts] = useState<WageReceiptSignatories>(DEFAULT_SIGNATORIES);
 
-  /** جلب بيانات الوصل وفتح نافذة الطباعة (يدعم السجلات القديمة legacy) */
+  /** فتح حوار خيارات الوصل (اختيار المُوقّعين) — من أي مدخل */
+  const openReceiptDialog = useCallback((paymentId: string, workerName = "", legacy = false) => {
+    setSigOpts(DEFAULT_SIGNATORIES);
+    setReceiptTarget({ paymentId, legacy, workerName });
+  }, []);
+
+  /** جلب بيانات الوصل وفتح نافذة الطباعة بالخيارات المختارة */
   const printReceipt = useCallback(async (paymentId: string, legacy = false) => {
     setReceiptBusy(true);
     try {
       const res = await fetch(`/api/wages/receipt?id=${encodeURIComponent(paymentId)}${legacy ? "&legacy=1" : ""}`, { cache: "no-store" });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "فشل تحميل بيانات الوصل");
-      const ok = openWageReceiptPrint(json as WageReceiptData);
+      const ok = openWageReceiptPrint(json as WageReceiptData, sigOpts);
       if (!ok) toast.error("المتصفح حجب نافذة الطباعة — اسمح بالنوافذ المنبثقة لهذا الموقع");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "فشل طباعة الوصل");
     } finally {
       setReceiptBusy(false);
     }
-  }, []);
+  }, [sigOpts]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -311,13 +321,13 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
     }
   };
 
-  const periodLabel = data?.period.label ?? (mode === "month" ? monthName(currentMonth) : `${rangeFrom} → ${rangeTo}`);
+  const periodLabel = data?.period?.label ?? (mode === "month" ? monthName(currentMonth) : `${rangeFrom} → ${rangeTo}`);
   const totals = data?.totals ?? { gross: 0, paid: 0, remaining: 0 };
   // ★ إلغاء التسديد في حالة الخطأ — للمدير فقط (الصلاحية من الخادم لا من الواجهة)
   const canVoid = data?.viewer?.canVoid ?? false;
   // ★ المرحلة 5 (§34): المحاسب يسلّم أيضاً — الصلاحية من الخادم لا من الواجهة
   const canPay = data?.viewer?.canPay ?? false;
-  const activeWorkers = useMemo(() => data?.workers.filter((w) => w.totalHours > 0 || w.paid > 0) ?? [], [data]);
+  const activeWorkers = useMemo(() => data?.workers?.filter((w) => w.totalHours > 0 || w.paid > 0) ?? [], [data]);
   const allPayments = useMemo(() => {
     const rows = activeWorkers.flatMap((w) => w.payments.map((p) => ({ ...p, workerName: w.name })));
     return rows.sort((a, b) => (a.paidAt < b.paidAt ? 1 : -1));
@@ -610,7 +620,7 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => printReceipt(p.id)}
+                      onClick={() => openReceiptDialog(p.id, p.workerName)}
                       disabled={receiptBusy}
                       className="h-7 px-2.5 text-xs gap-1 shrink-0 text-teal-700 border-teal-500/40 hover:bg-teal-500/10 hover:text-teal-800"
                       title="طباعة وصل استلام المستحقات ليُمضّيه العامل"
@@ -675,7 +685,7 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => printReceipt(p.id, p.legacy)}
+                    onClick={() => openReceiptDialog(p.id, p.workerName, p.legacy)}
                     disabled={receiptBusy}
                     className="h-7 px-2.5 text-xs gap-1 shrink-0 text-teal-700 border-teal-500/40 hover:bg-teal-500/10 hover:text-teal-800"
                     title="طباعة وصل استلام المستحقات ليُمضّيه العامل"
@@ -800,8 +810,87 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setPaidSuccess(null)}>لاحقاً</Button>
             <Button
-              onClick={() => { if (paidSuccess) printReceipt(paidSuccess.paymentId); setPaidSuccess(null); }}
-              disabled={receiptBusy}
+              onClick={() => { if (paidSuccess) openReceiptDialog(paidSuccess.paymentId, paidSuccess.workerName); setPaidSuccess(null); }}
+              className="bg-teal-600 hover:bg-teal-700 text-white gap-1"
+            >
+              <Printer className="h-4 w-4" />
+              طباعة الوصل
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══ حوار خيارات الوصل — اختيار من يمضي في آخر الوصل ═══ */}
+      <Dialog open={!!receiptTarget} onOpenChange={(o) => !o && setReceiptTarget(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Printer className="h-5 w-5 text-teal-600" /> خيارات وصل الاستلام
+            </DialogTitle>
+            <DialogDescription className="text-xs leading-relaxed">
+              اختر من يمضي في آخر الوصل قبل الطباعة{receiptTarget?.workerName ? ` — المستفيد: ${receiptTarget.workerName}` : ""}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2.5">
+            {/* 1) المعني(ة) بالأمر — العامل المستفيد */}
+            <label className="flex items-start gap-2.5 rounded-xl border border-border/60 p-3 cursor-pointer hover:bg-muted/40 transition-colors">
+              <Checkbox
+                checked={sigOpts.recipient}
+                onCheckedChange={(v) => setSigOpts((s) => ({ ...s, recipient: v === true }))}
+                className="mt-0.5"
+              />
+              <span className="min-w-0">
+                <span className="block text-xs font-bold">توقيع واستلام المعني(ة) بالأمر</span>
+                <span className="block text-[10px] text-muted-foreground mt-0.5">إمضاء العامل المستفيد للتوثيق</span>
+              </span>
+            </label>
+            {/* 2) إدارة النادي — أمين المال / رئيس النادي */}
+            <div className="rounded-xl border border-border/60 p-3">
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <Checkbox
+                  checked={sigOpts.clubTitle !== null}
+                  onCheckedChange={(v) => setSigOpts((s) => ({ ...s, clubTitle: v === true ? "both" : null }))}
+                  className="mt-0.5"
+                />
+                <span className="min-w-0">
+                  <span className="block text-xs font-bold">ختم وتوقيع إدارة النادي</span>
+                  <span className="block text-[10px] text-muted-foreground mt-0.5">اختر صاحب الصلاحية للتوقيع</span>
+                </span>
+              </label>
+              {sigOpts.clubTitle !== null && (
+                <div className="mt-2.5 pr-7">
+                  <Select value={sigOpts.clubTitle} onValueChange={(v) => setSigOpts((s) => ({ ...s, clubTitle: v as WageReceiptSignatories["clubTitle"] }))}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="both">أمين المال / رئيس النادي</SelectItem>
+                      <SelectItem value="treasurer">أمين المال فقط</SelectItem>
+                      <SelectItem value="president">رئيس النادي فقط</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+            {/* 3) مصالح البلدية */}
+            <label className="flex items-start gap-2.5 rounded-xl border border-border/60 p-3 cursor-pointer hover:bg-muted/40 transition-colors">
+              <Checkbox
+                checked={sigOpts.municipality}
+                onCheckedChange={(v) => setSigOpts((s) => ({ ...s, municipality: v === true }))}
+                className="mt-0.5"
+              />
+              <span className="min-w-0">
+                <span className="block text-xs font-bold">ختم مصالح البلدية</span>
+                <span className="block text-[10px] text-muted-foreground mt-0.5">خانة الختم الرسمي لمصالح البلدية عند الحاجة</span>
+              </span>
+            </label>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setReceiptTarget(null)}>إلغاء</Button>
+            <Button
+              onClick={() => {
+                if (receiptTarget) printReceipt(receiptTarget.paymentId, receiptTarget.legacy);
+                setReceiptTarget(null);
+              }}
+              disabled={receiptBusy || (!sigOpts.recipient && !sigOpts.clubTitle && !sigOpts.municipality)}
               className="bg-teal-600 hover:bg-teal-700 text-white gap-1"
             >
               {receiptBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}

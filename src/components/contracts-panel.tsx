@@ -55,6 +55,9 @@ interface Employee {
   address: string | null;
   phone: string | null;
   nationalId: string | null;
+  // ★ وصل الاستلام: تاريخ ومكان صدور بطاقة التعريف
+  nationalIdIssueDate?: string | null;
+  nationalIdIssuePlace?: string | null;
   // ★ المرحلة 5 (§3): تواصل + الاسم بالفرنسية + الحالة الرسمية
   email?: string | null;
   firstNameFr?: string | null;
@@ -523,7 +526,8 @@ function EmployeesTab({ employees, loading, onChanged }: {
   const [profileEmployee, setProfileEmployee] = useState<Employee | null>(null);
   const [form, setForm] = useState<any>({
     firstName: "", lastName: "", birthDate: "", birthPlace: "", address: "",
-    phone: "", nationalId: "", position: "guard", hourRate: 200, active: true,
+    phone: "", nationalId: "", nationalIdIssueDate: "", nationalIdIssuePlace: "",
+    position: "guard", hourRate: 200, active: true,
     email: "", firstNameFr: "", lastNameFr: "", status: "ACTIVE",
   });
 
@@ -539,6 +543,7 @@ function EmployeesTab({ employees, loading, onChanged }: {
       const body = {
         ...form,
         birthDate: form.birthDate ? new Date(form.birthDate) : null,
+        nationalIdIssueDate: form.nationalIdIssueDate ? new Date(form.nationalIdIssueDate) : null,
       };
       const res = await fetch(url, {
         method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
@@ -572,7 +577,8 @@ function EmployeesTab({ employees, loading, onChanged }: {
     setEditing(null);
     setForm({
       firstName: "", lastName: "", birthDate: "", birthPlace: "", address: "",
-      phone: "", nationalId: "", position: "guard", hourRate: 200, active: true,
+      phone: "", nationalId: "", nationalIdIssueDate: "", nationalIdIssuePlace: "",
+      position: "guard", hourRate: 200, active: true,
       email: "", firstNameFr: "", lastNameFr: "", status: "ACTIVE",
     });
     setDialogOpen(true);
@@ -583,6 +589,7 @@ function EmployeesTab({ employees, loading, onChanged }: {
     setForm({
       ...emp,
       birthDate: emp.birthDate ? new Date(emp.birthDate).toISOString().split("T")[0] : "",
+      nationalIdIssueDate: emp.nationalIdIssueDate ? new Date(emp.nationalIdIssueDate).toISOString().split("T")[0] : "",
     });
     setDialogOpen(true);
   };
@@ -801,6 +808,15 @@ function EmployeesTab({ employees, loading, onChanged }: {
             <div>
               <Label className="text-xs">رقم بطاقة التعريف</Label>
               <Input value={form.nationalId} onChange={(e) => setForm({ ...form, nationalId: e.target.value })} className="h-9" dir="ltr" />
+            </div>
+            {/* ★ وصل الاستلام: تاريخ ومكان صدور البطاقة — يُطبعان آلياً في الوصل */}
+            <div>
+              <Label className="text-xs">تاريخ صدور البطاقة</Label>
+              <Input type="date" lang="ar-DZ" value={form.nationalIdIssueDate || ""} onChange={(e) => setForm({ ...form, nationalIdIssueDate: e.target.value })} className="h-9" dir="ltr" />
+            </div>
+            <div className="sm:col-span-2">
+              <Label className="text-xs">دائرة / بلدية صدور البطاقة</Label>
+              <Input value={form.nationalIdIssuePlace || ""} onChange={(e) => setForm({ ...form, nationalIdIssuePlace: e.target.value })} className="h-9" placeholder="مثال: دائرة سعيدة / بلدية سعيدة" />
             </div>
             <div>
               <Label className="text-xs">المنصب</Label>
