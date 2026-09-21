@@ -540,6 +540,9 @@ model Employee {
   address         String?
   phone           String?
   nationalId      String?
+  // ★ وصل الاستلام: تاريخ ومكان صدور بطاقة التعريف الوطنية (يُطبعان في الوصل آلياً)
+  nationalIdIssueDate  DateTime?
+  nationalIdIssuePlace String?
   // ★ المرحلة 5 (§3): تواصل + الاسم بالفرنسية عند الحاجة
   email           String?
   firstNameFr     String?
