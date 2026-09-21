@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { resolveTargetClubId } from "@/lib/tenant";
 
 function hasWageAccess(role: string): boolean {
   return ["admin", "superadmin", "assistant", "accountant"].includes(role);
@@ -23,7 +24,8 @@ export async function GET(req: NextRequest) {
     if (!currentUser || !hasWageAccess(currentUser.role)) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
     }
-    const clubId = currentUser.clubId;
+    // 🔑 superadmin: أول نادٍ نشط — طباعة الوصل تعمل لكل الأدوار
+    const clubId = await resolveTargetClubId(currentUser);
     if (!clubId) return NextResponse.json({ error: "النادي غير محدد" }, { status: 400 });
 
     const url = new URL(req.url);
@@ -89,16 +91,37 @@ export async function GET(req: NextRequest) {
         : null;
 
     // معلومات العامل الشخصية — من سجل الموظف المرتبط (employeeId أو userId)
-    const employee = await db.employee.findFirst({
-      where: {
-        clubId,
-        OR: [
-          ...(wp.employeeId ? [{ id: wp.employeeId }] : []),
-          { userId: wp.userId },
-        ],
-      },
-      select: { firstName: true, lastName: true, nationalId: true, position: true, nationalIdIssueDate: true, nationalIdIssuePlace: true },
-    });
+    const employeeWhere = {
+      clubId,
+      OR: [
+        ...(wp.employeeId ? [{ id: wp.employeeId }] : []),
+        { userId: wp.userId },
+      ],
+    };
+    type ReceiptEmployee = {
+      firstName: string;
+      lastName: string;
+      nationalId: string | null;
+      position: string;
+      nationalIdIssueDate: Date | null;
+      nationalIdIssuePlace: string | null;
+    };
+    let employee: ReceiptEmployee | null = null;
+    try {
+      employee = await db.employee.findFirst({
+        where: employeeWhere,
+        select: { firstName: true, lastName: true, nationalId: true, position: true, nationalIdIssueDate: true, nationalIdIssuePlace: true },
+      });
+    } catch (empErr) {
+      // ★ حماية: إن لم تُطبَّق بعد ترحيلات عمودي وصل الاستلام (P2022 column does not exist)
+      //   تُطبع الوصل بدون معلومات الصدور (خطوط منقّطة) بدل انهيار الطباعة بخطأ Prisma
+      console.error("receipt employee fetch — falling back without issue columns:", empErr);
+      const legacy = await db.employee.findFirst({
+        where: employeeWhere,
+        select: { firstName: true, lastName: true, nationalId: true, position: true },
+      }).catch(() => null);
+      employee = legacy ? { ...legacy, nationalIdIssueDate: null, nationalIdIssuePlace: null } : null;
+    }
 
     // رقم الوصل التسلسلي: ترتيب زمني للتسديدات النشطة داخل سنة الوصل
     const paidAt = wp.paidAt;

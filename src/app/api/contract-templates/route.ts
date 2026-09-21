@@ -1,43 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { OFFICIAL_CDD_TEMPLATE_HTML } from "@/lib/contract-variables";
+import { resolveTargetClubId } from "@/lib/tenant";
+import { CDD_TEMPLATE, ensureCddTemplate } from "@/lib/cdd-template";
 
 // ─── Default templates (seeded on first GET if empty) ───
 const DEFAULT_TEMPLATES = [
   {
-    name: "عقد حارس السباحة",
-    code: "guard",
-    description: "عقد عمل لحارس السباحة (Lifeguard / Maître-nageur)",
-    defaultDuration: 365,
-    content: `<div dir="rtl" style="font-family:'Cairo','Tahoma',Arial;font-size:12pt;line-height:1.8;padding:20px;">
-<h2 style="text-align:center;color:#0f766e;margin-bottom:20px;">عقد عمل — حارس سباحة</h2>
-
-<p>إنه في اليوم {{today}}، بين ممثلي {{club_name}} - {{club_branch}}، تم الاتفاق على ما يلي:</p>
-
-<h3 style="color:#0f766e;">المادة 1: الأطراف</h3>
-<p><strong>العمال:</strong> السيد/ة {{worker_name}}، المولود/ة بتاريخ {{birth_date}} بمكان {{birth_place}}، الساكن/ة في {{address}}، صاحب/ة بطاقة التعريف رقم {{national_id}}، الهاتف {{phone}}.</p>
-
-<h3 style="color:#0f766e;">المادة 2: المنصب</h3>
-<p>يعين العامل في منصب: <strong>{{position}}</strong>.</p>
-
-<h3 style="color:#0f766e;">المادة 3: المدة</h3>
-<p>تبدأ مدة هذا العقد في {{start_date}} وتنتهي في {{end_date}}.</p>
-
-<h3 style="color:#0f766e;">المادة 4: الأجر</h3>
-<p>يحدد أجر العامل بسعر {{hour_rate}} دج للساعة، مع جدول عمل: {{work_schedule}}.</p>
-
-<h3 style="color:#0f766e;">المادة 5: الالتزامات</h3>
-<p>يلتزم العامل بأداء مهامه بكل جدية وإتقان، والمحافظة على سلامة المنخرطين، ومراقبة المكاتب والمعدات.</p>
-
-<h3 style="color:#0f766e;">المادة 6: رقم العقد</h3>
-<p>رقم هذا العقد: <strong>{{contract_number}}</strong>.</p>
-
-<div style="margin-top:60px;display:flex;justify-content:space-between;">
-  <div style="text-align:center;"><p>إمضاء العامل</p><br/><br/>_____________</div>
-  <div style="text-align:center;"><p>رئيس الجمعية</p><br/><br/>_____________</div>
-  <div style="text-align:center;"><p>رئيس الفرع</p><br/><br/>_____________</div>
-</div>
-</div>`,
+    name: "عقد حارس السباحة (CDD)",
+    code: "guard-cdd",
+    description: "عقد عمل محدد المدة لحارس سباحة (منقذ مائي) — النموذج الإداري المعتمد",
+    defaultDuration: 92,
+    content: OFFICIAL_CDD_TEMPLATE_HTML,
   },
   {
     name: "عقد مدرب",
@@ -168,22 +143,28 @@ const DEFAULT_TEMPLATES = [
   },
 ];
 
-// ─── GET: list templates (auto-seed defaults if empty) ───
+// ─── GET: list templates (auto-seed defaults if empty + ضمان النموذج الرسمي CDD) ───
 export async function GET() {
   try {
     const user = await getCurrentUser();
-    if (!user || !user.clubId) return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
+    if (!user) return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
+    // 🔑 superadmin: أول نادٍ نشط — بذل القوالب والقراءة تعملان لكل الأدوار
+    const clubId = await resolveTargetClubId(user);
+    if (!clubId) return NextResponse.json({ error: "لم يتم العثور على نادٍ" }, { status: 400 });
 
     // Seed defaults if none exist
-    const existing = await db.contractTemplate.count({ where: { clubId: user.clubId } });
+    const existing = await db.contractTemplate.count({ where: { clubId } });
     if (existing === 0) {
       await db.contractTemplate.createMany({
-        data: DEFAULT_TEMPLATES.map((t) => ({ ...t, clubId: user.clubId! })),
+        data: [...DEFAULT_TEMPLATES, { ...CDD_TEMPLATE }].map((t) => ({ ...t, clubId })),
       });
+    } else {
+      // النموذج الرسمي يُزرع حتى للأندية التي لديها قوالب قديمة (idempotent)
+      await ensureCddTemplate(clubId);
     }
 
     const templates = await db.contractTemplate.findMany({
-      where: { clubId: user.clubId },
+      where: { clubId },
       orderBy: { name: "asc" },
     });
     return NextResponse.json({ templates });
@@ -201,10 +182,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
     }
     const body = await req.json();
+    // 🔑 superadmin: حل نادي الهدف
+    const clubId = await resolveTargetClubId(user, body?.clubId);
+    if (!clubId) return NextResponse.json({ error: "لم يتم العثور على نادٍ" }, { status: 400 });
     const template = await db.contractTemplate.create({
       data: {
         ...body,
-        clubId: user.clubId!,
+        clubId,
       },
     });
     return NextResponse.json({ template }, { status: 201 });

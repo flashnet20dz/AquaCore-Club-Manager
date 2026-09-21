@@ -69,9 +69,7 @@ if (Test-Path $portableExe) {
     Write-Host "  📦 Portable:  $portableExe ($size MB)" -ForegroundColor White
 }
 
-Write-Host "`n  🔑 معلومات الدخول:" -ForegroundColor Yellow
-Write-Host "     admin@rcs.dz / admin123" -ForegroundColor White
-Write-Host "     super@rcs.dz / super123" -ForegroundColor White
+Write-Host "`n  🔑 معلومات الدخول: استخدم بيانات الحساب المعتمدة للنادي" -ForegroundColor Yellow
 
 Write-Host "`n  🖥️ وضع التشغيل:" -ForegroundColor Yellow
 Write-Host "     1. يحاول تشغيل خادم محلي (Offline + SQLite)" -ForegroundColor White

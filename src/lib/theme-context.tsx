@@ -40,7 +40,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // Apply dark/light/system mode
   const applyMode = useCallback((m: Mode) => {
     const root = document.documentElement;
-    const stored = localStorage.getItem("rcs-theme");
     const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
 
     let isDark = false;
@@ -53,24 +52,40 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     } else {
       root.classList.remove("dark");
     }
-    localStorage.setItem("rcs-theme", isDark ? "dark" : "light");
-    localStorage.setItem("rcs-theme-mode", m);
+
+    try {
+      localStorage.setItem("rcs-theme", isDark ? "dark" : "light");
+      localStorage.setItem("rcs-theme-mode", m);
+      document.cookie = `rcs-theme=${isDark ? "dark" : "light"}; path=/; max-age=31536000; SameSite=Lax`;
+      document.cookie = `rcs-theme-mode=${m}; path=/; max-age=31536000; SameSite=Lax`;
+    } catch {}
   }, []);
 
-  // Initialize from localStorage on mount
+  // Initialize from localStorage / cookies on mount
   useEffect(() => {
-    const savedMode = (localStorage.getItem("rcs-theme-mode") as Mode) || "system";
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    let savedMode: Mode = "system";
+    try {
+      const modeVal = localStorage.getItem("rcs-theme-mode");
+      const themeVal = localStorage.getItem("rcs-theme");
+      if (modeVal === "dark" || modeVal === "light" || modeVal === "system") {
+        savedMode = modeVal;
+      } else if (themeVal === "dark" || themeVal === "light") {
+        savedMode = themeVal;
+      }
+    } catch {}
+
     setModeState(savedMode);
     applyMode(savedMode);
 
     // Listen to system color scheme changes (only if mode=system)
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const handler = () => {
-      const currentMode = (localStorage.getItem("rcs-theme-mode") as Mode) || "system";
-      if (currentMode === "system") {
-        applyMode("system");
-      }
+      try {
+        const currentMode = (localStorage.getItem("rcs-theme-mode") as Mode) || "system";
+        if (currentMode === "system") {
+          applyMode("system");
+        }
+      } catch {}
     };
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);

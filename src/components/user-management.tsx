@@ -378,7 +378,7 @@ export function UserManagement() {
             </div>
             <div className="space-y-1.5">
               <Label className="text-sm font-semibold">البريد الإلكتروني *</Label>
-              <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="h-10" dir="ltr" placeholder="user@rcs.dz" />
+              <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="h-10" dir="ltr" placeholder="user@example.com" />
             </div>
             <div className="space-y-1.5">
               <Label className="text-sm font-semibold">

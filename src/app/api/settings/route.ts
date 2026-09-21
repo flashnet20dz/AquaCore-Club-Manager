@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { ensureDefaultSettings, getCurrentUser } from "@/lib/session";
+import { resolveTargetClubId } from "@/lib/tenant";
 
 export async function GET() {
   try {
@@ -9,14 +10,16 @@ export async function GET() {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
     }
 
-    // Self-heal: ensure default settings exist
-    await ensureDefaultSettings();
+    // 🔑 superadmin يدير النادي الفعلي — اقرأ إعداداته بدل مصفوفة فارغة
+    // (كانت تُرجع [] فيفقد الترويسة الموحدة اسم النادي كلياً)
+    const clubId = await resolveTargetClubId(currentUser);
 
-    const settings = currentUser.role === "superadmin"
-      ? []
-      : await db.setting.findMany({
-          where: { clubId: currentUser.clubId! },
-        });
+    // Self-heal: ensure default settings exist
+    await ensureDefaultSettings(clubId || undefined);
+
+    const settings = clubId
+      ? await db.setting.findMany({ where: { clubId } })
+      : [];
     const map: Record<string, string> = {};
     for (const s of settings) map[s.key] = s.value;
     return NextResponse.json({ settings: map });
@@ -33,7 +36,8 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
     }
 
-    const clubId = currentUser.clubId;
+    // 🔑 إصلاح superadmin: احفظ في نادي الهدف بدل رفض الطلب
+    const clubId = await resolveTargetClubId(currentUser);
     if (!clubId) {
       return NextResponse.json({ error: "لا يوجد نادي مرتبط بهذا الحساب" }, { status: 400 });
     }

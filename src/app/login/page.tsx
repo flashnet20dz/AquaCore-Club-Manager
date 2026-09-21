@@ -118,6 +118,10 @@ function LoginForm() {
       .then((r) => r.json())
       .then((data) => {
         if (data.user) {
+          try {
+            sessionStorage.removeItem("rcs-active-tab");
+            localStorage.removeItem("rcs-active-tab");
+          } catch {}
           window.location.href = callbackUrl;
         }
       })
@@ -146,6 +150,10 @@ function LoginForm() {
       }
 
       toast.success(`مرحباً بك ${data.user.name}`);
+      try {
+        sessionStorage.removeItem("rcs-active-tab");
+        localStorage.removeItem("rcs-active-tab");
+      } catch {}
       window.location.href = callbackUrl;
     } catch (err) {
       console.error("Login error:", err);

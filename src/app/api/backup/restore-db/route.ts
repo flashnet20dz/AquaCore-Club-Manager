@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
-import fs from "fs";
-import path from "path";
+import { restoreSqliteBuffer, restoreJsonData } from "@/lib/backup-restore";
+
+export const dynamic = "force-dynamic";
 
 // ═════════════════════════════════════════════════════════════════════════════
-// استعادة ملف قاعدة البيانات المباشر (.db / .sqlite) لقطة طبق الأصل 100%
+// استعادة ملف قاعدة البيانات المباشر (.db / .sqlite) مع كشف ذكي وتلقائي للمحتوى
 // ═════════════════════════════════════════════════════════════════════════════
 export async function POST(req: NextRequest) {
   try {
@@ -16,61 +16,56 @@ export async function POST(req: NextRequest) {
 
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
+    const mode = (formData.get("mode") as "merge" | "replace") || "replace";
 
     if (!file) {
-      return NextResponse.json({ error: "يرجى اختيار ملف قاعدة بيانات (.db)" }, { status: 400 });
+      return NextResponse.json({ error: "يرجى اختيار ملف للنسخة الاحتياطية (.db أو .json)" }, { status: 400 });
     }
 
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // التحقق من ترويسة ملف SQLite الرسمية (16 بايت الأولى)
+    if (buffer.length < 4) {
+      return NextResponse.json({ error: "الملف المرفوع فارغ أو تالف" }, { status: 400 });
+    }
+
+    // 1. فحص ترويسة ملف SQLite الرسمية (SQLite format 3\0)
     const SQLITE_HEADER = Buffer.from("SQLite format 3\0");
-    if (buffer.length < 100 || !buffer.subarray(0, 16).equals(SQLITE_HEADER)) {
-      return NextResponse.json(
-        { error: "الملف المرفوع ليس ملف قاعدة بيانات SQLite صالحاً (.db)" },
-        { status: 400 }
-      );
+    const isSqlite = buffer.length >= 16 && buffer.subarray(0, 16).equals(SQLITE_HEADER);
+
+    if (isSqlite) {
+      // استعادة مباشرة لملف قاعدة بيانات SQLite
+      return await restoreSqliteBuffer(buffer, file.name, user);
     }
 
-    const prismaDir = path.join(process.cwd(), "prisma");
-    const dbPath = path.join(prismaDir, "dev.db");
-    const walPath = path.join(prismaDir, "dev.db-wal");
-    const shmPath = path.join(prismaDir, "dev.db-shm");
-
-    // 1. تفريغ الـ WAL الحالي إن وجد
-    try {
-      await db.$queryRawUnsafe("PRAGMA wal_checkpoint(TRUNCATE);");
-    } catch {}
-
-    // 2. إنشاء نسخة احتياطية من الملف الحالي كإجراء أمان قبل الاستبدال
-    if (fs.existsSync(dbPath)) {
-      const backupFilename = `dev.db.before-restore-${Date.now()}.bak`;
-      fs.copyFileSync(dbPath, path.join(prismaDir, backupFilename));
+    // 2. الكشف الذكي: إذا كان الملف نصياً بصيغة JSON (حتى لو كان اسمه ينتهي بـ .db)
+    const firstNonWhitespace = buffer.toString("utf8", 0, Math.min(buffer.length, 100)).trim();
+    if (firstNonWhitespace.startsWith("{") || firstNonWhitespace.startsWith("[")) {
+      try {
+        const jsonString = buffer.toString("utf8");
+        const parsedJson = JSON.parse(jsonString);
+        return await restoreJsonData(parsedJson, user.clubId!, mode);
+      } catch (jsonErr: any) {
+        return NextResponse.json(
+          { error: `الملف يبدو كنسخة JSON مهيكلة لكن حدث خطأ أثناء فك تشفيره: ${jsonErr?.message || ""}` },
+          { status: 400 }
+        );
+      }
     }
 
-    // 3. كتابة ملف قاعدة البيانات الجديد المستعاد
-    fs.writeFileSync(dbPath, buffer);
-
-    // 4. حذف ملفات WAL و SHM القديمة لضمان قراءة الملف المستعاد نظيفاً 100%
-    if (fs.existsSync(walPath)) {
-      try { fs.unlinkSync(walPath); } catch {}
-    }
-    if (fs.existsSync(shmPath)) {
-      try { fs.unlinkSync(shmPath); } catch {}
-    }
-
-    return NextResponse.json({
-      success: true,
-      size: buffer.length,
-      filename: file.name,
-      message: "تمت استعادة قاعدة البيانات (.db) بنجاح 100%. سيتم تحديث الصفحة فوراً.",
-    });
-  } catch (e) {
-    console.error("Database restore error:", e);
+    return NextResponse.json(
+      {
+        error:
+          "صيغة الملف غير مدعومة. يرجى التأكد من رفع ملف قاعدة بيانات SQLite صالح (.db) أو ملف نسخة احتياطية مهيكل (.json).",
+      },
+      { status: 400 }
+    );
+  } catch (e: any) {
+    console.error("[restore-db] Database restore error:", e);
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "فشلت استعادة ملف قاعدة البيانات" },
       { status: 500 }
     );
   }
 }
+

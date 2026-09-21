@@ -222,13 +222,13 @@ export function ActivationModal({ open, onClose, onActivated }: ActivationModalP
                           <><KeyRound className="h-4 w-4 sm:h-5 sm:w-5 ml-1" /> تفعيل الآن</>
                         )}
                       </Button>
-                      <Button
+                      <button
+                        type="button"
                         onClick={handleClose}
-                        variant="outline"
-                        className="h-11 sm:h-12 px-4 rounded-xl border-white/20 text-white hover:bg-white/5"
+                        className="h-11 sm:h-12 px-5 rounded-xl border border-white/20 bg-white/10 text-white font-medium hover:bg-white/20 active:scale-95 transition-all text-sm sm:text-base"
                       >
                         إلغاء
-                      </Button>
+                      </button>
                     </div>
                   </div>
                 </>
@@ -274,20 +274,20 @@ export function ActivationModal({ open, onClose, onActivated }: ActivationModalP
                   <h2 className="text-xl sm:text-2xl font-extrabold text-white mb-2">فشل التفعيل</h2>
                   <p className="text-xs sm:text-sm text-rose-400 mb-4 sm:mb-6 px-2">{error}</p>
                   <div className="flex gap-2">
-                    <Button
+                    <button
+                      type="button"
                       onClick={() => setStep("input")}
-                      variant="outline"
-                      className="flex-1 h-11 sm:h-12 rounded-xl border-white/20 text-white hover:bg-white/5"
+                      className="flex-1 h-11 sm:h-12 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold transition-all text-sm sm:text-base"
                     >
                       المحاولة مرة أخرى
-                    </Button>
-                    <Button
+                    </button>
+                    <button
+                      type="button"
                       onClick={handleClose}
-                      variant="ghost"
-                      className="h-11 sm:h-12 px-4 text-white/60 hover:text-white"
+                      className="h-11 sm:h-12 px-5 rounded-xl border border-white/20 bg-white/10 text-white font-medium hover:bg-white/20 transition-all text-sm sm:text-base"
                     >
                       إغلاق
-                    </Button>
+                    </button>
                   </div>
                 </div>
               )}

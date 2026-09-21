@@ -41,10 +41,6 @@ for IP in $IP_ADDRESSES; do
 done
 echo "  ═══════════════════════════════════════════════════"
 echo ""
-echo "  الحسابات الافتراضية:"
-echo "    المدير:    admin@rcs.dz  /  admin123"
-echo "    المدرب:    coach@rcs.dz  /  coach123"
-echo ""
 echo "  اضغط Ctrl+C لإيقاف الخادم"
 echo "  ═══════════════════════════════════════════════════"
 echo ""

@@ -22,8 +22,9 @@ async function api(path, opts = {}) {
 }
 
 async function main() {
-  console.log(`\n🧪 SOFT-DELETE ENFORCEMENT — FINAL AUDIT\n${"═".repeat(60)}`);
-  const login = await api("/api/auth/login", { method: "POST", body: JSON.stringify({ email: "admin@rcs.dz", password: "admin123" }) });
+  const testEmail = process.env.TEST_EMAIL || "test@aquacore.local";
+  const testPassword = process.env.TEST_PASSWORD || "TestPass123";
+  const login = await api("/api/auth/login", { method: "POST", body: JSON.stringify({ email: testEmail, password: testPassword }) });
   ok("login 200", login.status === 200);
 
   // ═══ 1) StaffCompensation: archive (NOT delete) ═══

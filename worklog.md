@@ -103,29 +103,29 @@ Work Log:
 - تثبيت 1168 حزمة عبر bun (مع ELECTRON_SKIP_BINARY_DOWNLOAD=1)
 - prisma db push + كتابة scripts/seed-demo.ts: نادٍ نشط + 3 مستخدمين + 4 أنواع اشتراك + أيام/4 فترات + 42 منخرطاً + 30 دفعة + 527 سجل حضور (21 يوماً) + 36 معاملة مالية (رصيد 35,500 دج) + 3 انتظار + PIN كاشير 1234
 - إصلاح خطأ تجميع رصيد في السكربت + تخفيف ضجيج prisma:query في db.ts (إزالة log query من وضع dev)
-- تشغيل الخادم والتحقق بالمتصفح: تسجيل دخول admin@rcs.dz ✓، كل التبويبات الـ23 ✓، تسجيل حضور تفاعلي (POST 201) ✓، لوحة مالية مطابقة للبيانات ✓، تنبيهات تجديد (6) ✓، تجاوب موبايل 390px ✓، كونسول نظيف ✓
+- تشغيل الخادم والتحقق بالمتصفح: تسجيل دخول admin@example.com ✓، كل التبويبات الـ23 ✓، تسجيل حضور تفاعلي (POST 201) ✓، لوحة مالية مطابقة للبيانات ✓، تنبيهات تجديد (6) ✓، تجاوب موبايل 390px ✓، كونسول نظيف ✓
 Stage Summary:
 - المشروع يعمل كاملاً في المعاينة على المنفذ 3000 بقاعدة SQLite محلية
 - تصحيح مهم لمراجعة سابقة: "خطأي الصياغة في export/route.ts و kiosk-mode.tsx" لم يكونا حقيقيين — أدات Bash تلتهم تسلسل [h] عند العرض (ثبت بفحص رموز الحروف). الأصل في git سليم
 - الثغرات الحقيقية المؤكدة بأداة Read: POST /api/users يقبل role دون قائمة بيضاء (تصعيد صلاحيات)، مفاتيح Cloudinary في .env.example، بيانات أعضاء في download/
 - تعديلات على كود المشروع: schema.prisma (sqlite)، .env جديد، db.ts (log)، sync.ts (حماية Array.isArray)، scripts/seed-demo.ts (جديد)
-- الحسابات: admin@rcs.dz/admin123، coach@rcs.dz/coach123، guard@rcs.dz/coach123، PIN 1234
+- الحسابات: admin@example.com/********، coach@example.com/********، guard@rcs.dz/********، PIN 1234
 ---
 Task ID: sec-fixes-1
 Agent: Z.ai Code (main)
 Task: التحقق من قائمة 12 خطأ مُبلَّغة وكتابة الإصلاحات الأمنية الحرجة (1,2,3,4,5,13)
 Work Log:
 - تحقق من البنود الـ12 ضد المستودع: 10 مؤكدة، البندان 1 و13 (خطأا الصياغة المزعومان) خداع بصري — عارض مخرجات Bash يلتهم تسلسل ]h[ (ثُبت بـ awk length=59/37 + esbuild exit=0)
-- نسخ المستودع إلى /home/z/AquaCore-Club-Manager وكتابة 4 إصلاحات أمنية: قفل cron بـ CRON_SECRET (timing-safe)، إزالة باكدور admin123 (SEED_DEFAULT_ADMIN + كلمة سر عشوائية)، whitelist أدوار في POST /api/users، عزل sync/push (قائمة نماذج + فحص ملكية clubId + فرض clubId + حظر delete غير المدعوم)
+- نسخ المستودع إلى /home/z/AquaCore-Club-Manager وكتابة 4 إصلاحات أمنية: قفل cron بـ CRON_SECRET (timing-safe)، إزالة باكدور ******** (SEED_DEFAULT_ADMIN + كلمة سر عشوائية)، whitelist أدوار في POST /api/users، عزل sync/push (قائمة نماذج + فحص ملكية clubId + فرض clubId + حظر delete غير المدعوم)
 - تنظيف .env.example: إزالة مفاتيح Cloudinary الحقيقية + توثيق CRON_SECRET/SEED_DEFAULT_ADMIN/ACTIVATION_HMAC_SECRET
 - اكتشاف: تدفق activationCode في sync/push كان معطوباً أصلاً (payload ينقصه codeHash/batchId الإجباريان) — الرفض الصريح ليس تراجعاً
 - توليد security-fixes.patch وتطبيقه أيضاً على نسخة المعاينة /home/z/my-project (استُبعد .env.example ثم أُصلح يدوياً)
 - اختبارات حية ناجحة: cron مجهول=401، هجوم superadmin عبر POST users=400 "دور غير صالح"، إنشاء lifeguard سليم=201، كلمة سر ضعيفة=400، sync بلا مفتاح=401
-- تحقق متصفح: دخول admin@rcs.dz ✓ لوحة التحكم بـ42 منخرطاً ✓ صفر أخطاء كونسول ✓
+- تحقق متصفح: دخول admin@example.com ✓ لوحة التحكم بـ42 منخرطاً ✓ صفر أخطاء كونسول ✓
 Stage Summary:
 - الإصلاحات الأربعة مطبقة في النسختين: /home/z/my-project (المعاينة الحية) و/home/z/AquaCore-Club-Manager
 - ملف الرقعة الجاهز لمستودع GitHub: /home/z/AquaCore-Club-Manager/security-fixes.patch (5 ملفات، +157/-25)
-- متطلبات ما بعد التطبيق: ضبط CRON_SECRET في البيئة وترويسة x-cron-secret بجدولة Vercel، تدوير مفتاح Cloudinary المسرب، تغيير كلمات سر admin123 في أي نشر قائم
+- متطلبات ما بعد التطبيق: ضبط CRON_SECRET في البيئة وترويسة x-cron-secret بجدولة Vercel، تدوير مفتاح Cloudinary المسرب، تغيير كلمات سر ******** في أي نشر قائم
 - المتبقي من القائمة (غير مُصلح): 6 سر HMAC في عميل التفعيل، 7 POS في localStorage، 8 انحراف مخطط SQLite، 9-10 كود ميت/تقسيم، 11 ربط durationDays بـ QR، 12 اختبارات
 ---
 Task ID: 2
@@ -545,7 +545,7 @@ Agent: Z.ai Code (main)
 Task: إصلاح «معلومات الدخول إلى الحساب في لوحة المعاينة لا تعمل» + رفع إلى GitHub
 Work Log:
 - تشخيص من dev.log: مستخدم وصل /login ونجح POST /api/auth/login (200) لكن /api/auth/me يعيد 401 بعدها دائماً → الجلسة لا تُحفظ
-- تحقق من DB المحلي: admin@rcs.dz نشط و bcrypt.compare('admin123') ✓ → البيانات صحيحة والمشكلة في الكوكي
+- تحقق من DB المحلي: admin@example.com نشط و bcrypt.compare('********') ✓ → البيانات صحيحة والمشكلة في الكوكي
 - الجذر: setSessionCookie/setClubHintCookie كانا sameSite:"lax" — داخل iframe لوحة المعاينة (نطاق طرف ثالث) يرفض Chrome/المتصفحات كوكي Lax → حلقة /login لا نهائية
 - الإصلاح في src/lib/session.ts: SameSite="none" + secure:true + partitioned:true (CHIPS) للكوكيز معاً، مع تعليق سببي كامل
 - tsc: ملفاتنا صفر أخطاء (electron/ و124 قديمة كما هي)؛ eslint على session.ts+financial-events.ts: صفر
@@ -665,7 +665,7 @@ Stage Summary:
 - ✅ §46 الإلغاء الذرّي من المكانين: WP+FT+الرصيد+التدقيق في معاملة واحدة
 - ✅ 85/85 اختبار + تحقق متصفح كامل (desktop+mobile) + lint نظيف + tsc بلا أخطاء جديدة (122 legacy ثابتة)
 - ✅ النشر: 61b4749 على main — Vercel success + smoke
-- ملاحظة: admin@rcs.dz على الإنتاج superadmin بلا نادي — فحص APIs النادي العميقة تم محلياً وعلى حساب النادي التجريبي؛ نمط أعمدة runtime-self-heal مثبت من المرحلتين 1-4 يضيف أعمدة الإنتاج تلقائياً عند أول طلب نادي
+- ملاحظة: admin@example.com على الإنتاج superadmin بلا نادي — فحص APIs النادي العميقة تم محلياً وعلى حساب النادي التجريبي؛ نمط أعمدة runtime-self-heal مثبت من المرحلتين 1-4 يضيف أعمدة الإنتاج تلقائياً عند أول طلب نادي
 - التقرير النهائي PHASE 5 RESULT أُسلّم للمستخدم في الرد
 Files created:
 - src/lib/work-contract-guard.ts
@@ -836,7 +836,7 @@ Work Log:
   1) refreshFinSummary: جلب خفيف للملخص المالي فقط (fetchFinancialDashboard month → setFinSummary) بلا skeletons ولا إعادة تحميل كاملة.
   2) useEffect: polling كل 45 ثانية (يتوقف عند إخفاء التبويبة) + visibilitychange → تحديث فوري عند العودة للتبويبة.
   3) Hero: العنوان أصبح «إجمالي المداخيل (اشتراكات + تأمين + تجديد)» + سطر تفصيل حي «اشتراكات وتجديد X • تأمين Y • مركب Z دج» من balance.incomeByCategory + زر تحديث فوري (RefreshCw يدور أثناء الجلب) + شارة «تحديث تلقائي» بنقطة خضراء نابضة.
-- تحقق Agent Browser (دخول admin@rcs.dz):
+- تحقق Agent Browser (دخول admin@example.com):
   * قبل: 0 / كل التفاصيل 0. بعدها 3 قيود اختبار (subscription 5000 + renewal 1200 + insurance 800) + زر التحديث → «7,000 | اشتراكات وتجديد 6,200 • تأمين 800 • مركب 0 دج» (6200=5000+1200 مطابقة تامة).
   * التحديث التلقائي: قيد compound 300 دون أي نقر → بعد 50 ثانية صار «7,300 • مركب 300» — polling يعمل.
   * الإلغاء الناعم للقيود الأربعة (DELETE=soft-cancel) + تحديث → عاد إلى 0 (الملغاة خارج الأرقام).
@@ -996,7 +996,7 @@ Stage Summary:
 ---
 Task ID: login-fix-sandbox-reset
 Agent: main
-Task: «الحساب لا يعمل» — خطأ داخل في النظام عند تسجيل الدخول (admin@rcs.dz)
+Task: «الحساب لا يعمل» — خطأ داخل في النظام عند تسجيل الدخول (admin@example.com)
 
 Work Log:
 - شخّص الجذر: POST /api/auth/login → 500 «Error validating datasource db: the URL must start with the protocol postgresql://» — كتلة datasource في prisma/schema.prisma المحلي تحوّلت إلى postgresql+directUrl (نسخة الإنتاج) بينما .env المحلي DATABASE_URL=file:db/custom.db (SQLite).
@@ -1004,11 +1004,11 @@ Work Log:
 - الإصلاح 2: npx prisma generate → العميل أعيد توليده بـ sqlite.
 - الإصلاح 3: إعادة تشغيل خادم التطوير — الاكتشاف المهم: عمليات setsid/nohup المباشرة تُقتل بصمت عند نهاية جلسة الأوامر؛ الطريقة الصحيحة في هذه البيئة: bash .zscripts/dev.sh (المسار الرسمي: bun install + db:push + dev + disown).
 - الاكتشاف الثاني: بعد الإقلاع — login 401 «بيانات الدخول غير صحيحة» وجدول User فارغ تماماً: بيئة العمل أُعيد تهيئتها وملف db/custom.db فُقد (db/ في .gitignore — غير مرفوع في git). القاعدة الحالية جديدة فارغة أنشأها db:push.
-- الإصلاح 4: سكربت استعادة جديد scripts/recover-admin.mjs (idempotent): نادي نشط (النادي الهاوي متعدد الرياضات — سعيدة، تجربة 15 يوم) + admin@rcs.dz/admin123 (bcrypt، role=admin، مرتبط بالنادي) + إعدادات أساسية (clubName/currency=دج/workHourRate=400...).
+- الإصلاح 4: سكربت استعادة جديد scripts/recover-admin.mjs (idempotent): نادي نشط (النادي الهاوي متعدد الرياضات — سعيدة، تجربة 15 يوم) + admin@example.com/******** (bcrypt، role=admin، مرتبط بالنادي) + إعدادات أساسية (clubName/currency=دج/workHourRate=400...).
 - تحقق: login API → 200 (user object سليم) • دخول عبر الواجهة بالمتصفح → لوحة التحكم تفتح «تجربة — 15 يوم» • كل endpoints تعيد 200 في dev.log • تبويبات كلها حاضرة.
 
 Stage Summary:
-- ✅ الدخول يعمل: admin@rcs.dz / admin123 (API + UI).
+- ✅ الدخول يعمل: admin@example.com / ******** (API + UI).
 - ⚠️ صادق ومهم: بيانات بيئة الاختبار المحلية القديمة (منخرطون/ساعات/مدفوعات التجارب السابقة) كانت في ملف DB المفقود — غير قابلة للاستعادة محلياً. إنتاج PostgreSQL (Neon) منفصل ولم يُمس إطلاقاً.
 - الدرسان المحفوظان: (1) كتلة datasource جراحية فقط — sqlite محلياً / postgres للإنتاج. (2) إعادة تشغيل الخادم تمر حصراً عبر .zscripts/dev.sh.
 - الملفات: prisma/schema.prisma (كتلة datasource فقط)، scripts/recover-admin.mjs (جديد).
@@ -1047,7 +1047,7 @@ Work Log:
 - الجذر: npx tsc --noEmit على شجرة الدمج كشف خطأين TS2307 في examples/websocket (socket.io غير مثبت — مجلد تجريبي أضافه commit محلي اليوم). tsconfig كان يشمله عبر "**/*.ts" → فحص الأنواع في next build يفشل على Vercel → النشر القديم المكسور أصلاً (33b3b13 رفع schema sqlite — نفس خطأ bc578f8) بقي حياً يخدم 500.
 - الإصلاح ae2da13: استثناء examples + mini-services من tsconfig → tsc صفر أخطاء → push → Vercel بنى وأنشر بنجاح.
 - دخان الإنتاج (aladine-pool-manager.vercel.app): home 200 + login صفحة 200 + POST /api/auth/login 200 (أهم فحص — يثبت صحة datasource postgres+directUrl) + auth/me 200 + network-info 200 (ميزات 33b3b13 حية) + workhours/stats/users 200. استجابات 400/403 على financial/* وswimming-days وwages = التصرف الرشيق المعمول به لsuper-admin بلا سياق نادي (موثق سلفاً) — ليست أعطالاً؛ صفر 500 في كل الفحوص.
-- تحقق متصفح كامل للإنتاج (agent-browser): دخول admin@rcs.dz → لوحة السوبر-أدمن تُحمَّل ببيانات حقيقية (نشاطان، نوادٍ نشطة: الفوق/البركة، تنبيهات اشتراكات 7/30 يوم) + صفحة الدخول RTL كاملة بالميزات.
+- تحقق متصفح كامل للإنتاج (agent-browser): دخول admin@example.com → لوحة السوبر-أدمن تُحمَّل ببيانات حقيقية (نشاطان، نوادٍ نشطة: الفوق/البركة، تنبيهات اشتراكات 7/30 يوم) + صفحة الدخول RTL كاملة بالميزات.
 - تحقق متصفح محلي قبل الرفع: الشريط الجانبي الجديد (33b3b13) + جدول المسبح 13 حصة + تبويب ساعات العمل → إنشاء سجل → زر «حذف نهائي» → حوار الحذف المدمج (DialogDescription + بيانات + تحذير + سبب إلزامي + زر معطل حتى الإدخال) → حذف 200 + اختفاء من القائمة + toast — الميزتان تعملان معاً في الشجرة الموحدة.
 - البيئة المحلية بعد الدمج: خادم حي عبر .zscripts/dev.sh، انقلاب sqlite محمي skip-worktree، عاملو اختبار مزروعون (worker1/worker2@test.dz).
 
@@ -1069,7 +1069,7 @@ Work Log:
   • حوار «تم التسديد بنجاح» يظهر فور التسديد الناجح مع زر «طباعة الوصل» (click = user gesture → لا حجب نوافذ)
   • زر «وصل» في سجل تسديدات الفترة + في كل التسديدات (يدعم legacy) — يختفي للملغاة
 - 🐞 إصلاحات أثناء التحقق: تكرار «دج جزائري» في سطر التفقيط (الأداة تتضمنه أصلاً)، حرف Date الإنجليزي الموروث من القالب الأصلي، اتجاه سطر الحساب (direction:ltr كسر ترتيب الكلمات العربية → RTL طبيعي)
-- 🌱 ملاحظة بيئة: قاعدة SQLite المحلية كانت فارغة تماماً (سيرفر الجلسة السابقة كان موصولاً بقاعدة أخرى) — زرعت بيانات اختبار دنيا (نادي «الرائد» سعيدة + admin@rcs.dz/admin123 + موظف حارس سباحة ببطاقة تعريف + 3 حصص معتمدة = 21سا×250 = 5250 دج + اشتراك سنوي نشط) — تسديد اختبار 5250 دج موجود محلياً
+- 🌱 ملاحظة بيئة: قاعدة SQLite المحلية كانت فارغة تماماً (سيرفر الجلسة السابقة كان موصولاً بقاعدة أخرى) — زرعت بيانات اختبار دنيا (نادي «الرائد» سعيدة + admin@example.com/******** + موظف حارس سباحة ببطاقة تعريف + 3 حصص معتمدة = 21سا×250 = 5250 دج + اشتراك سنوي نشط) — تسديد اختبار 5250 دج موجود محلياً
 - 🌐 تحقق متصفح كامل (المسار الذهبي): تسجيل دخول → ساعات العمل → أجور العمال (5,250 دج) → تسديد الأجر → تأكيد الدفع → حوار النجاح → طباعة الوصل → نافذة جديدة بالوصل الكامل: كل حقول القالب حاضرة (الاسم، حارس سباحة، 109901234567 LTR، المبلغ بالحروف صحيح بلا تكرار، FIN-2026-000001، حُرّر بـسعيدة في: 20/09/2026، التوقيعات) — لقطات كاملة في /tmp — tsc وlint نظيفان، dev.log بلا أخطاء
 
 Stage Summary:
@@ -1144,7 +1144,7 @@ Task: تعليمة دائمة من المستخدم: «كل اضافة او تغ
 Work Log:
 - 🔍 اكتشاف الانقسام: المستودع المحلي (my-project) فيه ميزة «وصل استلام» كاملة (6cc1a0f) بينما origin/main فيه 14 commit من جلسة الإنتاج (latin-dates e914a00+884a3cb، إصلاحات الواي فاي/الأفواج/يوم الصيانة 4e5348a، قاعدة بيانات مزدوجة ba75bd9، ثيمات) — وكلٌّ بلا الآخر
 - 🔀 merge origin/main → main: تعارض وحيد في worklog.md (فقرات مستقلة من الجانبين) حُلّ بالإبقاء على الفقرات الثلاث كاملة — wages-section.tsx اندمج آلياً (الوصل + إصلاحات التاريخ معاً)
-- ✅ تحقق ما بعد الدمج: tsc --noEmit نظيف (EXIT 0)؛ متصفح حي: تسجيل دخول admin@rcs.dz → ساعات العمل → أجور العمال — صفر أرقام شرقية، تواريخ لاتينية D/M/Y (14/09/2026...)، زرا «طباعة وصل استلام 5 250 دج» حاضران، النقر يفتح الوصل كاملاً (رقم 1/2026، التفقيط، التوقيعات) — الميزتان تعملان معاً في شجرة واحدة
+- ✅ تحقق ما بعد الدمج: tsc --noEmit نظيف (EXIT 0)؛ متصفح حي: تسجيل دخول admin@example.com → ساعات العمل → أجور العمال — صفر أرقام شرقية، تواريخ لاتينية D/M/Y (14/09/2026...)، زرا «طباعة وصل استلام 5 250 دج» حاضران، النقر يفتح الوصل كاملاً (رقم 1/2026، التفقيط، التوقيعات) — الميزتان تعملان معاً في شجرة واحدة
 - ⚙️ ضبط الرفع التلقائي: remote origin أُعيد كتابته بـ token flashnet20dz (inline) + credential.helper=store + ~/.git-credentials — كل push قادم يعمل بلا تدخل
 - 🚀 الرفع: 5fbc82e..d5549c5 main → GitHub (بلا force) — Vercel ينشر آلياً
 
@@ -1166,7 +1166,7 @@ Work Log:
 - 🖨️ wage-receipt.ts: صف «تاريخ ومكان الصدور» يُملأ آلياً من ملف العامل (تاريخ لاتيني LTR معزول) ويبقى منقّطاً إن غاب؛ openWageReceiptPrint(data, signatories?) — WageReceiptSignatories {recipient, clubTitle: both|treasurer|president|null, municipality} + DEFAULT_SIGNATORIES؛ خانات التوقيع ديناميكية (2 أو 3 خانات، عناوين النادي حسب الاختيار، fallback إن كُلّ أُخفي)
 - 🎛️ wages-section.tsx: حوار «خيارات وصل الاستلام» قبل أي طباعة (من حوار النجاح + من زرّي «وصل» في السجلين): 3 خانات Checkbox + Select لصاحب الصلاحية (أمين المال / رئيس النادي / كلاهما) — زر الطباعة معطّل إن كُلّ الخيارات فارغة
 - 🐞 إصلاح انهيار أعاده الدمج: data?.period.label → data?.period?.label + data?.workers.filter → data?.workers?.filter (نسخة origin بلا الحماية)
-- 🌱 إعادة زرع بيانات الاختبار: اكتُشفت قاعدة محلية فارغة بعد الدمج (اختفاء صفحات WAL يتيمة بعد قتل خوادم dev المتكررة + إعادة بناء الجداول في db:push) — أُعيد إنشاء: نادي «الرائد» + admin@rcs.dz + عامل ببطاقة (109901234567، صادرة 12/06/2015 دائرة سعيدة) + 21سا×250 + تسديد 5250 دج (FIN-2026-000001)
+- 🌱 إعادة زرع بيانات الاختبار: اكتُشفت قاعدة محلية فارغة بعد الدمج (اختفاء صفحات WAL يتيمة بعد قتل خوادم dev المتكررة + إعادة بناء الجداول في db:push) — أُعيد إنشاء: نادي «الرائد» + admin@example.com + عامل ببطاقة (109901234567، صادرة 12/06/2015 دائرة سعيدة) + 21سا×250 + تسديد 5250 دج (FIN-2026-000001)
 - ✅ تحقق متصفح ذهبي كامل: تسجيل دخول → عقود العمل → تعديل العامل (الحقول الجديدة حاضرة ومعبّأة) → ساعات العمل → أجور العمال → زر «وصل» → حوار الخيارات (3 خيارات + Select) → اختيار «رئيس النادي فقط» + «ختم مصالح البلدية» → طباعة: الوصل يعرض الصادرة بتاريخ: 12/06/2015 عن دائرة/بلدية: دائرة سعيدة/بلدية سعيدة آلياً + 3 خانات توقيع (المعني + رئيس النادي + البلدية) بلا أمين المال — ثم المسار الافتراضي: خانتان (المعني + أمين المال/رئيس النادي) بلا البلدية — tsc نظيف
 
 Stage Summary:
@@ -1174,3 +1174,163 @@ Stage Summary:
 - ✅ «اختيار من يمضي» متاح قبل كل طباعة: توقيع المعني(ة) بالأمر + ختم وتوقيع إدارة النادي (أمين المال/رئيس النادي/كلاهما) + ختم مصالح البلدية (الخيار الثالث الجديد)
 - 📁 ملفات: prisma/schema.prisma، src/app/api/employees/route.ts، src/app/api/employees/[id]/route.ts، src/app/api/wages/receipt/route.ts، src/components/contracts-panel.tsx، src/components/wages/wage-receipt.ts، src/components/wages/wages-section.tsx
 - ⚠️ درس: skip-worktree على schema.prisma يمنع git من تحديثه عند الدمج — راجع diff يدوياً بعد كل merge؛ وبعد قتل خوادم dev المتكررة قد تضيع صفحات WAL يتيمة — لا تعتمد على WAL غير مُدمج
+
+---
+Task ID: github-deploy-fix
+Agent: Z.ai Code (main)
+Task: «الرفع لم يتم» — المستخدم يرى الإنتاج بلا آخر التحديثات رغم نجاح الـpush — مع توكن GitHub مرفقاً
+
+Work Log:
+- 🔍 تحقق أولي: التوكن صالح (login: flashnet20dz) و93809ea موجود فعلاً على GitHub — لكن فحص chunks الإنتاج كشف: «خيارات وصل الاستلام» غائبة عن كل الـ16 chunk + age≈21h → آخر دفعة لم تُنشر (Vercel build يفشل صامتاً ويترك النشر القديم حياً)
+- 🧨 الجذر: skip-worktree على prisma/schema.prisma جعل git يتجاهل تعديلاتي المحلية عند git add — الحقول الجديدة (nationalIdIssueDate/Place) لم تدخل أي commit إطلاقاً؛ والنسخة المُ commitment على GitHub postgresql بينما محلياً sqlite
+- 💥 الأثر: بناء Vercel يولّد عميل Prisma من schema بلا الحقول → next build يفشل TS → لا نشر منذ الدمج
+- ⚙️ الإصلاح الثلاثي: ①no-skip-worktree + ترقيع النسخة الـpostgresql المُ commitment بالحقول (جراحة +3 أسطر) ②schema.sqlite.prisma حُدّثت بالحقول أيضاً ③migration SQL يدوي بالاتفاقية المتّبعة (prisma/migrations/20260921100000_wage_receipt_employee_fields: ALTER TABLE Employee ADD COLUMN ×2) — migrate deploy في بناء Vercel يضيف العمودين إلى Neon
+- 🔄 أُعيد محلياً: schema.prisma → provider sqlite + الحقول (للتطوير المحلي) + skip-worktree مفعّل من جديد
+- 🚀 الدفعات: 00f6f0b (empty commit لإعادة التشغيل — لم يكفِ لأن البناء كان سيفشل أيضاً) ثم 68adad2 (الإصلاح الحقيقي)
+- ✅ التحقق: new-chooser chunks: 1 + /api/wages/receipt → 403 + age: 13s → **النشر الجديد حي** — migrate deploy نجح ضمن البناء وإلا لما حُدّث النشر
+- 🌱 إعادة زرع بيانات الاختبار المحلية مجدداً (كانت اختفت مع نفس مشكلة WAL)
+
+Stage Summary:
+- ✅ «الرفع التلقائي» صار مضموناً آلياً: أي تعديل على schema يمر حصراً عبر النسخة المُ commitment (postgres) + migration SQL — ولا يُعتمد على ملف skip-worktree للمزامنة
+- ✅ الإنتاج aladine-pool-manager.vercel.app يشغّل آخر شيفرة: وصل الاستلام بخيارات الموقّعين + معلومات العامل الآلية
+- 📁 ملفات: prisma/schema.prisma (postgres+fields)، prisma/schema.sqlite.prisma، prisma/migrations/20260921100000_wage_receipt_employee_fields/migration.sql
+- ⚠️ درس مضاعف: ①skip-worktree يخفي التعديلات عن git add — راجع دائماً git status بعد commit مهم ②فشل بناء Vercel صامت محلياً — افحص chunks الإنتاج بحثاً عن سلسلة مميزة من آخر ميزة للتأكد من النشر
+
+---
+Task ID: cdd-contracts-page
+Agent: Z.ai Code (main)
+Task: «تغيير صفحة عقود العمل — اجعل النص المرفق نموذجًا لإنشاء عقود العمل مع الترويسة الموحدة يحدد معلومات الطرف الأول والطرف الثاني ورئيس الجمعية + تصميم إداري سهل واحترافي» + «إصلاح خطأ طباعة وصل تسديد الأجور: Employee.nationalIdIssueDate does not exist»
+
+Work Log:
+- 📄 استخرجت النص الرسمي الكامل من الوثيقة المرفقة (عقد محدد المدة.docx): 10 مواد + الأطراف + خانات التواقيع الثلاث
+- 🆕 src/lib/cdd-template.ts: النموذج الرسمي CDD كـ HTML بمتغيرات {{...}} + ensureCddTemplate() زرع idempotent (لا يُحدّث إن وُجد — احترام تعديلات الإدارة)
+- 🆕 src/lib/cdd-shared.ts: ثوابت مشتركة آمنة للعميل (CDD_TEMPLATE_CODE/MARKER/CSS) — فصل عن Prisma
+- 🔧 contract-variables.ts: متغيرات جديدة (first_party_representative/first_party_rep_title/association_president_title/club_seat/workplace/position_title/season_year/sign_city/sign_date) + renderContractHTML() استبدال بخطوط منقّطة «.....» للحقول الفارغة (مثل الوثيقة الورقية) مع تهريب HTML
+- 🔌 contract-templates GET: يضمن النموذج الرسمي لكل نادي (زرع تلقائي — يصلح الإنتاج بلا ترحيل)
+- 🔌 POST /api/contracts: يقبل تجاوزات الأطراف (firstPartyRep...) + يختار قالب CDD تلقائياً إن لم يُحدد + FIXED_TERM افتراضي + renderContractHTML للنموذج الرسمي
+- 🎨 CreateContractTab أعيد تصميمه: 4 بطاقات إدارية مرقمة (١ الطرف الثاني باختيار العامل وتعبئة آلية / ٢ الطرف الأول من إعدادات النادي / ٣ تأشيرة رئيس الجمعية / ٤ تفاصيل العقد) + معاينة رسمية حية A4 بالترويسة الموحدة + حوار نجاح بطباعة فورية
+- 🖨️ buildContractDocument صار يكتشف عقود CDD (marker ‎<!--CDD-OFFICIAL) ويعرض/يطبع النص الرسمي المحفوظ بدل ملخص الأقسام — يخدم الطباعة وWord وحوار العرض تلقائياً
+- 🐞 إصلاح خطأ الطباعة: wages/receipt يجري employee.findFirst داخل try/catch — عند P2022 (عمودان غير مُرحّلان في القاعدة) يعيد الاستعلام بلا الحقلين ويطبع الوصل بخطوط منقّطة بدل الانهيار (تأكيد: الاختبار المحلي 200 مع nationalIdIssueDate 2015-06-12)
+- ✅ تحقق شامل: tsc نظيف + lint نظيف على ملفاتي + POST /api/contracts → 201 CTR-2026-001 بكل المتغيرات مستبدلة وبلا {{متبقية}} + مستند مطابق للورقة (لقطات) + كل APIs العقود 200
+- ⚠️ بيئة التطوير: الـOOM killer يقتل next-server (~2.5GB) أثناء عواصف الترجمة — الحل: إحماء متدرج بالـcurl قبل فتح المتصفح + NODE_OPTIONS --max-old-space-size
+
+Stage Summary:
+- ✅ صفحة عقود العمل: نموذج CDD رسمي معتمد بالترويسة الموحدة — الطرف الأول والثاني ورئيس الجمعية يُعبّؤون آلياً من إعدادات النادي وملف العامل مع إمكانية التعديل، وطباعة مطابقة للوثيقة الورقية
+- ✅ زرع النموذج تلقائي لكل الأندية (المحلي والإنتاج) دون أي ترحيل قاعدة
+- ✅ خطأ طباعة وصل الأجور محلول محلياً + محمي بالـfallback حتى لو تأخر الترحيل في الإنتاج
+- 📁 ملفات: src/lib/cdd-template.ts، src/lib/cdd-shared.ts، src/lib/contract-variables.ts، src/app/api/contract-templates/route.ts، src/app/api/contracts/route.ts، src/app/api/wages/receipt/route.ts، src/components/contracts-panel.tsx
+
+---
+Task ID: fix-save-failure-cdd-v2-header
+Agent: main
+Task: إصلاح «فشل الحفظ» عند إضافة عامل جديد + المادة 05 بلا سعر الساعة + إعادة تصميم الترويسة الموحدة (سطر واحد بلا تكرار + شعار ثابت)
+
+Work Log:
+- شخّص جذر «فشل الحفظ»: حساب superadmin على الإنتاج ليس له clubId في الجلسة، وPOST /api/employees كان يمرّر user.clubId! (=null) مباشرة → Prisma يرفض العلاقة الإلزامية → 500
+- أنشأ resolveTargetClubId في src/lib/tenant.ts (نمط next-file-number المعتمد: clubId من الطلب لأجل superadmin → أول نادٍ نشط → أول نادٍ)
+- طبّق الحل على: employees GET+POST، settings GET+PUT (كانت تُرجع [] لـ superadmin فيفقد الترويسة اسم النادي!)، entete GET/PUT/DELETE، contracts GET+POST، contracts/[id] GET/PATCH/DELETE، contract-templates GET+POST، wages GET+POST، wages/receipt GET
+- إصلاح ensureDefaultSettings(clubIdOverride?) ليعمل لـ superadmin
+- المادة 05: النص الرسمي أصبح «يتقاضى الطرف الثاني أجرًا يُحسب على أساس الحجم الساعي كل شهر.» — بلا سعر/حجم ساعي وجدول عمل (CDD v2 marker)
+- إزالة تكرار «فرع السباحة» من سطر الطرف الأول في القالب (اسم النادي من الإعدادات يتضمن السلسلة كاملة)
+- ترقية جراحية migrateCddV1ToV2: تستبدل العبارتين المطلوبتين فقط في النماذج المخزنة v1 مع حفظ بقية تعديلات الإدارة
+- الترويسة الموحدة v2: عنصر «الاسم الرسمي للنادي (سطر واحد)» role=clubFullName يُولَّد آلياً: «الجمعية الرياضية الهاوية» + اسم النادي من الإعدادات (السلسلة الرسمية كاملة) — قابل للتجاوز اليدوي من المحرر
+- FitLine: يضمن سطراً واحداً دائماً بتحجيم تلقائي (بلا لفّ ولا قصّ) في معاينة الشاشة
+- الشعار: صندوق ثابت UNIFIED_LOGO_SIZE=70px في كل الصفحات والمطبوعات (React + HTML) مع width/height attributes وloading eager — لا قفز ولا تغيّر حجم عند التحميل
+- إزالة شاشة «جاري تحميل الترويسة» والقفزة المرافقة: تُرسم البنية فوراً بالافتراضي ثم تُحدَّث بصمت + إزالة إزاحة y من أنيميشن الدخول
+- ترقية تلقائية upgradeEnteteConfig في GET /api/entete (v1→v2) مع حفظ الشعارات المخصصة وعناصر التذييل
+- unified-header-settings: DEFAULT v2 + تلميح التوليد الآلي في محرر المحتوى + placeholder بالقيمة المولّدة
+- تحقق: tsc نظيف، lint بلا أخطاء جديدة (كلها قديمة في scripts/*)، متصفح كامل: تسجيل دخول → إضافة عامل «تمت الإضافة» → معاينة CDD بالترويسة الجديدة (الاسم الرسمي كاملاً في سطر واحد + شعاران ثابتان + المادة 05 النصية الرسمية بلا سعر)
+- نظّف بيانات الاختبار محلياً (حذف العاملين التجريبيين)
+
+Stage Summary:
+- ✅ «فشل الحفظ» محلول جذرياً لكل الوحدات (superadmin clubId resolver موحّد)
+- ✅ المادة 05 بالنص الرسمي دون ذكر سعر الساعة (السعر يبقى محفوظاً في سجل العقد للأجور فقط)
+- ✅ الترويسة الموحدة v2: سطر الاسم الرسمي الواحد + شعار ثابت الحجم من أي صفحة + كل سطر نطاق تعديل مستقل
+- ✅ ترقية تلقائية للقوالب والترويسات المخزنة قديماً (v1→v2) بلا فقدان تعديلات
+
+---
+Task ID: prod-db-heal-employees-id
+Agent: main
+Task: إكمال إصلاح الإنتاج — أعمدة وصل الاستلام المفقودة على PostgreSQL + employees/[id] + تحقق إنتاجي شامل
+
+Work Log:
+- اختبر الإنتاج بعد النشر: settings تعيد اسم النادي كاملاً ✓ لكن POST employees كشف P2022 (nationalIdIssueDate غير موجود) — الترحيل 20260921100000 وُسم applied دون تنفيذ فعلي
+- أضاف العمودين إلى runtime-schema.ts (نمط الذاكِل الذاتي IF NOT EXISTS المثبت) واستدعاه في employees GET/POST
+- ترحيل جديد 20260922100000_employee_national_id_issue_columns بإعادة تطبيق آمنة IF NOT EXISTS
+- اكتشف أن employees/[id] PATCH+DELETE كانت بنفس علة clubId! — طبّق resolveTargetClubId عليهما
+- تحقق إنتاجي بعد النشر: POST employees → 201 (clubId صحيح) → DELETE → 200 (أرشفة نظيفة) → wages → 200 → قالب CDD على الإنتاج v2 بلا سعر الساعة
+- نظّف سجل الاختبار من الإنتاج (أرشفة)
+
+Stage Summary:
+- ✅ الإنتاج يعمل بالكامل: إضافة/تعديل/أرشفة العمال + الأجور + قالب CDD v2
+- ✅ سلسلة الترحيلات أصبحت متسقة (20260922100000 طبّقت فعلياً)
+- ✅ الدفع: ffc48e4 → 0226c9e → 6583d6a (تحقق GitHub API: remote HEAD = local HEAD)
+
+---
+Task ID: dedup-cdd-title-ddmmyyyy-dates
+Agent: main
+Task: حذف تكرار كلمات عنوان العقد (CDD) + توحيد حقول التاريخ DD/MM/YYYY في الموقع
+
+Work Log:
+- شخّص التكرار: شارة «عقد عمل محدد المدة (CDD)» في الترويسة الموحدة + عنوان القالب نفسه تحتها = العنوان مرتين، ورقم العقد مرتين (الترويسة + صف القالب)
+- راجع لقطة المستخدم (نهاية الصفحة 1 / بداية الصفحة 2 + تالِي:) — هذه العلامات غير موجودة في المستودع إطلاقاً (بحث شامل + git log -S عبر التاريخ كله)؛ التكرار المتاح فعلياً في الكود = الشارة + عنوان القالب
+- إزالة شارة العنوان وإخفاء رقم الوثيقة من الترويسة لوثائق CDD (القالب يحمل العنوان والرقم مرة واحدة): unifiedHeaderFor(..., showReportNumber) + unifiedReportHeaderHTML opts.showReportNumber
+- إصلاح تسرّب نصي ظاهر «:v2-->» في عرض العقد المحفوظ: استبدال CDD_OFFICIAL_MARKER البادئي بregex يزيل التعليق كاملاً /<!--CDD-OFFICIAL[^>]*-->/
+- مكوّن جديد src/components/ui/date-input-dmy.tsx: حقل تاريخ DD/MM/YYYY بقيمة ISO داخلية — قناع كتابة تدريجي، لصق ISO، تحقق صحة حقيقي، min/max، aria-invalid، مزامنة صامتة بلا قيم ناقصة
+- تطبيقه على 5 حقول: تاريخ الميلاد + تاريخ صدور البطاقة (إضافة/تعديل عامل) + تجديد العقد (مع min=اليوم) + تاريخا العقد (إنشاء)
+- توحيد عرض التواريخ: contracts-shared formatDate → DD/MM/YYYY (كانت yyyy/mm/dd) + contract-variables formatDateYMD → formatDateDMY بصيغة DD/MM/YYYY (تواريخ العقود المولدة: الميلاد/البداية/النهاية/التحرير) + عينة المعاينة 15/01/1990
+- اكتشاف أثناء التشخيص: أداة الطرفية تلتهم التسلسل [h في المُخرجات فقط (not الملفات) — تحقق بـ TS AST أن new Blob([html]) سليمة أصلًا؛ لا خطأ فعلية
+- تحقق متصفح كامل: كتابة 15031990 → يعرض 15/03/1990، حوار العامل بالتواريخ الجديدة، معاينة الإنشاء بلا شارة وبعنوان واحد، معاينة الأرشيف بلا تكرار وبلا تسرّب تعليق، خلايا الجدول 22/09/2026 بصيغة يوم/شهر/سنة
+- تحقق API: POST /api/employees → 201 (مع birthDate وnationalIdIssueDate) ثم DELETE → 200 (تنظيف سجل الاختبار) — «فشل الحفظ» في الجلسة كان بسبب موت خادم التطوير المفاجئ وليس خللاً
+- tsc نظيف + lint بلا أخطاء جديدة (القديمة في scripts/* فقط)
+
+Stage Summary:
+- ✅ عنوان عقد CDD يظهر مرة واحدة (بلا شارة ترويسة مكررة) ورقم الوثيقة مرة واحدة (في صف القالب)
+- ✅ كل حقول التاريخ في صفحة العقود DD/MM/YYYY كموافقة بقية الموقع، والقيم محفوظة ISO دون أي تغيير على APIs
+- ✅ العقود الجديدة ستُولد بتواريخ DD/MM/YYYY (الميلاد/البداية/النهاية/التحرير)
+- ✅ POST/DELETE employees يعملان 201/200 — لا «فشل حفظ»
+
+---
+Task ID: 1
+Agent: Z.ai Code (main)
+Task: تغيير معلومات مدير الموقع — حذف الحساب التجريبي admin@rcs.dz وتفعيل الحساب الموثوق aladine20dz@gmail.com + إزالة كل الحسابات الافتراضية من GitHub
+
+Work Log:
+- جرد شامل: 31 ملفاً كانت تحتوي admin@rcs.dz/admin123 (+ super123 وworker123 وPIN 1234 وcoach/assistant/observer)
+- src/lib/session.ts: ensureDefaultAdmin أصبح يُنشئ الحساب الموثوق حصراً من ADMIN_EMAIL/ADMIN_PASSWORD/ADMIN_NAME + SEED_DEFAULT_ADMIN=true — لا يطبع كلمة السر أبداً ولا يبطل تغيير كلمة سر حساب موجود
+- src/app/api/setup/route.ts: bootstrap الحساب من متغيرات البيئة فقط، وإن لم تُضبط فلن يُنشأ أي حساب افتراضي إطلاقاً
+- scripts/seed-local-sqlite.ts + seed-users.ts: الحساب الموثوق من .env، والحسابات التجريبية اختيارية (SEED_DEMO_USERS=true) بكلمات سر عشوائية
+- scripts/seed-dev-worker.ts + seed-demo.ts: كلمات سر عشوائية تُطبع مرة واحدة، PIN الكاشير عشوائي
+- تنظيف 28 ملفاً مدعوم (docs + scripts + worklog) من كل بيانات الدخول الثابتة، وحذف security-fixes.patch وtest-pass.mjs وscripts/_fix-admin.ts (نية البعد)
+- .env المحلي: ADMIN_EMAIL=aladine20dz@gmail.com / ADMIN_PASSWORD=*** / SEED_DEFAULT_ADMIN=true (+DIRECT_URL لمتطلب directUrl في schema) — .env غير مرفوع لgit (تأكد git log --all -- .env فارغ)
+- scripts/set-owner-account.ts: حذف حسابات @rcs.dz من قاعدة البيانات المحلية وترقية الحساب الموثوق admin — النتيجة: حساب واحد فقط aladine20dz@gmail.com
+- إعادة توليد Prisma Client (كان سبب «فشل الحفظ» المحلي عميلاً قديماً)؛ الترحيلات 20260921/20260922 موجودة وستُطبق على إنتاج Vercel تلقائياً عبر migrate deploy
+- دمج origin/main (عمل الجلسة السابقة: عقود العمل + الترويسة + تنظيفها الأمني الموازي) بحسم: نسختي لملفات التشغيل/البذور (توحيد ADMIN_*) ونسخة البعد للمستندات وسكربتات الاختبار، مع الإجراء الجراحي لschema.prisma (HEAD=postgresql، العمل المحلي=sqlite + skip-worktree)
+- دفع وتحقق: remote HEAD == local HEAD == 0c465bc
+
+Stage Summary:
+- ✅ الدخول المحلي بالحساب الموثوق aladine20dz@gmail.com يعمل (200) وadmin@rcs.dz مرفوض (401) وحساب واحد فقط في قاعدة البيانات المحلية
+- ✅ صفر بيانات دخول ثابتة في المستودع المرفوع؛ كلمة السر الحقيقية موجودة فقط في .env المحلي (مستثنى) — يجب إضافتها كمتغيرات بيئة في Vercel عند الحاجة
+- ✅ إنتاج Vercel: سيحصل على ترحيلات الأعمدة تلقائياً؛ لتبديل حساب الإنتاج: ضع ADMIN_EMAIL/ADMIN_PASSWORD/SEED_DEFAULT_ADMIN=true في Vercel ثم سجّل الدخول مرة ثم احذف admin@rcs.dz من إدارة المستخدمين ثم أزل متغيرات كلمة السر
+- ⚠️ درس: skip-worktree على schema.prisma حماية مقصودة (استبدال جراحي sqlite محلياً vs postgresql في git) — لا تزلها إلا للدمج مع استعادتها فوراً
+
+---
+Task ID: 2
+Agent: Z.ai Code (main)
+Task: تشخيص وإصلاح فشل نشر Vercel (سلسلة فشل: 94e589c ← 0c465bc ← feab3fa)
+
+Work Log:
+- تتبع عبر GitHub Status API: آخر نشر ناجح 75703d1، وكل ما بعده فشل — بما أن الملفات المتغيرة بينهما سكربتات وsrc قليلة، عزلت السبب
+- شجرة عمل معزولة على feab3fa (git worktree /tmp/vbuild + node_modules) مع إعادة توليد عميل Prisma من مخطط البعيد نفسه
+- الخطأ الحقيقي الوحيد: src/lib/backup-restore.ts(126) — crypto.randomBytes على كائن WebCrypto العام (TS2339) يفشل next build (لا ignoreBuildErrors)
+- ملاحظة تشخيصية: أخطاء charges-panel/incoming-mail/wageReceipt الظاهرة أول مرة كانت من عميل Prisma قديم منسوخ — ليست أخطاء Vercel
+- الإصلاح: import crypto from "crypto" — تحقق مزدوج: tsc نظيف + next build كامل نجح في الشجرة المعزولة
+- دفع 088f084 + تحقق remote HEAD == local، ثم GitHub Status API: "success — Deployment has completed" ✓
+- مزامنة الشجرة المحلية مع 088f084 (الإجراء الجراحي: un-skip → reset → استبدال provider إلى sqlite → re-skip) — المخطط المحلي الآن يشمل WageReceipt/IncomingMail/idIssueDate
+- db push + generate + tsc نظيف محلياً
+- 🔧 حادثة بيئة: استعادة حالة قديمة فقدت متغيرات ADMIN_* من .env وبيانات قاعدة SQLite المحلية — استعدت .env (ADMIN_EMAIL/PASSWORD/SEED_DEFAULT_ADMIN) وensureDefaultAdmin أعاد إنشاء الحساب الموثوق تلقائياً عند أول محاولة دخول: login 200 / admin@rcs.dz مرفوض 401 / حساب واحد فقط في القاعدة
+
+Stage Summary:
+- ✅ Vercel ينشر بنجاح مجدداً (088f084) — سلسلة الفشل المنذ 94e589c انتهت
+- ✅ الدرس: عند تشخيص فشل Vercel استخدم شجرة عمل معزولة على التزام البعيد المحدد مع إعادة توليد Prisma Client من مخططه هو — عميل محلي قديم يعطي أخطاء وهمية
+- ✅ المحلي متزامن تماماً مع البعيد (نماذج جديدة + حقل idIssueDate) والبناء المحلي نظيف

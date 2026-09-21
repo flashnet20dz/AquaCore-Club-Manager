@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { resolveTargetClubId } from "@/lib/tenant";
 
 /**
  * /api/employees/[id] — تعديل/أرشفة موظف (المرحلة 5 — §3/§35)
@@ -29,9 +30,11 @@ export async function PATCH(
     if (!user || (user.role !== "admin" && user.role !== "superadmin")) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
     }
-    const clubId = user.clubId!;
     const { id } = await params;
     const body = await req.json().catch(() => ({}));
+    // 🔑 superadmin: حل نادي الهدف
+    const clubId = await resolveTargetClubId(user, body.clubId);
+    if (!clubId) return NextResponse.json({ error: "لم يتم العثور على نادٍ" }, { status: 400 });
 
     const existing = await db.employee.findFirst({ where: { id, clubId } });
     if (!existing) return NextResponse.json({ error: "العامل غير موجود" }, { status: 404 });
@@ -100,7 +103,9 @@ export async function DELETE(
     if (!user || (user.role !== "admin" && user.role !== "superadmin")) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
     }
-    const clubId = user.clubId!;
+    // 🔑 superadmin: حل نادي الهدف
+    const clubId = await resolveTargetClubId(user);
+    if (!clubId) return NextResponse.json({ error: "لم يتم العثور على نادٍ" }, { status: 400 });
     const { id } = await params;
 
     const existing = await db.employee.findFirst({ where: { id, clubId } });

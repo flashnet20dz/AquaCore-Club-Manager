@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { formatDate } from "@/lib/date-utils";
+import { unifiedReportHeaderHTML } from "@/components/unified-report-header";
 
 export interface ExportColumn<T> {
   key: string;
@@ -88,27 +89,30 @@ function openPrintable<T>(rows: T[], columns: Array<ExportColumn<T>>, title: str
     `<tr>${r.map((c) => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`
   ).join("");
   const dt = formatDate(new Date());
+  const headerHtml = unifiedReportHeaderHTML({
+    reportType: title,
+    date: dt,
+    reportNumber: `عدد السجلات: ${matrix.length - 1}`,
+  });
   win.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Cairo','Tajawal','Segoe UI',Tahoma,sans-serif;padding:24px;color:#111827;background:#fff}
-  .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #0d9488;padding-bottom:12px;margin-bottom:14px}
-  .head h1{font-size:18px;color:#0f766e}
-  .head .meta{font-size:11px;color:#6b7280;text-align:left}
-  table{width:100%;border-collapse:collapse;font-size:12px}
-  th{background:#0d9488;color:#fff;padding:7px 6px;border:1px solid #0d9488;font-weight:700}
-  td{padding:6px;border:1px solid #d1d5db;text-align:center}
-  tr:nth-child(even) td{background:#f0fdfa}
-  .foot{margin-top:16px;display:flex;justify-content:space-between;font-size:11px;color:#6b7280}
+  body{font-family:'Cairo','Tajawal','Segoe UI',Tahoma,sans-serif;padding:20px;color:#111827;background:#fff}
+  table{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:14px}
+  th{background:#0f766e;color:#fff;padding:8px 6px;border:1px solid #0f766e;font-weight:700;text-align:center;}
+  td{padding:6px;border:1px solid #cbd5e1;text-align:center}
+  tr:nth-child(even) td{background:#f8fafc}
+  .foot{margin-top:18px;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#475569;padding:0 8px;}
   @media print{body{padding:0}.noprint{display:none}}
-  .print-btn{display:block;margin:14px auto 0;background:#0d9488;color:#fff;border:none;padding:9px 26px;border-radius:8px;font-weight:700;cursor:pointer;font-family:inherit}
+  .print-btn{display:block;margin:16px auto 0;background:#0f766e;color:#fff;border:none;padding:10px 28px;border-radius:8px;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 2px 4px rgba(0,0,0,0.1);}
 </style></head><body>
-  <div class="head">
-    <div><h1>🏊 ${escapeHtml(title)}</h1><div class="meta">AquaCore Club Manager</div></div>
-    <div class="meta">تاريخ التصدير: ${dt}<br/>عدد السجلات: ${matrix.length - 1}</div>
-  </div>
+  ${headerHtml}
   <table><thead><tr>${headHtml}</tr></thead><tbody>${bodyHtml}</tbody></table>
-  <div class="foot"><span>إمضاء المسؤول: ....................</span><span>ختم النادي</span></div>
+  <div class="foot">
+    <span>عدد السجلات: ${matrix.length - 1}</span>
+    <span>إمضاء وتأشيرة رئيس الجمعية الرياضية الهاوية: ....................</span>
+    <span>ختم النادي</span>
+  </div>
   ${asPdf ? '<button class="print-btn noprint" onclick="window.print()">حفظ كـ PDF / طباعة</button>' : '<button class="print-btn noprint" onclick="window.print()">طباعة</button>'}
 </body></html>`);
   win.document.close();

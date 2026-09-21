@@ -65,6 +65,10 @@ const COLUMN_SPECS: Array<{
   { table: "Employee", column: "email", pg: `ALTER TABLE "Employee" ADD COLUMN IF NOT EXISTS "email" TEXT`, sqlite: `ALTER TABLE "Employee" ADD COLUMN "email" TEXT` },
   { table: "Employee", column: "firstNameFr", pg: `ALTER TABLE "Employee" ADD COLUMN IF NOT EXISTS "firstNameFr" TEXT`, sqlite: `ALTER TABLE "Employee" ADD COLUMN "firstNameFr" TEXT` },
   { table: "Employee", column: "lastNameFr", pg: `ALTER TABLE "Employee" ADD COLUMN IF NOT EXISTS "lastNameFr" TEXT`, sqlite: `ALTER TABLE "Employee" ADD COLUMN "lastNameFr" TEXT` },
+  // ★ وصل الاستلام: تاريخ ومكان صدور بطاقة التعريف — عالج P2022 على الإنتاج
+  //   (الترحيل 20260921100000 وُسم applied دون تنفيذ فعلي — الذاكِل الذاتي هنا يضمن العمود)
+  { table: "Employee", column: "nationalIdIssueDate", pg: `ALTER TABLE "Employee" ADD COLUMN IF NOT EXISTS "nationalIdIssueDate" TIMESTAMP(3)`, sqlite: `ALTER TABLE "Employee" ADD COLUMN "nationalIdIssueDate" DATETIME` },
+  { table: "Employee", column: "nationalIdIssuePlace", pg: `ALTER TABLE "Employee" ADD COLUMN IF NOT EXISTS "nationalIdIssuePlace" TEXT`, sqlite: `ALTER TABLE "Employee" ADD COLUMN "nationalIdIssuePlace" TEXT` },
   // ★ المرحلة 5: نوع العقد + عنوان + ساعات أسبوعية + إنهاء ناعم
   { table: "EmploymentContract", column: "contractType", pg: `ALTER TABLE "EmploymentContract" ADD COLUMN IF NOT EXISTS "contractType" TEXT NOT NULL DEFAULT 'HOURLY'`, sqlite: `ALTER TABLE "EmploymentContract" ADD COLUMN "contractType" TEXT NOT NULL DEFAULT 'HOURLY'` },
   { table: "EmploymentContract", column: "title", pg: `ALTER TABLE "EmploymentContract" ADD COLUMN IF NOT EXISTS "title" TEXT`, sqlite: `ALTER TABLE "EmploymentContract" ADD COLUMN "title" TEXT` },

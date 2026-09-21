@@ -110,12 +110,20 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{
             __html: `
               try {
-                const theme = localStorage.getItem('rcs-theme');
-                // ?_theme=dark|light deep-link override (useful for QA + screenshots)
                 const qp = new URLSearchParams(location.search).get('_theme');
-                const wantsDark = qp === 'dark' || (!qp && theme === 'dark') || (!qp && !theme && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                const mode = localStorage.getItem('rcs-theme-mode');
+                const theme = localStorage.getItem('rcs-theme');
+                let wantsDark = false;
+                if (qp === 'dark') wantsDark = true;
+                else if (qp === 'light') wantsDark = false;
+                else if (mode === 'dark' || theme === 'dark') wantsDark = true;
+                else if (mode === 'light' || theme === 'light') wantsDark = false;
+                else wantsDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
                 if (wantsDark) {
                   document.documentElement.classList.add('dark');
+                } else {
+                  document.documentElement.classList.remove('dark');
                 }
               } catch (e) {}
 

@@ -19,6 +19,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { resolveTargetClubId } from "@/lib/tenant";
 import { utcRange, parseWallDateTime } from "@/lib/wall-clock";
 import { computeWages, wagePeriodLabel, type WorkerWageRow } from "@/lib/wage-core";
 import { postLedgerEntry, recomputeBalanceTx } from "@/lib/financial-posting";
@@ -116,21 +117,23 @@ export async function GET(req: NextRequest) {
       to = `${ym}-${String(last).padStart(2, "0")}`;
     }
 
-    if (!currentUser.clubId) return NextResponse.json({ error: "النادي غير محدد" }, { status: 400 });
+    // 🔑 superadmin: أول نادٍ نشط — صفحة الأجور تعمل لكل الأدوار
+    const wagesClubId = await resolveTargetClubId(currentUser);
+    if (!wagesClubId) return NextResponse.json({ error: "النادي غير محدد" }, { status: 400 });
 
-    const { workers, totals } = await computeWages(currentUser.clubId, from, to);
+    const { workers, totals } = await computeWages(wagesClubId, from, to);
 
     // ★ سجل عالمي بكل تسديدات الأجور (كل الفترات — الجديدة والقديمة)
     // حتى يستطيع المدير إيجاد وإلغاء أي تسديد خاطئ مهما كانت الفترة المعروضة
     const [recentWp, recentLegacy] = await Promise.all([
       db.wagePayment.findMany({
-        where: { clubId: currentUser.clubId },
+        where: { clubId: wagesClubId },
         orderBy: { paidAt: "desc" },
         take: 40,
         include: { user: { select: { name: true } } },
       }),
       db.payment.findMany({
-        where: { clubId: currentUser.clubId, category: "salary" },
+        where: { clubId: wagesClubId, category: "salary" },
         orderBy: { date: "desc" },
         take: 40,
         include: { user: { select: { name: true } } },
@@ -184,10 +187,11 @@ export async function POST(req: NextRequest) {
     if (!currentUser || !hasWagePayAccess(currentUser.role)) {
       return NextResponse.json({ error: "غير مصرح — تسديد الأجور للمدير أو المحاسب فقط" }, { status: 403 });
     }
-    if (!currentUser.clubId) return NextResponse.json({ error: "النادي غير محدد" }, { status: 400 });
-    const clubId = currentUser.clubId;
-
     const body = await req.json();
+    // 🔑 superadmin: حل نادي الهدف لتسديد الأجور
+    const clubId = await resolveTargetClubId(currentUser, body?.clubId);
+    if (!clubId) return NextResponse.json({ error: "النادي غير محدد" }, { status: 400 });
+
     const { userId, from, to, amount, method, paidAt, note, source, idempotencyKey } = body;
 
     if (!userId || !from || !to || !amount) {

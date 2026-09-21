@@ -1,6 +1,6 @@
 /**
  * seed-workhours-repro.ts — بيئة إعادة إنتاج سيناريو «تسجيل 4 حصص»
- * نادي + admin@rcs.dz مرتبط بالنادي + عامل حارس (Abdelkrim, 400دج/س)
+ * نادي + حساب مدير مرتبط بالنادي + عامل حارس (Abdelkrim, 400دج/س)
  * + 4 حصص صباحية 09-10/10-11/11-12/12-13 (عامة — بلا dayOfWeek)
  * Run: bunx tsx scripts/seed-workhours-repro.ts
  */
@@ -25,8 +25,9 @@ async function main() {
   } else console.log("• Club exists:", club.id);
 
   // مدير مرتبط بالنادي
-  const adminEmail = "admin@rcs.dz";
-  const hash = await bcrypt.hash("admin123", 10);
+  const adminEmail = process.env.REPRO_ADMIN_EMAIL || "repro-admin@aquacore.local";
+  const pass = process.env.REPRO_ADMIN_PASSWORD || "ReproPass@" + Math.random().toString(36).slice(-6);
+  const hash = await bcrypt.hash(pass, 10);
   const admin = await db.user.upsert({
     where: { email: adminEmail },
     update: { clubId: club.id, role: "admin", active: true, pending: false, passwordHash: hash },
