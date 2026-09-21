@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
-import { substituteVariables, formatDateYMD, type ContractVariables } from "@/lib/contract-variables";
+import { substituteVariables, renderContractHTML, formatDateYMD, type ContractVariables } from "@/lib/contract-variables";
+import { CDD_TEMPLATE_CODE, ensureCddTemplate } from "@/lib/cdd-template";
 
 /**
  * Contracts API (المرحلة 5 — §4/§5/§26/§42)
@@ -113,6 +114,9 @@ export async function POST(req: NextRequest) {
     const {
       employeeId, templateId, startDate, endDate, hourRate, workSchedule, notes,
       contractType, title, weeklyHours, asDraft,
+      // ★ النموذج الرسمي CDD: تعريفات الأطراف (تُعبّأ مسبقاً من الإعدادات وتُرسل كتجاوزات)
+      firstPartyRep, firstPartyRepTitle, associationPresident, associationPresidentTitle,
+      workplace, clubSeat, signCity, positionTitle,
     } = body;
 
     if (!employeeId) return NextResponse.json({ error: "employeeId مطلوب" }, { status: 400 });
@@ -126,6 +130,16 @@ export async function POST(req: NextRequest) {
 
     if (!employee) return NextResponse.json({ error: "العامل غير موجود" }, { status: 404 });
 
+    // ★ إن لم يُحدد قالب → النموذج الرسمي CDD تلقائياً (يُزرع إن غاب)
+    let effectiveTemplate = template;
+    if (!effectiveTemplate) {
+      await ensureCddTemplate(clubId);
+      effectiveTemplate = await db.contractTemplate.findFirst({
+        where: { clubId, code: CDD_TEMPLATE_CODE },
+      });
+    }
+    const isCdd = effectiveTemplate?.code === CDD_TEMPLATE_CODE;
+
     const settingsMap: Record<string, string> = {};
     settings.forEach((s) => { settingsMap[s.key] = s.value; });
 
@@ -134,32 +148,43 @@ export async function POST(req: NextRequest) {
     const ed = endDate ? new Date(endDate) : null;
     const rate = hourRate ?? employee.hourRate ?? 200;
     const position = employee.position;
-    const cType = (CONTRACT_TYPES as readonly string[]).includes(contractType) ? contractType : "HOURLY";
+    const cType = (CONTRACT_TYPES as readonly string[]).includes(contractType)
+      ? contractType
+      : isCdd ? "FIXED_TERM" : "HOURLY";
     const weekly = weeklyHours ? Math.max(0, Math.round(Number(weeklyHours))) : null;
 
-    // Build variables
+    // Build variables — ترتيب الأولوية: تجاوز النموذج ← الإعدادات ← افتراضي
     const vars: ContractVariables = {
       club_name: settingsMap.clubName || "النادي",
       club_branch: settingsMap.branchName || settingsMap.clubNameFr || "",
+      club_seat: clubSeat?.trim() || settingsMap.clubAddress || ".................",
       worker_name: `${employee.lastName} ${employee.firstName}`.trim(),
       birth_date: formatDateYMD(employee.birthDate),
-      birth_place: employee.birthPlace || "—",
-      address: employee.address || "—",
-      phone: employee.phone || "—",
-      national_id: employee.nationalId || "—",
+      birth_place: employee.birthPlace || "",
+      address: employee.address || "",
+      phone: employee.phone || "",
+      national_id: employee.nationalId || "",
       position,
+      position_title: positionTitle?.trim() || (position === "guard" ? "حارس سباحة (منقذ مائي)" : null) || settingsMap.positionTitle || "",
       contract_number: contractNumber,
+      season_year: String(new Date().getFullYear()),
       start_date: formatDateYMD(sd),
       end_date: formatDateYMD(ed),
       hour_rate: rate,
-      work_schedule: workSchedule || (weekly ? `${weekly} ساعة/أسبوع` : "—"),
+      work_schedule: workSchedule || (weekly ? `${weekly} ساعة/أسبوع` : "15 دقيقة قبل بداية العمل"),
+      workplace: workplace?.trim() || settingsMap.workplace || settingsMap.clubAddress || "المسبح البلدي",
       club_president: settingsMap.clubPresident || "—",
-      association_president: settingsMap.associationPresident || "—",
+      association_president: associationPresident?.trim() || settingsMap.associationPresident || "",
+      association_president_title: associationPresidentTitle?.trim() || settingsMap.associationPresidentTitle || "رئيس الجمعية",
+      first_party_representative: firstPartyRep?.trim() || settingsMap.firstPartyRepresentative || settingsMap.clubPresident || "",
+      first_party_rep_title: firstPartyRepTitle?.trim() || settingsMap.firstPartyRepTitle || "رئيس فرع السباحة",
+      sign_city: signCity?.trim() || settingsMap.signCity || settingsMap.wilaya || "سعيدة",
+      sign_date: formatDateYMD(new Date()),
       today: formatDateYMD(new Date()),
     };
 
     // Get template content (fallback to a minimal default if no template)
-    const templateContent = template?.content || `<div dir="rtl" style="font-family:'Cairo','Tahoma',Arial;font-size:12pt;padding:20px;">
+    const templateContent = effectiveTemplate?.content || `<div dir="rtl" style="font-family:'Cairo','Tahoma',Arial;font-size:12pt;padding:20px;">
 <h2 style="text-align:center;color:#0f766e;">عقد عمل</h2>
 <p>في اليوم {{today}}، بين {{club_name}} والسيد/ة {{worker_name}}.</p>
 <p>المنصب: {{position}}</p>
@@ -168,13 +193,15 @@ export async function POST(req: NextRequest) {
 <p>رقم العقد: {{contract_number}}</p>
 </div>`;
 
-    const renderedContent = substituteVariables(templateContent, vars);
+    const renderedContent = isCdd
+      ? renderContractHTML(templateContent, vars) // النموذج الرسمي: خطوط منقّطة + تهريب
+      : substituteVariables(templateContent, vars);
 
     const contract = await db.employmentContract.create({
       data: {
         clubId,
         employeeId,
-        templateId: template?.id || null,
+        templateId: effectiveTemplate?.id || null,
         contractNumber,
         position,
         startDate: sd,

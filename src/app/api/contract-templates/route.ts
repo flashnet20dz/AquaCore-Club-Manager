@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { CDD_TEMPLATE, ensureCddTemplate } from "@/lib/cdd-template";
 
 // ─── Default templates (seeded on first GET if empty) ───
 const DEFAULT_TEMPLATES = [
@@ -168,7 +169,7 @@ const DEFAULT_TEMPLATES = [
   },
 ];
 
-// ─── GET: list templates (auto-seed defaults if empty) ───
+// ─── GET: list templates (auto-seed defaults if empty + ضمان النموذج الرسمي CDD) ───
 export async function GET() {
   try {
     const user = await getCurrentUser();
@@ -178,8 +179,11 @@ export async function GET() {
     const existing = await db.contractTemplate.count({ where: { clubId: user.clubId } });
     if (existing === 0) {
       await db.contractTemplate.createMany({
-        data: DEFAULT_TEMPLATES.map((t) => ({ ...t, clubId: user.clubId! })),
+        data: [...DEFAULT_TEMPLATES, { ...CDD_TEMPLATE }].map((t) => ({ ...t, clubId: user.clubId! })),
       });
+    } else {
+      // النموذج الرسمي يُزرع حتى للأندية التي لديها قوالب قديمة (idempotent)
+      await ensureCddTemplate(user.clubId);
     }
 
     const templates = await db.contractTemplate.findMany({

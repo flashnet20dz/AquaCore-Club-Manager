@@ -1195,3 +1195,27 @@ Stage Summary:
 - ✅ الإنتاج aladine-pool-manager.vercel.app يشغّل آخر شيفرة: وصل الاستلام بخيارات الموقّعين + معلومات العامل الآلية
 - 📁 ملفات: prisma/schema.prisma (postgres+fields)، prisma/schema.sqlite.prisma، prisma/migrations/20260921100000_wage_receipt_employee_fields/migration.sql
 - ⚠️ درس مضاعف: ①skip-worktree يخفي التعديلات عن git add — راجع دائماً git status بعد commit مهم ②فشل بناء Vercel صامت محلياً — افحص chunks الإنتاج بحثاً عن سلسلة مميزة من آخر ميزة للتأكد من النشر
+
+---
+Task ID: cdd-contracts-page
+Agent: Z.ai Code (main)
+Task: «تغيير صفحة عقود العمل — اجعل النص المرفق نموذجًا لإنشاء عقود العمل مع الترويسة الموحدة يحدد معلومات الطرف الأول والطرف الثاني ورئيس الجمعية + تصميم إداري سهل واحترافي» + «إصلاح خطأ طباعة وصل تسديد الأجور: Employee.nationalIdIssueDate does not exist»
+
+Work Log:
+- 📄 استخرجت النص الرسمي الكامل من الوثيقة المرفقة (عقد محدد المدة.docx): 10 مواد + الأطراف + خانات التواقيع الثلاث
+- 🆕 src/lib/cdd-template.ts: النموذج الرسمي CDD كـ HTML بمتغيرات {{...}} + ensureCddTemplate() زرع idempotent (لا يُحدّث إن وُجد — احترام تعديلات الإدارة)
+- 🆕 src/lib/cdd-shared.ts: ثوابت مشتركة آمنة للعميل (CDD_TEMPLATE_CODE/MARKER/CSS) — فصل عن Prisma
+- 🔧 contract-variables.ts: متغيرات جديدة (first_party_representative/first_party_rep_title/association_president_title/club_seat/workplace/position_title/season_year/sign_city/sign_date) + renderContractHTML() استبدال بخطوط منقّطة «.....» للحقول الفارغة (مثل الوثيقة الورقية) مع تهريب HTML
+- 🔌 contract-templates GET: يضمن النموذج الرسمي لكل نادي (زرع تلقائي — يصلح الإنتاج بلا ترحيل)
+- 🔌 POST /api/contracts: يقبل تجاوزات الأطراف (firstPartyRep...) + يختار قالب CDD تلقائياً إن لم يُحدد + FIXED_TERM افتراضي + renderContractHTML للنموذج الرسمي
+- 🎨 CreateContractTab أعيد تصميمه: 4 بطاقات إدارية مرقمة (١ الطرف الثاني باختيار العامل وتعبئة آلية / ٢ الطرف الأول من إعدادات النادي / ٣ تأشيرة رئيس الجمعية / ٤ تفاصيل العقد) + معاينة رسمية حية A4 بالترويسة الموحدة + حوار نجاح بطباعة فورية
+- 🖨️ buildContractDocument صار يكتشف عقود CDD (marker ‎<!--CDD-OFFICIAL) ويعرض/يطبع النص الرسمي المحفوظ بدل ملخص الأقسام — يخدم الطباعة وWord وحوار العرض تلقائياً
+- 🐞 إصلاح خطأ الطباعة: wages/receipt يجري employee.findFirst داخل try/catch — عند P2022 (عمودان غير مُرحّلان في القاعدة) يعيد الاستعلام بلا الحقلين ويطبع الوصل بخطوط منقّطة بدل الانهيار (تأكيد: الاختبار المحلي 200 مع nationalIdIssueDate 2015-06-12)
+- ✅ تحقق شامل: tsc نظيف + lint نظيف على ملفاتي + POST /api/contracts → 201 CTR-2026-001 بكل المتغيرات مستبدلة وبلا {{متبقية}} + مستند مطابق للورقة (لقطات) + كل APIs العقود 200
+- ⚠️ بيئة التطوير: الـOOM killer يقتل next-server (~2.5GB) أثناء عواصف الترجمة — الحل: إحماء متدرج بالـcurl قبل فتح المتصفح + NODE_OPTIONS --max-old-space-size
+
+Stage Summary:
+- ✅ صفحة عقود العمل: نموذج CDD رسمي معتمد بالترويسة الموحدة — الطرف الأول والثاني ورئيس الجمعية يُعبّؤون آلياً من إعدادات النادي وملف العامل مع إمكانية التعديل، وطباعة مطابقة للوثيقة الورقية
+- ✅ زرع النموذج تلقائي لكل الأندية (المحلي والإنتاج) دون أي ترحيل قاعدة
+- ✅ خطأ طباعة وصل الأجور محلول محلياً + محمي بالـfallback حتى لو تأخر الترحيل في الإنتاج
+- 📁 ملفات: src/lib/cdd-template.ts، src/lib/cdd-shared.ts، src/lib/contract-variables.ts، src/app/api/contract-templates/route.ts، src/app/api/contracts/route.ts، src/app/api/wages/receipt/route.ts، src/components/contracts-panel.tsx

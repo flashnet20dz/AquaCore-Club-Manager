@@ -36,7 +36,8 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { unifiedReportHeaderHTML } from "@/components/unified-report-header";
 import type { EnteteConfig } from "@/components/unified-report-header";
-import { AVAILABLE_VARIABLES, substituteVariables } from "@/lib/contract-variables";
+import { AVAILABLE_VARIABLES, substituteVariables, renderContractHTML, type ContractVariables } from "@/lib/contract-variables";
+import { CDD_TEMPLATE_CODE, CDD_OFFICIAL_MARKER, CDD_TEMPLATE_CSS } from "@/lib/cdd-shared";
 import { ExportButton } from "@/components/shared/export-button";
 // ★ المرحلة 5: مساعدات مشتركة + ملف الموظف الكامل
 import {
@@ -313,14 +314,15 @@ function contractDocumentBodyHTML(c: Contract): string {
 }
 
 /** ترويسة موحدة + أقسام المستند — نفس ما يُعرض ويُطبع */
-function buildContractDocument(
-  c: Contract,
+function unifiedHeaderFor(
+  reportType: string,
+  reportNumber: string,
   entete: EnteteConfig | null,
   clubSettings: Record<string, string>,
 ): string {
-  const headerHTML = unifiedReportHeaderHTML({
-    reportType: "عقد عمل",
-    reportNumber: c.contractNumber,
+  return unifiedReportHeaderHTML({
+    reportType,
+    reportNumber,
     date: formatDate(new Date()),
     entete: entete || undefined,
     settings: {
@@ -334,6 +336,35 @@ function buildContractDocument(
       sportSeason: clubSettings.sportSeason,
     },
   });
+}
+
+/** هل العقد مُنشأ من النموذج الرسمي CDD؟ */
+function isCddContract(c: Contract): boolean {
+  return typeof c.content === "string" && c.content.includes(CDD_OFFICIAL_MARKER);
+}
+
+/**
+ * المستند الرسمي CDD: ترويسة موحدة + النص الرسمي المحفوظ (مُستبدل المتغيرات)
+ * — النمط الرسمي (أبيض/أسود) مع الأنماط الذاتية، مطابق تماماً للنموذج الورقي.
+ */
+function buildOfficialCddDocument(
+  c: Contract,
+  entete: EnteteConfig | null,
+  clubSettings: Record<string, string>,
+): string {
+  const headerHTML = unifiedHeaderFor("عقد عمل محدد المدة (CDD)", c.contractNumber, entete, clubSettings);
+  const body = c.content.replace(CDD_OFFICIAL_MARKER, "").trim();
+  return `<style>${CDD_TEMPLATE_CSS}</style>${headerHTML}${body}`;
+}
+
+function buildContractDocument(
+  c: Contract,
+  entete: EnteteConfig | null,
+  clubSettings: Record<string, string>,
+): string {
+  const headerHTML = unifiedHeaderFor("عقد عمل", c.contractNumber, entete, clubSettings);
+  // ★ النموذج الرسمي CDD يُعرض كما حُفظ (نص الوثيقة الرسمية) بدل ملخص الأقسام
+  if (isCddContract(c)) return buildOfficialCddDocument(c, entete, clubSettings);
   return headerHTML + contractDocumentBodyHTML(c);
 }
 
@@ -1684,90 +1715,174 @@ function TemplatesTab() {
   );
 }
 
-// ════════════ Tab 4: Create Contract ════════════
+
+// ──────────────── إنشاء عقد — النموذج الرسمي CDD ────────────────
+// بطاقات إدارية للأطراف (الطرف الأول / الطرف الثاني / رئيس الجمعية) + تفاصيل العقد
+// مع معاينة رسمية حية بالترويسة الموحدة — وكل الحقول تُعبّأ آلياً من الإعدادات والعامل.
+
+const CDD_FORM_SECTION = "rounded-xl border border-border/60 bg-background/40 overflow-hidden";
+
+function FormSectionHeader({ icon: Icon, step, title, hint, accent = "text-primary bg-primary/10" }: {
+  icon: React.ComponentType<{ className?: string }>;
+  step: string;
+  title: string;
+  hint?: string;
+  accent?: string;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-border/40 bg-muted/25">
+      <span className={cn("flex h-8 w-8 rounded-lg items-center justify-center shrink-0", accent)}>
+        <Icon className="h-4 w-4" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <h4 className="font-bold text-[13px] leading-tight flex items-center gap-1.5">
+          <span className="text-[10px] font-black text-primary bg-primary/10 rounded px-1 py-px">{step}</span>
+          {title}
+        </h4>
+        {hint && <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">{hint}</p>}
+      </div>
+    </div>
+  );
+}
+
 function CreateContractTab({ employees, onCreated }: {
   employees: Employee[];
   onCreated: () => void;
 }) {
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [clubSettings, setClubSettings] = useState<Record<string, string>>({});
+  const [entete, setEntete] = useState<EnteteConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [created, setCreated] = useState<Contract | null>(null);
   const [form, setForm] = useState({
     employeeId: "",
     templateId: "",
-    startDate: new Date().toISOString().split("T")[0],
+    startDate: todayYMD(),
     endDate: "",
     hourRate: 200,
     workSchedule: "",
     notes: "",
-    // ★ المرحلة 5 (§4): نوع العقد + عنوان + ساعات أسبوعية + مسودة
-    contractType: "HOURLY",
+    contractType: "FIXED_TERM",
     title: "",
     weeklyHours: "",
     asDraft: false,
+    // الطرف الأول (صاحب العمل) — يُعبّأ من إعدادات النادي
+    clubSeat: "",
+    firstPartyRep: "",
+    firstPartyRepTitle: "رئيس فرع السباحة",
+    workplace: "",
+    // رئيس الجمعية (تأشيرة)
+    associationPresident: "",
+    associationPresidentTitle: "رئيس الجمعية",
   });
-  const [preview, setPreview] = useState<string>("");
 
+  // تحميل: القوالب + الإعدادات + الترويسة — مع اختيار النموذج الرسمي تلقائياً
   useEffect(() => {
-    fetch("/api/contract-templates")
-      .then((r) => r.json())
-      .then((tplData) => {
-        setTemplates(tplData.templates || []);
-      })
-      .catch(() => undefined)
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    Promise.all([
+      fetch("/api/contract-templates").then((r) => r.json()).catch(() => ({})),
+      fetch("/api/settings").then((r) => r.json()).catch(() => ({})),
+      fetch("/api/entete").then((r) => r.json()).catch(() => ({})),
+    ]).then(([tData, sData, eData]) => {
+      if (cancelled) return;
+      const tpls: Template[] = tData.templates || [];
+      const s: Record<string, string> = sData.settings || {};
+      setTemplates(tpls);
+      setClubSettings(s);
+      setEntete(eData.config || null);
+      const cdd = tpls.find((t) => t.code === CDD_TEMPLATE_CODE);
+      setForm((f) => ({
+        ...f,
+        templateId: cdd?.id || f.templateId || tpls[0]?.id || "",
+        contractType: cdd ? "FIXED_TERM" : f.contractType,
+        clubSeat: f.clubSeat || s.clubAddress || "",
+        workplace: f.workplace || s.workplace || s.clubAddress || "",
+        firstPartyRep: f.firstPartyRep || s.firstPartyRepresentative || s.clubPresident || "",
+        firstPartyRepTitle: s.firstPartyRepTitle || "رئيس فرع السباحة",
+        associationPresident: f.associationPresident || s.associationPresident || "",
+        associationPresidentTitle: s.associationPresidentTitle || "رئيس الجمعية",
+        // مدة النموذج الرسمي الافتراضية (الموسم الصيفي ≈ 92 يوماً)
+        endDate: cdd && !f.endDate
+          ? (() => { const d = new Date(f.startDate); d.setDate(d.getDate() + cdd.defaultDuration); return d.toISOString().split("T")[0]; })()
+          : f.endDate,
+      }));
+    }).finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, []);
 
-  // Auto-fill hourRate from selected employee
-  useEffect(() => {
-    if (form.employeeId) {
-      const emp = employees.find((e) => e.id === form.employeeId);
-      if (emp) {
-        setForm((f) => ({ ...f, hourRate: emp.hourRate }));
-        // Auto-fill end date from template defaultDuration
-        const tpl = templates.find((t) => t.id === form.templateId);
-        if (tpl) {
-          const sd = new Date(form.startDate);
-          sd.setDate(sd.getDate() + tpl.defaultDuration);
-          setForm((f) => ({ ...f, endDate: sd.toISOString().split("T")[0] }));
-        }
-      }
-    }
-  }, [form.employeeId, employees]);
+  const setF = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
 
-  // Update preview when inputs change
+  // اختيار العامل → الأجر آلياً + نهاية المدة من القالب
   useEffect(() => {
-    if (!form.employeeId || !form.templateId) {
-      setPreview("");
-      return;
-    }
+    if (!form.employeeId) return;
     const emp = employees.find((e) => e.id === form.employeeId);
-    const tpl = templates.find((t) => t.id === form.templateId);
-    if (!emp || !tpl) return;
-    const rendered = substituteVariables(tpl.content, {
-      club_name: "—",
-      club_branch: "—",
-      worker_name: `${emp.lastName} ${emp.firstName}`.trim(),
-      birth_date: formatDate(emp.birthDate),
-      birth_place: emp.birthPlace || "—",
-      address: emp.address || "—",
-      phone: emp.phone || "—",
-      national_id: emp.nationalId || "—",
-      position: positionLabel(emp.position),
-      contract_number: "CTR-PREVIEW",
-      start_date: formatDate(form.startDate),
-      end_date: formatDate(form.endDate),
-      hour_rate: form.hourRate,
-      work_schedule: form.workSchedule || "—",
-      today: formatDate(new Date()),
+    if (!emp) return;
+    setForm((f) => {
+      const next = { ...f, hourRate: emp.hourRate || f.hourRate };
+      const tpl = templates.find((t) => t.id === f.templateId);
+      if (tpl) {
+        const sd = new Date(f.startDate);
+        sd.setDate(sd.getDate() + tpl.defaultDuration);
+        next.endDate = sd.toISOString().split("T")[0];
+      }
+      return next;
     });
-    setPreview(rendered);
-  }, [form, employees, templates]);
+  }, [form.employeeId]);
+
+  const selectedEmployee = employees.find((e) => e.id === form.employeeId) || null;
+  const selectedTemplate = templates.find((t) => t.id === form.templateId) || null;
+  const isCddForm = selectedTemplate?.code === CDD_TEMPLATE_CODE;
+
+  // متغيرات المعاينة الحية — نفس منطق الخادم بالضبط
+  const previewVars = useMemo<ContractVariables>(() => {
+    const emp = selectedEmployee;
+    return {
+      club_name: clubSettings.clubName || "النادي",
+      club_branch: clubSettings.branchName || "",
+      club_seat: form.clubSeat || clubSettings.clubAddress || "",
+      worker_name: emp ? `${emp.lastName} ${emp.firstName}`.trim() : "",
+      birth_date: emp?.birthDate ? formatDate(emp.birthDate) : "",
+      birth_place: emp?.birthPlace || "",
+      address: emp?.address || "",
+      phone: emp?.phone || "",
+      national_id: emp?.nationalId || "",
+      position: emp?.position || "",
+      position_title: emp
+        ? (emp.position === "guard" ? "حارس سباحة (منقذ مائي)" : positionLabel(emp.position))
+        : "",
+      contract_number: "",
+      season_year: String(new Date().getFullYear()),
+      start_date: form.startDate ? formatDate(form.startDate) : "",
+      end_date: form.endDate ? formatDate(form.endDate) : "",
+      hour_rate: form.hourRate,
+      work_schedule: form.workSchedule || "15 دقيقة قبل بداية العمل",
+      workplace: form.workplace || clubSettings.clubAddress || "المسبح البلدي",
+      association_president: form.associationPresident || "",
+      association_president_title: form.associationPresidentTitle || "رئيس الجمعية",
+      first_party_representative: form.firstPartyRep || "",
+      first_party_rep_title: form.firstPartyRepTitle || "رئيس فرع السباحة",
+      sign_city: clubSettings.wilaya || "سعيدة",
+      sign_date: formatDate(new Date()),
+      today: formatDate(new Date()),
+    };
+  }, [form, selectedEmployee, clubSettings]);
+
+  // المعاينة الرسمية الحية: ترويسة موحدة + النموذج الرسمي مُستبدل المتغيرات
+  const previewHTML = useMemo(() => {
+    if (!selectedTemplate) return "";
+    const body = renderContractHTML(selectedTemplate.content, previewVars);
+    const headerHTML = isCddForm
+      ? unifiedHeaderFor("عقد عمل محدد المدة (CDD)", "", entete, clubSettings)
+      : unifiedHeaderFor("عقد عمل", "", entete, clubSettings);
+    return `<style>${CDD_TEMPLATE_CSS}</style>${headerHTML}${body}`;
+  }, [selectedTemplate, previewVars, entete, clubSettings, isCddForm]);
 
   const handleCreate = async () => {
-    if (!form.employeeId) { toast.error("اختر العامل"); return; }
+    if (!form.employeeId) { toast.error("اختر العامل (الطرف الثاني)"); return; }
     if (!form.templateId) { toast.error("اختر القالب"); return; }
-    if (!form.startDate) { toast.error("أدخل تاريخ البداية"); return; }
+    if (!form.startDate) { toast.error("أدخل تاريخ بداية العقد"); return; }
+    if (isCddForm && !form.endDate) { toast.error("عقد محدد المدة يتطلب تاريخ النهاية"); return; }
     setCreating(true);
     try {
       const res = await fetch("/api/contracts", {
@@ -1785,19 +1900,19 @@ function CreateContractTab({ employees, onCreated }: {
           title: form.title,
           weeklyHours: form.weeklyHours ? Number(form.weeklyHours) : null,
           asDraft: form.asDraft,
+          // أطراف النموذج الرسمي
+          firstPartyRep: form.firstPartyRep,
+          firstPartyRepTitle: form.firstPartyRepTitle,
+          associationPresident: form.associationPresident,
+          associationPresidentTitle: form.associationPresidentTitle,
+          workplace: form.workplace,
+          clubSeat: form.clubSeat,
         }),
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
       toast.success(`تم إنشاء العقد ${data.contract.contractNumber} بنجاح`);
-      // Reset form
-      setForm({
-        employeeId: "", templateId: "",
-        startDate: new Date().toISOString().split("T")[0],
-        endDate: "", hourRate: 200, workSchedule: "", notes: "",
-        contractType: "HOURLY", title: "", weeklyHours: "", asDraft: false,
-      });
-      setPreview("");
+      setCreated(data.contract);
       onCreated();
     } catch {
       toast.error("فشل إنشاء العقد");
@@ -1806,148 +1921,240 @@ function CreateContractTab({ employees, onCreated }: {
     }
   };
 
+  const printCreated = (contract: Contract) => {
+    const printWin = window.open("", "_blank");
+    if (!printWin) { toast.error("فشل فتح نافذة الطباعة — اسمح بالنوافذ المنبثقة"); return; }
+    const docHTML = absoluteizeAssets(buildContractDocument(contract, entete, clubSettings));
+    printWin.document.write(`
+      <!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
+      <title>عقد ${escHTML(contract.contractNumber)}</title>
+      <style>${PRINT_DOC_CSS}</style></head><body>
+      <div class="doc-sheet">${docHTML}</div>
+      <button class="print-btn noprint" onclick="window.print()">🖨 طباعة / حفظ PDF</button>
+      <script>setTimeout(function(){try{window.print()}catch(e){}},400);</script>
+      </body></html>
+    `);
+    printWin.document.close();
+  };
+
   if (loading) return <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
 
   return (
-    <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
+    <div className="space-y-4">
       {/* رأس القسم */}
-      <div className="p-4 border-b border-border/60 flex items-center gap-2">
-        <div className="flex h-9 w-9 rounded-xl bg-primary/10 items-center justify-center shrink-0">
-          <FilePlus className="h-4 w-4 text-primary" />
+      <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
+        <div className="p-4 border-b border-border/60 flex flex-wrap items-center gap-3 bg-gradient-to-l from-primary/5 via-transparent to-transparent">
+          <div className="flex h-10 w-10 rounded-xl bg-primary/10 items-center justify-center shrink-0">
+            <FileSignature className="h-5 w-5 text-primary" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-bold text-sm">إنشاء عقد عمل — النموذج الرسمي المحدد المدة (CDD)</h3>
+            <p className="text-[10px] text-muted-foreground">
+              النموذج الرسمي المعتمد بالترويسة الموحدة — يحدد معلومات الطرف الأول والطرف الثاني وتأشيرة رئيس الجمعية، وكلها تُعبّأ آلياً
+            </p>
+          </div>
+          {isCddForm && (
+            <Badge className="bg-emerald-500/10 text-emerald-700 border-emerald-500/20 gap-1 shrink-0">
+              <BadgeCheck className="h-3 w-3" /> النموذج الرسمي مُحدد
+            </Badge>
+          )}
         </div>
-        <div className="min-w-0">
-          <h3 className="font-bold text-sm">إنشاء عقد جديد</h3>
-          <p className="text-[10px] text-muted-foreground">
-            تعبئة تلقائية من بيانات العامل + رقم عقد فريد + حفظ في الأرشيف
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+        {/* ═══ النموذج ═══ */}
+        <div className="space-y-3.5">
+
+          {/* ① الطرف الثاني (العامل) */}
+          <div className={CDD_FORM_SECTION}>
+            <FormSectionHeader icon={Briefcase} step="١" title="الطرف الثاني (العامل)" hint="اختر العامل — تُعبّأ بياناته آلياً كما في العقد" />
+            <div className="p-3.5 space-y-3">
+              <div>
+                <Label className="text-xs mb-1.5 block">اختيار العامل *</Label>
+                <Select value={form.employeeId || undefined} onValueChange={(v) => setF({ employeeId: v })}>
+                  <SelectTrigger className="w-full h-10 text-xs">
+                    <SelectValue placeholder="— اختر العامل من القائمة —" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {employees.map((emp) => (
+                      <SelectItem key={emp.id} value={emp.id}>
+                        {emp.lastName} {emp.firstName} — {positionLabel(emp.position)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {selectedEmployee ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 rounded-lg bg-muted/30 border border-border/40 p-2.5">
+                  <MiniInfo label="الاسم واللقب" value={`${selectedEmployee.lastName} ${selectedEmployee.firstName}`.trim()} />
+                  <MiniInfo label="تاريخ الميلاد" value={selectedEmployee.birthDate ? formatDate(selectedEmployee.birthDate) : "—"} />
+                  <MiniInfo label="مكان الميلاد" value={selectedEmployee.birthPlace || "—"} />
+                  <MiniInfo label="العنوان" value={selectedEmployee.address || "—"} />
+                  <MiniInfo label="رقم بطاقة التعريف" value={selectedEmployee.nationalId || "—"} />
+                  <MiniInfo label="الهاتف" value={selectedEmployee.phone || "—"} />
+                </div>
+              ) : (
+                <p className="text-[11px] text-muted-foreground bg-muted/30 rounded-lg border border-dashed border-border/60 p-3 text-center">
+                  ستظهر هنا بيانات الطرف الثاني تلقائياً بعد اختيار العامل (الاسم، الميلاد، العنوان، البطاقة، الهاتف)
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* ② الطرف الأول (صاحب العمل) */}
+          <div className={CDD_FORM_SECTION}>
+            <FormSectionHeader icon={Layers} step="٢" title="الطرف الأول (صاحب العمل)" hint="بيانات الجمعية وممثلها — من إعدادات النادي وقابلة للتعديل" />
+            <div className="p-3.5 space-y-3">
+              <div className="rounded-lg bg-primary/5 border border-primary/15 px-3 py-2">
+                <p className="text-[11px] font-bold text-primary leading-relaxed">
+                  {clubSettings.clubName || "النادي"}{clubSettings.branchName ? ` – ${clubSettings.branchName}` : ""}
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <Label className="text-xs">مقر الجمعية</Label>
+                  <Input value={form.clubSeat} onChange={(e) => setF({ clubSeat: e.target.value })} className="h-9 text-xs" placeholder="طاب لحسن" />
+                </div>
+                <div>
+                  <Label className="text-xs">مكان العمل (المادة 03)</Label>
+                  <Input value={form.workplace} onChange={(e) => setF({ workplace: e.target.value })} className="h-9 text-xs" placeholder="المسبح النصف أولمبي..." />
+                </div>
+                <div>
+                  <Label className="text-xs">يمثلها في هذا العقد السيد</Label>
+                  <Input value={form.firstPartyRep} onChange={(e) => setF({ firstPartyRep: e.target.value })} className="h-9 text-xs" placeholder="الاسم واللقب" />
+                </div>
+                <div>
+                  <Label className="text-xs">بصفته</Label>
+                  <Input value={form.firstPartyRepTitle} onChange={(e) => setF({ firstPartyRepTitle: e.target.value })} className="h-9 text-xs" placeholder="رئيس فرع السباحة" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ③ رئيس الجمعية (تأشيرة) */}
+          <div className={CDD_FORM_SECTION}>
+            <FormSectionHeader icon={UserPlus} step="٣" title="تأشيرة رئيس الجمعية الرياضية الهاوية" hint="يظهر آخر الوثيقة — اسمه وصفته" />
+            <div className="p-3.5 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div>
+                <Label className="text-xs">الاسم واللقب</Label>
+                <Input value={form.associationPresident} onChange={(e) => setF({ associationPresident: e.target.value })} className="h-9 text-xs" placeholder="اسم رئيس الجمعية" />
+              </div>
+              <div>
+                <Label className="text-xs">الصفة</Label>
+                <Input value={form.associationPresidentTitle} onChange={(e) => setF({ associationPresidentTitle: e.target.value })} className="h-9 text-xs" placeholder="رئيس الجمعية" />
+              </div>
+            </div>
+          </div>
+
+          {/* ④ تفاصيل العقد */}
+          <div className={CDD_FORM_SECTION}>
+            <FormSectionHeader icon={FilePlus} step="٤" title="تفاصيل العقد" hint="المدة والأجر — تُحقن في المواد 02 و05" />
+            <div className="p-3.5 space-y-3">
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <Label className="text-xs flex items-center gap-1"><Calendar className="h-3 w-3" /> ابتداءً من *</Label>
+                  <Input type="date" value={form.startDate} onChange={(e) => setF({ startDate: e.target.value })} className="h-9" dir="ltr" />
+                </div>
+                <div>
+                  <Label className="text-xs flex items-center gap-1"><Calendar className="h-3 w-3" /> إلى غاية {isCddForm ? "*" : ""}</Label>
+                  <Input type="date" value={form.endDate} onChange={(e) => setF({ endDate: e.target.value })} className="h-9" dir="ltr" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <Label className="text-xs flex items-center gap-1"><DollarSign className="h-3 w-3" /> الأجر الساعي (دج)</Label>
+                  <Input type="number" value={form.hourRate} onChange={(e) => setF({ hourRate: +e.target.value })} className="h-9" />
+                </div>
+                <div>
+                  <Label className="text-xs">جدول العمل</Label>
+                  <Input value={form.workSchedule} onChange={(e) => setF({ workSchedule: e.target.value })} className="h-9" placeholder="15 دقيقة قبل بداية العمل" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <Label className="text-xs">نوع العقد</Label>
+                  <select
+                    value={form.contractType}
+                    onChange={(e) => setF({ contractType: e.target.value })}
+                    className="w-full h-9 text-xs rounded-md border border-input bg-card px-2"
+                  >
+                    {CONTRACT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <Label className="text-xs">عنوان العقد</Label>
+                  <Input value={form.title} onChange={(e) => setF({ title: e.target.value })} className="h-9" placeholder="مثال: عقد حارس سباحة موسم 2026" />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">ملاحظات داخلية (لا تُطبع)</Label>
+                <Textarea value={form.notes} onChange={(e) => setF({ notes: e.target.value })} rows={2} className="text-xs" />
+              </div>
+              <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={form.asDraft}
+                  onChange={(e) => setF({ asDraft: e.target.checked })}
+                  className="h-4 w-4 accent-teal-600"
+                />
+                حفظ كمسودة (تُفعَّل لاحقاً بعد المراجعة)
+              </label>
+            </div>
+          </div>
+
+          <Button onClick={handleCreate} disabled={creating} className="w-full h-11 text-sm">
+            {creating ? <Loader2 className="h-4 w-4 animate-spin ml-1" /> : <FileSignature className="h-4 w-4 ml-1" />}
+            إنشاء العقد الرسمي وحفظه في الأرشيف
+          </Button>
+        </div>
+
+        {/* ═══ المعاينة الرسمية الحية ═══ */}
+        <div className="space-y-2 xl:sticky xl:top-4">
+          <div className="flex items-center justify-between">
+            <Label className="text-xs flex items-center gap-1.5">
+              <Eye className="h-3.5 w-3.5 text-primary" /> معاينة الوثيقة الرسمية — الترويسة الموحدة
+            </Label>
+            <Badge variant="outline" className="text-[9px]">A4</Badge>
+          </div>
+          <div className="rounded-xl border border-border/60 overflow-hidden bg-muted/40">
+            <div className="bg-white max-h-[70vh] overflow-y-auto">
+              {previewHTML ? (
+                <div className="p-4" dangerouslySetInnerHTML={{ __html: previewHTML }} />
+              ) : (
+                <div className="p-12 text-center text-muted-foreground text-xs">
+                  اختر العامل لعرض النموذج الرسمي معبأً ببياناته
+                </div>
+              )}
+            </div>
+          </div>
+          <p className="text-[10px] text-muted-foreground text-center">
+            الحقول الفارغة تظهر خطاً منقّطاً كما في النموذج الورقي — رقم العقد يُولَّد تلقائياً عند الحفظ
           </p>
         </div>
       </div>
 
-      <div className="p-4">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Right: form (RTL أول عمود) */}
-          <div className="space-y-3">
-            <div>
-              <Label className="text-xs flex items-center gap-1"><Briefcase className="h-3 w-3" /> العامل *</Label>
-              <Select
-                value={form.employeeId || undefined}
-                onValueChange={(v) => setForm({ ...form, employeeId: v })}
-              >
-                <SelectTrigger className="w-full h-9 text-xs">
-                  <SelectValue placeholder="— اختر العامل —" />
-                </SelectTrigger>
-                <SelectContent>
-                  {employees.map((emp) => (
-                    <SelectItem key={emp.id} value={emp.id}>
-                      {emp.lastName} {emp.firstName} — {positionLabel(emp.position)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label className="text-xs flex items-center gap-1"><Layers className="h-3 w-3" /> القالب *</Label>
-              <Select
-                value={form.templateId || undefined}
-                onValueChange={(v) => setForm({ ...form, templateId: v })}
-              >
-                <SelectTrigger className="w-full h-9 text-xs">
-                  <SelectValue placeholder="— اختر القالب —" />
-                </SelectTrigger>
-                <SelectContent>
-                  {templates.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label className="text-xs flex items-center gap-1"><Calendar className="h-3 w-3" /> تاريخ البداية *</Label>
-                <Input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className="h-9" dir="ltr" />
-              </div>
-              <div>
-                <Label className="text-xs flex items-center gap-1"><Calendar className="h-3 w-3" /> تاريخ النهاية</Label>
-                <Input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} className="h-9" dir="ltr" />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label className="text-xs flex items-center gap-1"><DollarSign className="h-3 w-3" /> سعر الساعة (دج)</Label>
-                <Input type="number" value={form.hourRate} onChange={(e) => setForm({ ...form, hourRate: +e.target.value })} className="h-9" />
-              </div>
-              <div>
-                <Label className="text-xs">جدول العمل</Label>
-                <Input value={form.workSchedule} onChange={(e) => setForm({ ...form, workSchedule: e.target.value })} className="h-9" placeholder="40 ساعة/أسبوع" />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label className="text-xs">نوع العقد</Label>
-                <select
-                  value={form.contractType}
-                  onChange={(e) => setForm({ ...form, contractType: e.target.value })}
-                  className="w-full h-9 text-xs rounded border bg-card px-2"
-                >
-                  {CONTRACT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-                </select>
-              </div>
-              <div>
-                <Label className="text-xs">ساعات العمل الأسبوعية</Label>
-                <Input type="number" value={form.weeklyHours} onChange={(e) => setForm({ ...form, weeklyHours: e.target.value })} className="h-9" placeholder="40" />
-              </div>
-            </div>
-
-            <div>
-              <Label className="text-xs">عنوان العقد</Label>
-              <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className="h-9" placeholder="مثال: عقد حارس موسمي 2026" />
-            </div>
-
-            <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={form.asDraft}
-                onChange={(e) => setForm({ ...form, asDraft: e.target.checked })}
-                className="h-4 w-4 accent-teal-600"
-              />
-              حفظ كمسودة (تُفعَّل لاحقاً بعد المراجعة)
-            </label>
-
-            <div>
-              <Label className="text-xs">ملاحظات</Label>
-              <Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={2} className="text-xs" />
-            </div>
-
-            <Button onClick={handleCreate} disabled={creating} className="w-full">
-              {creating ? <Loader2 className="h-4 w-4 animate-spin ml-1" /> : <FilePlus className="h-4 w-4 ml-1" />}
-              إنشاء العقد وحفظه في الأرشيف
-            </Button>
-          </div>
-
-          {/* Left: live preview */}
-          <div className="space-y-2">
-            <Label className="text-xs">معاينة مباشرة</Label>
-            <div className="rounded-xl border border-border/60 overflow-hidden">
-              <div className="bg-muted/40 p-2 text-[10px] text-muted-foreground text-center">
-                المعاينة تستخدم بيانات العامل المختار
-              </div>
-              <div className="bg-white max-h-[500px] overflow-y-auto">
-                {preview ? (
-                  <div className="[&_h2]:text-[#0f766e] [&_h3]:text-[#0f766e] p-4" dangerouslySetInnerHTML={{ __html: preview }} />
-                ) : (
-                  <div className="p-12 text-center text-muted-foreground text-xs">
-                    اختر العامل والقالب لعرض المعاينة
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* حوار النجاح: طباعة فورية */}
+      <Dialog open={!!created} onOpenChange={(o) => { if (!o) setCreated(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+              تم إنشاء العقد {created?.contractNumber}
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            حُفظ العقد في الأرشيف بالترويسة الموحدة — يمكنك طباعته الآن أو لاحقاً من تبويب «أرشيف العقود».
+          </p>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setCreated(null)}>إغلاق</Button>
+            {created && (
+              <Button onClick={() => printCreated(created)}>
+                <Printer className="h-4 w-4 ml-1" /> طباعة العقد
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

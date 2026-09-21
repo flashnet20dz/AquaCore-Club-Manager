@@ -89,16 +89,37 @@ export async function GET(req: NextRequest) {
         : null;
 
     // معلومات العامل الشخصية — من سجل الموظف المرتبط (employeeId أو userId)
-    const employee = await db.employee.findFirst({
-      where: {
-        clubId,
-        OR: [
-          ...(wp.employeeId ? [{ id: wp.employeeId }] : []),
-          { userId: wp.userId },
-        ],
-      },
-      select: { firstName: true, lastName: true, nationalId: true, position: true, nationalIdIssueDate: true, nationalIdIssuePlace: true },
-    });
+    const employeeWhere = {
+      clubId,
+      OR: [
+        ...(wp.employeeId ? [{ id: wp.employeeId }] : []),
+        { userId: wp.userId },
+      ],
+    };
+    type ReceiptEmployee = {
+      firstName: string;
+      lastName: string;
+      nationalId: string | null;
+      position: string;
+      nationalIdIssueDate: Date | null;
+      nationalIdIssuePlace: string | null;
+    };
+    let employee: ReceiptEmployee | null = null;
+    try {
+      employee = await db.employee.findFirst({
+        where: employeeWhere,
+        select: { firstName: true, lastName: true, nationalId: true, position: true, nationalIdIssueDate: true, nationalIdIssuePlace: true },
+      });
+    } catch (empErr) {
+      // ★ حماية: إن لم تُطبَّق بعد ترحيلات عمودي وصل الاستلام (P2022 column does not exist)
+      //   تُطبع الوصل بدون معلومات الصدور (خطوط منقّطة) بدل انهيار الطباعة بخطأ Prisma
+      console.error("receipt employee fetch — falling back without issue columns:", empErr);
+      const legacy = await db.employee.findFirst({
+        where: employeeWhere,
+        select: { firstName: true, lastName: true, nationalId: true, position: true },
+      }).catch(() => null);
+      employee = legacy ? { ...legacy, nationalIdIssueDate: null, nationalIdIssuePlace: null } : null;
+    }
 
     // رقم الوصل التسلسلي: ترتيب زمني للتسديدات النشطة داخل سنة الوصل
     const paidAt = wp.paidAt;
