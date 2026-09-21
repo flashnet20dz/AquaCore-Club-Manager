@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { resolveTargetClubId } from "@/lib/tenant";
 import { substituteVariables, formatDateYMD, type ContractVariables } from "@/lib/contract-variables";
 
 /**
@@ -24,11 +25,14 @@ export async function GET(
 ) {
   try {
     const user = await getCurrentUser();
-    if (!user || !user.clubId) return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
+    if (!user) return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
+    // 🔑 superadmin: أول نادٍ نشط بدل 403 صامت
+    const ctxClubId = await resolveTargetClubId(user);
+    if (!ctxClubId) return NextResponse.json({ error: "لم يتم العثور على نادٍ" }, { status: 400 });
     const { id } = await params;
 
     const contract = await db.employmentContract.findFirst({
-      where: { id, clubId: user.clubId },
+      where: { id, clubId: ctxClubId },
       include: { employee: true, template: true },
     });
     if (!contract) return NextResponse.json({ error: "غير موجود" }, { status: 404 });
@@ -50,7 +54,9 @@ export async function PATCH(
     }
     const { id } = await params;
     const body = await req.json();
-    const clubId = user.clubId!;
+    // 🔑 superadmin: حل نادي الهدف
+    const clubId = await resolveTargetClubId(user, body.clubId);
+    if (!clubId) return NextResponse.json({ error: "لم يتم العثور على نادٍ" }, { status: 400 });
 
     const original = await db.employmentContract.findFirst({ where: { id, clubId } });
     if (!original) return NextResponse.json({ error: "غير موجود" }, { status: 404 });
@@ -276,7 +282,9 @@ export async function DELETE(
     if (!user || (user.role !== "admin" && user.role !== "superadmin")) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
     }
-    const clubId = user.clubId!;
+    // 🔑 superadmin: حل نادي الهدف
+    const clubId = await resolveTargetClubId(user);
+    if (!clubId) return NextResponse.json({ error: "لم يتم العثور على نادٍ" }, { status: 400 });
     const { id } = await params;
 
     const existing = await db.employmentContract.findFirst({ where: { id, clubId } });

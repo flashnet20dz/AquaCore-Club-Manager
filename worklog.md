@@ -1219,3 +1219,31 @@ Stage Summary:
 - ✅ زرع النموذج تلقائي لكل الأندية (المحلي والإنتاج) دون أي ترحيل قاعدة
 - ✅ خطأ طباعة وصل الأجور محلول محلياً + محمي بالـfallback حتى لو تأخر الترحيل في الإنتاج
 - 📁 ملفات: src/lib/cdd-template.ts، src/lib/cdd-shared.ts، src/lib/contract-variables.ts، src/app/api/contract-templates/route.ts، src/app/api/contracts/route.ts، src/app/api/wages/receipt/route.ts، src/components/contracts-panel.tsx
+
+---
+Task ID: fix-save-failure-cdd-v2-header
+Agent: main
+Task: إصلاح «فشل الحفظ» عند إضافة عامل جديد + المادة 05 بلا سعر الساعة + إعادة تصميم الترويسة الموحدة (سطر واحد بلا تكرار + شعار ثابت)
+
+Work Log:
+- شخّص جذر «فشل الحفظ»: حساب superadmin على الإنتاج ليس له clubId في الجلسة، وPOST /api/employees كان يمرّر user.clubId! (=null) مباشرة → Prisma يرفض العلاقة الإلزامية → 500
+- أنشأ resolveTargetClubId في src/lib/tenant.ts (نمط next-file-number المعتمد: clubId من الطلب لأجل superadmin → أول نادٍ نشط → أول نادٍ)
+- طبّق الحل على: employees GET+POST، settings GET+PUT (كانت تُرجع [] لـ superadmin فيفقد الترويسة اسم النادي!)، entete GET/PUT/DELETE، contracts GET+POST، contracts/[id] GET/PATCH/DELETE، contract-templates GET+POST، wages GET+POST، wages/receipt GET
+- إصلاح ensureDefaultSettings(clubIdOverride?) ليعمل لـ superadmin
+- المادة 05: النص الرسمي أصبح «يتقاضى الطرف الثاني أجرًا يُحسب على أساس الحجم الساعي كل شهر.» — بلا سعر/حجم ساعي وجدول عمل (CDD v2 marker)
+- إزالة تكرار «فرع السباحة» من سطر الطرف الأول في القالب (اسم النادي من الإعدادات يتضمن السلسلة كاملة)
+- ترقية جراحية migrateCddV1ToV2: تستبدل العبارتين المطلوبتين فقط في النماذج المخزنة v1 مع حفظ بقية تعديلات الإدارة
+- الترويسة الموحدة v2: عنصر «الاسم الرسمي للنادي (سطر واحد)» role=clubFullName يُولَّد آلياً: «الجمعية الرياضية الهاوية» + اسم النادي من الإعدادات (السلسلة الرسمية كاملة) — قابل للتجاوز اليدوي من المحرر
+- FitLine: يضمن سطراً واحداً دائماً بتحجيم تلقائي (بلا لفّ ولا قصّ) في معاينة الشاشة
+- الشعار: صندوق ثابت UNIFIED_LOGO_SIZE=70px في كل الصفحات والمطبوعات (React + HTML) مع width/height attributes وloading eager — لا قفز ولا تغيّر حجم عند التحميل
+- إزالة شاشة «جاري تحميل الترويسة» والقفزة المرافقة: تُرسم البنية فوراً بالافتراضي ثم تُحدَّث بصمت + إزالة إزاحة y من أنيميشن الدخول
+- ترقية تلقائية upgradeEnteteConfig في GET /api/entete (v1→v2) مع حفظ الشعارات المخصصة وعناصر التذييل
+- unified-header-settings: DEFAULT v2 + تلميح التوليد الآلي في محرر المحتوى + placeholder بالقيمة المولّدة
+- تحقق: tsc نظيف، lint بلا أخطاء جديدة (كلها قديمة في scripts/*)، متصفح كامل: تسجيل دخول → إضافة عامل «تمت الإضافة» → معاينة CDD بالترويسة الجديدة (الاسم الرسمي كاملاً في سطر واحد + شعاران ثابتان + المادة 05 النصية الرسمية بلا سعر)
+- نظّف بيانات الاختبار محلياً (حذف العاملين التجريبيين)
+
+Stage Summary:
+- ✅ «فشل الحفظ» محلول جذرياً لكل الوحدات (superadmin clubId resolver موحّد)
+- ✅ المادة 05 بالنص الرسمي دون ذكر سعر الساعة (السعر يبقى محفوظاً في سجل العقد للأجور فقط)
+- ✅ الترويسة الموحدة v2: سطر الاسم الرسمي الواحد + شعار ثابت الحجم من أي صفحة + كل سطر نطاق تعديل مستقل
+- ✅ ترقية تلقائية للقوالب والترويسات المخزنة قديماً (v1→v2) بلا فقدان تعديلات

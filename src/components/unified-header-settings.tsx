@@ -20,6 +20,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { UnifiedReportHeader, type EnteteConfig, type EnteteElement } from "@/components/unified-report-header";
+import { CLUB_FULL_NAME_ROLE, UNIFIED_LOGO_SIZE, composeClubFullName } from "@/lib/entete-shared";
 
 // ──────────────── Types ────────────────
 type Slot = "header-left" | "header-center" | "header-right" | "footer-left" | "footer-center" | "footer-right";
@@ -52,11 +53,9 @@ const COLOR_PRESETS = [
 
 const DEFAULT_CONFIG: EnteteConfig = {
   elements: [
-    { id: "logo-l", label: "الشعار الأيسر", type: "logo", slot: "header-left", src: "/images/rcs-logo-official.png", width: 70, height: 70, borderRadius: 8 },
-    { id: "title", label: "اسم النادي", type: "text", slot: "header-center", content: "النادي الهاوي متعدد الرياضات", fontFamily: "Cairo", fontSize: 16, fontWeight: "bold", color: "#0f766e" },
-    { id: "subtitle", label: "الفرع", type: "text", slot: "header-center", content: "الرائد - سعيدة", fontFamily: "Cairo", fontSize: 14, fontWeight: "bold", color: "#f59e0b" },
-    { id: "branch", label: "الفرع", type: "text", slot: "header-center", content: "فرع السباحة", fontFamily: "Cairo", fontSize: 12, fontWeight: "normal", color: "#555555" },
-    { id: "logo-r", label: "الشعار الأيمن", type: "logo", slot: "header-right", src: "/images/rcs-logo-official.png", width: 70, height: 70, borderRadius: 8 },
+    { id: "logo-r", label: "الشعار الأيمن", type: "logo", slot: "header-right", src: "/images/rcs-logo-official.png", width: UNIFIED_LOGO_SIZE, height: UNIFIED_LOGO_SIZE, borderRadius: 8 },
+    { id: "club-full-name", label: "الاسم الرسمي للنادي (سطر واحد)", type: "text", slot: "header-center", role: CLUB_FULL_NAME_ROLE, content: "", fontFamily: "Cairo", fontSize: 13, fontWeight: "bold", color: "#0f766e" },
+    { id: "logo-l", label: "الشعار الأيسر", type: "logo", slot: "header-left", src: "/images/rcs-logo-official.png", width: UNIFIED_LOGO_SIZE, height: UNIFIED_LOGO_SIZE, borderRadius: 8 },
   ],
   showDivider: true,
   dividerColor: "#0f766e",
@@ -64,6 +63,7 @@ const DEFAULT_CONFIG: EnteteConfig = {
   referenceNumberText: "الرقم: . . ./ن.ر.ه.ر.س",
   dateLocationText: "سعيدة في:",
   showReferenceRow: true,
+  version: 2,
 };
 
 function genId() { return Math.random().toString(36).substring(2, 11); }
@@ -391,7 +391,12 @@ export function UnifiedHeaderSettings() {
                   <div className="space-y-2">
                     <div>
                       <Label className="text-[10px]">المحتوى</Label>
-                      <Textarea value={selected.content || ""} onChange={(e) => updateElement(selected.id, { content: e.target.value })} rows={2} className="text-xs" />
+                      <Textarea value={selected.content || ""} onChange={(e) => updateElement(selected.id, { content: e.target.value })} rows={2} className="text-xs" placeholder={selected.role === CLUB_FULL_NAME_ROLE ? composeClubFullName(settings) : ""} />
+                      {selected.role === CLUB_FULL_NAME_ROLE && (
+                        <p className="text-[9px] text-muted-foreground mt-1 leading-relaxed">
+                          ★ يُولَّد آلياً في سطر واحد من «اسم النادي» في إعدادات النادي — اتركه فارغاً للتوليد الآلي، أو اكتب نصاً خاصاً للتجاوز اليدوي.
+                        </p>
+                      )}
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div>

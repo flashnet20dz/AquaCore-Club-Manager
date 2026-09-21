@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { resolveTargetClubId } from "@/lib/tenant";
 import { substituteVariables, renderContractHTML, formatDateYMD, type ContractVariables } from "@/lib/contract-variables";
 import { CDD_TEMPLATE_CODE, ensureCddTemplate } from "@/lib/cdd-template";
 
@@ -35,10 +36,14 @@ async function generateContractNumber(clubId: string): Promise<string> {
 export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser();
-    if (!user || !user.clubId || !hasContractsView(user.role)) {
+    if (!user || !hasContractsView(user.role)) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
     }
-    const clubId = user.clubId;
+    // 🔑 superadmin بلا نادٍ في الجلسة → أول نادٍ نشط (قائمة العقود تعمل لكل الأدوار)
+    const clubId = await resolveTargetClubId(user);
+    if (!clubId) {
+      return NextResponse.json({ error: "لم يتم العثور على نادٍ" }, { status: 400 });
+    }
 
     // ★ المرحلة 5 (§26): انتهاء تلقائي عند القراءة — العقود النشطة التي انتهت
     //   مدتها تصبح expired (idempotent — بلا تغيير تاريخ العقد الأصلي)
@@ -109,8 +114,12 @@ export async function POST(req: NextRequest) {
     if (!user || (user.role !== "admin" && user.role !== "superadmin")) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
     }
-    const clubId = user.clubId!;
     const body = await req.json();
+    // 🔑 إصلاح فشل إنشاء العقد لـ superadmin: حل نادي الهدف من الطلب أو أول نادٍ نشط
+    const clubId = await resolveTargetClubId(user, body.clubId);
+    if (!clubId) {
+      return NextResponse.json({ error: "لم يتم العثور على نادٍ مرتبط بالحساب" }, { status: 400 });
+    }
     const {
       employeeId, templateId, startDate, endDate, hourRate, workSchedule, notes,
       contractType, title, weeklyHours, asDraft,

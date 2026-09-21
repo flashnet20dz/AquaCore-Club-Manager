@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { resolveTargetClubId } from "@/lib/tenant";
 
 function hasWageAccess(role: string): boolean {
   return ["admin", "superadmin", "assistant", "accountant"].includes(role);
@@ -23,7 +24,8 @@ export async function GET(req: NextRequest) {
     if (!currentUser || !hasWageAccess(currentUser.role)) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
     }
-    const clubId = currentUser.clubId;
+    // 🔑 superadmin: أول نادٍ نشط — طباعة الوصل تعمل لكل الأدوار
+    const clubId = await resolveTargetClubId(currentUser);
     if (!clubId) return NextResponse.json({ error: "النادي غير محدد" }, { status: 400 });
 
     const url = new URL(req.url);

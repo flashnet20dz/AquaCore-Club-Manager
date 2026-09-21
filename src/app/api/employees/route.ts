@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { resolveTargetClubId } from "@/lib/tenant";
 
 /**
  * /api/employees — إدارة العمال (المرحلة 5 — §3)
@@ -32,8 +33,14 @@ function normalizeStatus(raw: unknown): { status: string; active: boolean } {
 export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser();
-    if (!user || !user.clubId || !hasEmployeesView(user.role)) {
+    if (!user || !hasEmployeesView(user.role)) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
+    }
+
+    // 🔑 superadmin بلا نادٍ في الجلسة → أول نادٍ نشط (بدل 403 صامت)
+    const ctxClubId = await resolveTargetClubId(user, new URL(req.url).searchParams.get("clubId"));
+    if (!ctxClubId) {
+      return NextResponse.json({ error: "لم يتم العثور على نادٍ" }, { status: 400 });
     }
 
     const url = new URL(req.url);
@@ -41,7 +48,7 @@ export async function GET(req: NextRequest) {
     const position = url.searchParams.get("position");
     const q = (url.searchParams.get("q") || "").trim();
 
-    const where: Record<string, unknown> = { clubId: user.clubId };
+    const where: Record<string, unknown> = { clubId: ctxClubId };
     if (status && status !== "all") where.status = status.toUpperCase();
     if (position && position !== "all") where.position = position;
     if (q) {
@@ -74,8 +81,13 @@ export async function POST(req: NextRequest) {
     if (!user || (user.role !== "admin" && user.role !== "superadmin")) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
     }
-    const clubId = user.clubId!;
     const body = await req.json().catch(() => ({}));
+
+    // 🔑 إصلاح «فشل الحفظ»: superadmin ليس له clubId — نحلّه من الطلب أو أول نادٍ نشط
+    const clubId = await resolveTargetClubId(user, body.clubId);
+    if (!clubId) {
+      return NextResponse.json({ error: "لم يتم العثور على نادٍ مرتبط بالحساب" }, { status: 400 });
+    }
 
     // ★ حقول مضبوطة — لا spread مباشر من الطلب (سلامة البيانات)
     const firstName = String(body.firstName || "").trim();

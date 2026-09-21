@@ -1,16 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { FileText, Hash, Calendar, MapPin } from "lucide-react";
+import {
+  CLUB_FULL_NAME_ROLE,
+  ENTETE_VERSION,
+  UNIFIED_LOGO_SIZE,
+  composeClubFullName,
+} from "@/lib/entete-shared";
 
 /**
- * UnifiedReportHeader
- * ───────────────────
- * مكوّن واحد موحّد للترويسة يُستخدم في جميع التقارير والمطبوعات.
- * - يجلب إعداداته من /api/entete (الترويسة) و /api/settings (معلومات النادي).
- * - أي تعديل على الإعدادات ينعكس تلقائياً على كل التقارير.
- * - يدعم: شعار يمين/يسار، اسم النادي، الفرع، الولاية، نوع التقرير، التاريخ، رقم التقرير، الموسم الرياضي.
+ * UnifiedReportHeader — v2
+ * ─────────────────────────────────────────────────────────────
+ * مكوّن واحد موحّد للترويسة يُستخدم في جميع التقارير والمطبوعات والعقود.
+ *
+ * ★ بنية v2 (نظيفة بلا تكرار):
+ *   [شعار ثابت]  الاسم الرسمي الكامل في سطر واحد  [شعار ثابت]
+ *   ─────────────────────────────────────────────
+ *   الرقم + الموسم الرياضي        التاريخ + المدينة
+ *
+ * • كل سطر عنصر مستقل قابل للتعديل من: الإعدادات → الترويسة الموحدة
+ * • سطر الاسم يُولَّد آلياً من اسم النادي (role=clubFullName) ما لم يُكتب نص يدوي
+ * • الشعار في صندوق ثابت الحجم (UNIFIED_LOGO_SIZE) — يحافظ على مكانه وحجمه
+ *   عند التحميل ومن أي صفحة من الموقع (لا قفز، لا تغيير حجم)
+ * • التحميل صامت: تُرسم البنية فوراً بالقيم الافتراضية ثم تُحدَّث دون أي إزاحة
  */
 
 export interface EnteteElement {
@@ -29,6 +43,7 @@ export interface EnteteElement {
   width?: number;
   height?: number;
   borderRadius?: number;
+  role?: string;
 }
 
 export interface EnteteConfig {
@@ -39,6 +54,7 @@ export interface EnteteConfig {
   referenceNumberText: string;
   dateLocationText: string;
   showReferenceRow: boolean;
+  version?: number;
 }
 
 interface ClubSettings {
@@ -74,11 +90,9 @@ interface UnifiedReportHeaderProps {
 
 const DEFAULT_ENTETE: EnteteConfig = {
   elements: [
-    { id: "logo-left-default", label: "الشعار الأيسر", type: "logo", slot: "header-left", src: "/images/rcs-logo-official.png", width: 70, height: 70, borderRadius: 8 },
-    { id: "title-default", label: "اسم النادي", type: "text", slot: "header-center", content: "النادي الهاوي متعدد الرياضات", fontFamily: "Cairo", fontSize: 16, fontWeight: "bold", color: "#0f766e" },
-    { id: "subtitle-default", label: "الفرع", type: "text", slot: "header-center", content: "الرائد - سعيدة", fontFamily: "Cairo", fontSize: 14, fontWeight: "bold", color: "#f59e0b" },
-    { id: "branch-default", label: "الفرع", type: "text", slot: "header-center", content: "فرع السباحة", fontFamily: "Cairo", fontSize: 12, fontWeight: "normal", color: "#555555" },
-    { id: "logo-right-default", label: "الشعار الأيمن", type: "logo", slot: "header-right", src: "/images/rcs-logo-official.png", width: 70, height: 70, borderRadius: 8 },
+    { id: "logo-right-default", label: "الشعار الأيمن", type: "logo", slot: "header-right", src: "/images/rcs-logo-official.png", width: UNIFIED_LOGO_SIZE, height: UNIFIED_LOGO_SIZE, borderRadius: 8 },
+    { id: "club-full-name", label: "الاسم الرسمي للنادي (سطر واحد)", type: "text", slot: "header-center", role: CLUB_FULL_NAME_ROLE, content: "", fontFamily: "Cairo", fontSize: 13, fontWeight: "bold", color: "#0f766e" },
+    { id: "logo-left-default", label: "الشعار الأيسر", type: "logo", slot: "header-left", src: "/images/rcs-logo-official.png", width: UNIFIED_LOGO_SIZE, height: UNIFIED_LOGO_SIZE, borderRadius: 8 },
   ],
   showDivider: true,
   dividerColor: "#0f766e",
@@ -86,6 +100,7 @@ const DEFAULT_ENTETE: EnteteConfig = {
   referenceNumberText: "الرقم: . . ./ن.ر.ه.ر.س",
   dateLocationText: "سعيدة في:",
   showReferenceRow: true,
+  version: ENTETE_VERSION,
 };
 
 function todayStr(d?: Date | string): string {
@@ -106,6 +121,48 @@ function currentSeason(): string {
   return `${y - 1}/${y}`;
 }
 
+/**
+ * ★ FitLine — يضمن بقاء النص في سطر واحد دائماً:
+ * يقيس عرض المحتوى ويصغّره بتحويل متناسب إن تجاوز المساحة المتاحة
+ * (بدون لفّ الأسطر وبدون قصّ) — فيبقى الاسم الرسمي كاملاً في سطر واحد.
+ */
+function FitLine({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLSpanElement>(null);
+  const [scale, setScale] = useState(1);
+
+  useLayoutEffect(() => {
+    const fit = () => {
+      const box = boxRef.current;
+      const inner = innerRef.current;
+      if (!box || !inner) return;
+      const avail = box.clientWidth;
+      const need = inner.scrollWidth;
+      setScale(avail > 0 && need > avail ? avail / need : 1);
+    };
+    fit();
+    // إعادة القياس عند تغيّر حجم النافذة أو تحميل الخطوط
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(fit) : null;
+    if (ro && boxRef.current) ro.observe(boxRef.current);
+    if (typeof document !== "undefined" && (document as Document & { fonts?: FontFaceSet }).fonts) {
+      (document as Document & { fonts: FontFaceSet }).fonts.ready.then(fit).catch(() => undefined);
+    }
+    return () => ro?.disconnect();
+  }, [children]);
+
+  return (
+    <div ref={boxRef} className="w-full overflow-hidden" aria-label={typeof children === "string" ? children : undefined}>
+      <span
+        ref={innerRef}
+        className="block whitespace-nowrap origin-center"
+        style={{ ...style, transform: scale < 1 ? `scale(${scale})` : undefined }}
+      >
+        {children}
+      </span>
+    </div>
+  );
+}
+
 export function UnifiedReportHeader({
   reportType,
   reportSubtitle,
@@ -116,9 +173,9 @@ export function UnifiedReportHeader({
   showDate = true,
   showReportNumber = true,
 }: UnifiedReportHeaderProps) {
+  // ★ لا شاشة تحميل — تُرسم الترويسة فوراً بالافتراضي ثم تُحدَّث بصمت (بلا أي قفز)
   const [entete, setEntete] = useState<EnteteConfig>(DEFAULT_ENTETE);
   const [settings, setSettings] = useState<ClubSettings>({});
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -127,46 +184,54 @@ export function UnifiedReportHeader({
       fetch("/api/settings").then((r) => r.json()).catch(() => ({ settings: {} })),
     ]).then(([enteteData, settingsData]) => {
       if (cancelled) return;
-      setEntete(enteteData.config || DEFAULT_ENTETE);
-      setSettings(settingsData.settings || {});
-      setLoading(false);
+      if (enteteData?.config) setEntete({ ...DEFAULT_ENTETE, ...enteteData.config });
+      if (settingsData?.settings) setSettings(settingsData.settings);
     });
     return () => { cancelled = true; };
   }, []);
 
-  // دمج إعدادات النادي على عناصر الترويسة
-  // إذا كان هناك clubName في الإعدادات نستبدله في النص المركزي
-  const mergedElements = entete.elements.map((el) => {
-    if (el.type === "text") {
-      // استبدال ديناميكي بقيم إعدادات النادي
-      if (el.content === "النادي الهاوي متعدد الرياضات" && settings.clubName) {
-        return { ...el, content: settings.clubName };
-      }
-      if (el.content === "الرائد - سعيدة" && settings.branchName) {
-        return { ...el, content: settings.branchName };
-      }
+  // نص السطر الأول: محتوى العنصر إن كُتب يدوياً، وإلا التوليد الآلي من الإعدادات
+  const resolvedContent = (el: EnteteElement): string => {
+    if (el.role === CLUB_FULL_NAME_ROLE) {
+      const manual = (el.content || "").trim();
+      return manual || composeClubFullName(settings);
     }
-    return el;
-  });
+    return el.content || "";
+  };
 
   const renderElement = (el: EnteteElement) => {
     if (el.type === "logo") {
+      // ★ صندوق شعار ثابت الحجم في كل الصفحات — الصورة داخل الصندوق لا تحرّك شيئاً
+      const size = Math.min(Math.max(el.width || UNIFIED_LOGO_SIZE, 36), UNIFIED_LOGO_SIZE);
       return (
-        <img
-          src={el.src || "/images/rcs-logo-official.png"}
-          alt={el.label}
+        <div
           style={{
-            width: `${Math.min(el.width || 70, compact ? 50 : 80)}px`,
-            height: `${Math.min(el.height || 70, compact ? 50 : 80)}px`,
-            borderRadius: `${el.borderRadius || 0}px`,
-            objectFit: "contain",
+            width: `${size}px`,
+            height: `${size}px`,
+            flex: "0 0 auto",
           }}
-          onError={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = "0.2"; }}
-        />
+        >
+          <img
+            src={el.src || "/images/rcs-logo-official.png"}
+            alt={el.label}
+            width={size}
+            height={size}
+            loading="eager"
+            style={{
+              width: "100%",
+              height: "100%",
+              borderRadius: `${el.borderRadius || 0}px`,
+              objectFit: "contain",
+              display: "block",
+            }}
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = "0.2"; }}
+          />
+        </div>
       );
     }
+    const text = resolvedContent(el);
     return (
-      <p
+      <FitLine
         style={{
           fontFamily: `'${el.fontFamily || "Cairo"}', 'Tahoma', Arial`,
           fontSize: `${el.fontSize || 12}pt`,
@@ -174,50 +239,47 @@ export function UnifiedReportHeader({
           color: el.color || "#111",
           fontStyle: el.italic ? "italic" : "normal",
           textDecoration: el.underline ? "underline" : "none",
-          margin: "1px 0",
-          lineHeight: 1.3,
+          lineHeight: 1.35,
         }}
       >
-        {el.content || ""}
-      </p>
+        {text}
+      </FitLine>
     );
   };
 
-  if (loading) {
-    return (
-      <div className="rounded-xl bg-white border border-border/60 p-4 text-center" dir="rtl">
-        <span className="text-xs text-gray-400">جاري تحميل الترويسة...</span>
-      </div>
-    );
-  }
+  const rightEls = entete.elements.filter((e) => e.slot === "header-right");
+  const centerEls = entete.elements.filter((e) => e.slot === "header-center");
+  const leftEls = entete.elements.filter((e) => e.slot === "header-left");
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: -10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.25 }}
       className="unified-report-header rounded-xl bg-white border border-border/60 shadow-sm overflow-hidden"
       dir="rtl"
     >
-      {/* ════ الصف العلوي: شعار + معلومات النادي + شعار ════ */}
+      {/* ════ الصف العلوي: شعار ثابت + الاسم الرسمي في سطر واحد + شعار ثابت ════ */}
       <div
-        className="grid grid-cols-3 gap-2 items-center"
-        style={{ padding: compact ? "8px 12px" : "12px 18px", minHeight: compact ? 70 : 90 }}
+        className="flex items-center gap-3"
+        style={{ padding: compact ? "8px 12px" : "12px 18px", minHeight: compact ? 78 : 94 }}
       >
-        {/* يمين */}
-        <div className="flex flex-col items-start justify-center gap-1">
-          {mergedElements.filter((e) => e.slot === "header-right").map((el) => (
+        {/* يمين (أول الصف في RTL) */}
+        <div className="flex items-center gap-2 shrink-0">
+          {rightEls.map((el) => (
             <div key={el.id}>{renderElement(el)}</div>
           ))}
         </div>
-        {/* وسط */}
-        <div className="flex flex-col items-center justify-center gap-0 text-center">
-          {mergedElements.filter((e) => e.slot === "header-center").map((el) => (
-            <div key={el.id}>{renderElement(el)}</div>
+        {/* وسط — الاسم الرسمي الكامل في سطر واحد */}
+        <div className="flex-1 min-w-0 flex flex-col items-center justify-center gap-1 text-center">
+          {centerEls.map((el) => (
+            <div key={el.id} className="w-full max-w-full">
+              {renderElement(el)}
+            </div>
           ))}
           {reportType && (
             <p
-              className="mt-1 px-3 py-0.5 rounded-full font-bold"
+              className="mt-0.5 px-3 py-0.5 rounded-full font-bold"
               style={{
                 backgroundColor: "#0f766e15",
                 color: "#0f766e",
@@ -234,9 +296,9 @@ export function UnifiedReportHeader({
             </p>
           )}
         </div>
-        {/* يسار */}
-        <div className="flex flex-col items-end justify-center gap-1">
-          {mergedElements.filter((e) => e.slot === "header-left").map((el) => (
+        {/* يسار (آخر الصف في RTL) */}
+        <div className="flex items-center gap-2 shrink-0">
+          {leftEls.map((el) => (
             <div key={el.id}>{renderElement(el)}</div>
           ))}
         </div>
@@ -306,7 +368,7 @@ export function UnifiedReportHeader({
 
 /**
  * هيكل HTML للترويسة الموحدة — يُستخدم عند توليد ملفات Word/PDF/الطباعة.
- * يبني نفس البنية المرئية لكن كـ HTML خام قابل للنسخ في document.write.
+ * يبني نفس بنية v2: شعاران ثابتان + الاسم الرسمي الكامل في سطر واحد (nowrap).
  */
 export function unifiedReportHeaderHTML(opts: {
   reportType?: string;
@@ -321,24 +383,33 @@ export function unifiedReportHeaderHTML(opts: {
   const dateStr = opts.date || todayStr();
   const season = settings.sportSeason || currentSeason();
 
+  const resolved = (el: EnteteElement): string => {
+    if (el.role === CLUB_FULL_NAME_ROLE) {
+      const manual = (el.content || "").trim();
+      return manual || composeClubFullName(settings);
+    }
+    return el.content || "";
+  };
+
+  const escapeHtmlText = (s: string): string =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
   const renderElHTML = (el: EnteteElement): string => {
     if (el.type === "logo") {
-      return `<img src="${el.src || "/images/rcs-logo-official.png"}" style="height:${Math.min(el.height || 70, 70)}px;width:${Math.min(el.width || 70, 70)}px;object-fit:contain;border-radius:${el.borderRadius || 0}px;" onerror="this.style.display='none'" />`;
+      // ★ صندوق ثابت — نفس الحجم في كل المستندات
+      const size = Math.min(Math.max(el.width || UNIFIED_LOGO_SIZE, 36), UNIFIED_LOGO_SIZE);
+      return `<div style="width:${size}px;height:${size}px;flex:0 0 auto;"><img src="${el.src || "/images/rcs-logo-official.png"}" width="${size}" height="${size}" style="width:100%;height:100%;object-fit:contain;border-radius:${el.borderRadius || 0}px;display:block;" onerror="this.style.opacity=0.2" /></div>`;
     }
-    return `<p style="font-family:'${el.fontFamily || "Cairo"}','Tahoma',Arial;font-size:${el.fontSize || 12}pt;font-weight:${el.fontWeight || "normal"};color:${el.color || "#111"};font-style:${el.italic ? "italic" : "normal"};text-decoration:${el.underline ? "underline" : "none"};margin:1px 0;line-height:1.3;">${el.content || ""}</p>`;
+    const text = escapeHtmlText(resolved(el));
+    return `<div style="width:100%;overflow:hidden;"><span style="display:block;white-space:nowrap;font-family:'${el.fontFamily || "Cairo"}','Tahoma',Arial;font-size:${el.fontSize || 12}pt;font-weight:${el.fontWeight || "normal"};color:${el.color || "#111"};font-style:${el.italic ? "italic" : "normal"};text-decoration:${el.underline ? "underline" : "none"};line-height:1.35;">${text}</span></div>`;
   };
 
   const rightEls = entete.elements.filter((e) => e.slot === "header-right").map(renderElHTML).join("");
   const centerEls = entete.elements.filter((e) => e.slot === "header-center").map(renderElHTML).join("");
   const leftEls = entete.elements.filter((e) => e.slot === "header-left").map(renderElHTML).join("");
 
-  // استبدال ديناميكي من الإعدادات
-  const centerHTML = centerEls
-    .replace("النادي الهاوي متعدد الرياضات", settings.clubName || "النادي الهاوي متعدد الرياضات")
-    .replace("الرائد - سعيدة", settings.branchName || "الرائد - سعيدة");
-
   const reportTypeHTML = opts.reportType
-    ? `<p style="margin-top:4px;padding:2px 12px;border-radius:9999px;background:#0f766e15;color:#0f766e;font-size:12pt;font-weight:bold;border:1px solid #0f766e30;display:inline-block;">${opts.reportType}</p>`
+    ? `<p style="margin:2px 0 0;padding:2px 12px;border-radius:9999px;background:#0f766e15;color:#0f766e;font-size:12pt;font-weight:bold;border:1px solid #0f766e30;display:inline-block;">${opts.reportType}</p>`
     : "";
   const subtitleHTML = opts.reportSubtitle
     ? `<p style="font-size:10pt;color:#666;margin:2px 0 0;">${opts.reportSubtitle}</p>`
@@ -372,14 +443,14 @@ export function unifiedReportHeaderHTML(opts: {
 
   return `
     <div class="unified-report-header" style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;direction:rtl;" dir="rtl">
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;align-items:center;padding:12px 18px;min-height:90px;">
-        <div style="display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:4px;">${rightEls}</div>
-        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;">
-          ${centerHTML}
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 18px;min-height:94px;">
+        <div style="display:flex;align-items:center;gap:8px;flex:0 0 auto;">${rightEls}</div>
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;">
+          ${centerEls}
           ${reportTypeHTML}
           ${subtitleHTML}
         </div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:4px;">${leftEls}</div>
+        <div style="display:flex;align-items:center;gap:8px;flex:0 0 auto;">${leftEls}</div>
       </div>
       ${dividerHTML}
       ${refRowHTML}
