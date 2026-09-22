@@ -103,14 +103,18 @@ export function renderContractHTML(
   return result;
 }
 
-export function formatDateYMD(d: Date | string | null | undefined): string {
+/**
+ * تاريخ العرض في العقود بصيغة DD/MM/YYYY — مثل باقي تواريخ الموقع.
+ * (كانت yyyy/mm/dd — تم توحيدها بطلب صاحب الموقع)
+ */
+export function formatDateDMY(d: Date | string | null | undefined): string {
   if (!d) return "—";
   const date = new Date(d);
   if (isNaN(date.getTime())) return "—";
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
-  return `${y}/${m}/${day}`;
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const y = date.getFullYear();
+  return `${day}/${m}/${y}`;
 }
 
 export const AVAILABLE_VARIABLES = [

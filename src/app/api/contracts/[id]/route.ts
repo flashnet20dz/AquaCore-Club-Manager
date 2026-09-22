@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { resolveTargetClubId } from "@/lib/tenant";
-import { substituteVariables, formatDateYMD, type ContractVariables } from "@/lib/contract-variables";
+import { substituteVariables, formatDateDMY, type ContractVariables } from "@/lib/contract-variables";
 
 /**
  * /api/contracts/[id] (المرحلة 5 — §4/§24/§26/§35)
@@ -164,20 +164,20 @@ export async function PATCH(
         club_name: settingsMap.clubName || "النادي",
         club_branch: settingsMap.branchName || "",
         worker_name: `${employee.lastName} ${employee.firstName}`.trim(),
-        birth_date: formatDateYMD(employee.birthDate),
+        birth_date: formatDateDMY(employee.birthDate),
         birth_place: employee.birthPlace || "—",
         address: employee.address || "—",
         phone: employee.phone || "—",
         national_id: employee.nationalId || "—",
         position: original.position,
         contract_number: newContractNumber,
-        start_date: formatDateYMD(sd),
-        end_date: formatDateYMD(newEndDate),
+        start_date: formatDateDMY(sd),
+        end_date: formatDateDMY(newEndDate),
         hour_rate: rate,
         work_schedule: original.workSchedule || "—",
         club_president: settingsMap.clubPresident || "—",
         association_president: settingsMap.associationPresident || "—",
-        today: formatDateYMD(new Date()),
+        today: formatDateDMY(new Date()),
       };
 
       // Get template content

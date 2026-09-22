@@ -39,6 +39,7 @@ import type { EnteteConfig } from "@/components/unified-report-header";
 import { AVAILABLE_VARIABLES, substituteVariables, renderContractHTML, type ContractVariables } from "@/lib/contract-variables";
 import { CDD_TEMPLATE_CODE, CDD_OFFICIAL_MARKER, CDD_TEMPLATE_CSS } from "@/lib/cdd-shared";
 import { ExportButton } from "@/components/shared/export-button";
+import { DateInputDDMMYYYY } from "@/components/ui/date-input-dmy";
 // ★ المرحلة 5: مساعدات مشتركة + ملف الموظف الكامل
 import {
   POSITIONS, positionLabel, CONTRACT_TYPES, contractTypeLabel,
@@ -313,16 +314,19 @@ function contractDocumentBodyHTML(c: Contract): string {
     .join("") + docSignatureBlockHTML();
 }
 
-/** ترويسة موحدة + أقسام المستند — نفس ما يُعرض ويُطبع */
+/** ترويسة موحدة + أقسام المستند — نفس ما يُعرض ويُطبع
+ *  ★ showReportNumber=false يُخفي رقم الوثيقة من الترويسة (عندما تحملها الوثيقة نفسها) */
 function unifiedHeaderFor(
   reportType: string,
   reportNumber: string,
   entete: EnteteConfig | null,
   clubSettings: Record<string, string>,
+  showReportNumber: boolean = true,
 ): string {
   return unifiedReportHeaderHTML({
     reportType,
     reportNumber,
+    showReportNumber,
     date: formatDate(new Date()),
     entete: entete || undefined,
     settings: {
@@ -352,8 +356,11 @@ function buildOfficialCddDocument(
   entete: EnteteConfig | null,
   clubSettings: Record<string, string>,
 ): string {
-  const headerHTML = unifiedHeaderFor("عقد عمل محدد المدة (CDD)", c.contractNumber, entete, clubSettings);
-  const body = c.content.replace(CDD_OFFICIAL_MARKER, "").trim();
+  // ★ لا تكرار: عنوان العقد ورقمه يأتيان من القالب نفسه مرة واحدة،
+  //   فتُعرض الترويسة بدون شارة العنوان وبدون رقم مكرر.
+  const headerHTML = unifiedHeaderFor("", "", entete, clubSettings, false);
+  // إزالة علامة النموذج كاملة (وليس البادئة فقط — تفادياً لتسرّب «:v2-->» كنص ظاهر)
+  const body = c.content.replace(/<!--CDD-OFFICIAL[^>]*-->/, "").trim();
   return `<style>${CDD_TEMPLATE_CSS}</style>${headerHTML}${body}`;
 }
 
@@ -821,8 +828,8 @@ function EmployeesTab({ employees, loading, onChanged }: {
               <Input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} className="h-9" />
             </div>
             <div>
-              <Label className="text-xs">تاريخ الميلاد</Label>
-              <Input type="date" value={form.birthDate} onChange={(e) => setForm({ ...form, birthDate: e.target.value })} className="h-9" dir="ltr" />
+              <Label className="text-xs">تاريخ الميلاد (يوم/شهر/سنة)</Label>
+              <DateInputDDMMYYYY value={form.birthDate} onChange={(iso) => setForm({ ...form, birthDate: iso })} className="h-9" />
             </div>
             <div>
               <Label className="text-xs">مكان الميلاد</Label>
@@ -842,8 +849,8 @@ function EmployeesTab({ employees, loading, onChanged }: {
             </div>
             {/* ★ وصل الاستلام: تاريخ ومكان صدور البطاقة — يُطبعان آلياً في الوصل */}
             <div>
-              <Label className="text-xs">تاريخ صدور البطاقة</Label>
-              <Input type="date" lang="ar-DZ" value={form.nationalIdIssueDate || ""} onChange={(e) => setForm({ ...form, nationalIdIssueDate: e.target.value })} className="h-9" dir="ltr" />
+              <Label className="text-xs">تاريخ صدور البطاقة (يوم/شهر/سنة)</Label>
+              <DateInputDDMMYYYY value={form.nationalIdIssueDate || ""} onChange={(iso) => setForm({ ...form, nationalIdIssueDate: iso })} className="h-9" />
             </div>
             <div className="sm:col-span-2">
               <Label className="text-xs">دائرة / بلدية صدور البطاقة</Label>
@@ -1406,13 +1413,11 @@ function ContractsArchiveTab({ contracts, loading, onChanged }: {
           </p>
           <div>
             <Label className="text-xs">تاريخ نهاية العقد الجديد *</Label>
-            <Input
-              type="date"
+            <DateInputDDMMYYYY
               value={renewDate}
               min={todayYMD()}
-              onChange={(e) => setRenewDate(e.target.value)}
+              onChange={(iso) => setRenewDate(iso)}
               className="h-9"
-              dir="ltr"
             />
           </div>
           <DialogFooter>
@@ -1686,7 +1691,7 @@ function TemplatesTab() {
                     club_name: "النادي الهاوي متعدد الرياضات",
                     club_branch: "فرع السباحة",
                     worker_name: "محمد أمين",
-                    birth_date: "1990/01/15",
+                    birth_date: "15/01/1990",
                     birth_place: "سعيدة",
                     address: "حي 5 جويلية",
                     phone: "048.XX.XX.XX",
@@ -1869,11 +1874,12 @@ function CreateContractTab({ employees, onCreated }: {
   }, [form, selectedEmployee, clubSettings]);
 
   // المعاينة الرسمية الحية: ترويسة موحدة + النموذج الرسمي مُستبدل المتغيرات
+  // ★ قالب CDD يحمل عنوانه ورقمه بنفسه → الترويسة بلا شارة عنوان وبدون رقم مكرر
   const previewHTML = useMemo(() => {
     if (!selectedTemplate) return "";
     const body = renderContractHTML(selectedTemplate.content, previewVars);
     const headerHTML = isCddForm
-      ? unifiedHeaderFor("عقد عمل محدد المدة (CDD)", "", entete, clubSettings)
+      ? unifiedHeaderFor("", "", entete, clubSettings, false)
       : unifiedHeaderFor("عقد عمل", "", entete, clubSettings);
     return `<style>${CDD_TEMPLATE_CSS}</style>${headerHTML}${body}`;
   }, [selectedTemplate, previewVars, entete, clubSettings, isCddForm]);
@@ -2053,11 +2059,11 @@ function CreateContractTab({ employees, onCreated }: {
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
                   <Label className="text-xs flex items-center gap-1"><Calendar className="h-3 w-3" /> ابتداءً من *</Label>
-                  <Input type="date" value={form.startDate} onChange={(e) => setF({ startDate: e.target.value })} className="h-9" dir="ltr" />
+                  <DateInputDDMMYYYY value={form.startDate} onChange={(iso) => setF({ startDate: iso })} className="h-9" />
                 </div>
                 <div>
                   <Label className="text-xs flex items-center gap-1"><Calendar className="h-3 w-3" /> إلى غاية {isCddForm ? "*" : ""}</Label>
-                  <Input type="date" value={form.endDate} onChange={(e) => setF({ endDate: e.target.value })} className="h-9" dir="ltr" />
+                  <DateInputDDMMYYYY value={form.endDate} onChange={(iso) => setF({ endDate: iso })} className="h-9" />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2.5">

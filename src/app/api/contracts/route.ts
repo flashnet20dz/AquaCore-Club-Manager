@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { resolveTargetClubId } from "@/lib/tenant";
-import { substituteVariables, renderContractHTML, formatDateYMD, type ContractVariables } from "@/lib/contract-variables";
+import { substituteVariables, renderContractHTML, formatDateDMY, type ContractVariables } from "@/lib/contract-variables";
 import { CDD_TEMPLATE_CODE, ensureCddTemplate } from "@/lib/cdd-template";
 
 /**
@@ -168,7 +168,7 @@ export async function POST(req: NextRequest) {
       club_branch: settingsMap.branchName || settingsMap.clubNameFr || "",
       club_seat: clubSeat?.trim() || settingsMap.clubAddress || ".................",
       worker_name: `${employee.lastName} ${employee.firstName}`.trim(),
-      birth_date: formatDateYMD(employee.birthDate),
+      birth_date: formatDateDMY(employee.birthDate),
       birth_place: employee.birthPlace || "",
       address: employee.address || "",
       phone: employee.phone || "",
@@ -177,8 +177,8 @@ export async function POST(req: NextRequest) {
       position_title: positionTitle?.trim() || (position === "guard" ? "حارس سباحة (منقذ مائي)" : null) || settingsMap.positionTitle || "",
       contract_number: contractNumber,
       season_year: String(new Date().getFullYear()),
-      start_date: formatDateYMD(sd),
-      end_date: formatDateYMD(ed),
+      start_date: formatDateDMY(sd),
+      end_date: formatDateDMY(ed),
       hour_rate: rate,
       work_schedule: workSchedule || (weekly ? `${weekly} ساعة/أسبوع` : "15 دقيقة قبل بداية العمل"),
       workplace: workplace?.trim() || settingsMap.workplace || settingsMap.clubAddress || "المسبح البلدي",
@@ -188,8 +188,8 @@ export async function POST(req: NextRequest) {
       first_party_representative: firstPartyRep?.trim() || settingsMap.firstPartyRepresentative || settingsMap.clubPresident || "",
       first_party_rep_title: firstPartyRepTitle?.trim() || settingsMap.firstPartyRepTitle || "رئيس فرع السباحة",
       sign_city: signCity?.trim() || settingsMap.signCity || settingsMap.wilaya || "سعيدة",
-      sign_date: formatDateYMD(new Date()),
-      today: formatDateYMD(new Date()),
+      sign_date: formatDateDMY(new Date()),
+      today: formatDateDMY(new Date()),
     };
 
     // Get template content (fallback to a minimal default if no template)

@@ -369,11 +369,15 @@ export function UnifiedReportHeader({
 /**
  * هيكل HTML للترويسة الموحدة — يُستخدم عند توليد ملفات Word/PDF/الطباعة.
  * يبني نفس بنية v2: شعاران ثابتان + الاسم الرسمي الكامل في سطر واحد (nowrap).
+ *
+ * ★ showReportNumber=false يُخفي رقم الوثيقة من صف الترويسة — يُستخدم عندما
+ *   تحمل الوثيقة نفسها رقمها (مثل قالب CDD) تفادياً لتكرار الرقم مرتين.
  */
 export function unifiedReportHeaderHTML(opts: {
   reportType?: string;
   reportSubtitle?: string;
   reportNumber?: string;
+  showReportNumber?: boolean;
   date?: string;
   entete?: EnteteConfig;
   settings?: ClubSettings;
@@ -422,7 +426,7 @@ export function unifiedReportHeaderHTML(opts: {
   const refRowHTML = `
     <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:6px 18px;font-size:10pt;color:#444;font-family:'Cairo','Tahoma',Arial;">
       <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
-        ${entete.showReferenceRow ? `<span style="font-weight:bold;">${opts.reportNumber || `${entete.referenceNumberText || "الرقم: . . ./ن.ر.ه.ر.س"} ${new Date().getFullYear()}`}</span>` : ""}
+        ${entete.showReferenceRow && opts.showReportNumber !== false ? `<span style="font-weight:bold;">${opts.reportNumber || `${entete.referenceNumberText || "الرقم: . . ./ن.ر.ه.ر.س"} ${new Date().getFullYear()}`}</span>` : ""}
         <span style="color:#666;font-weight:600;">الموسم الرياضي: ${season}</span>
       </div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">

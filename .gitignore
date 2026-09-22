@@ -72,3 +72,4 @@ tool-results/
 electron/prisma-client/
 
 .zscripts/
+upload/
