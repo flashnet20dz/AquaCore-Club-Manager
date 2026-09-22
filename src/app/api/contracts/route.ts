@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
-import { substituteVariables, formatDateYMD, type ContractVariables } from "@/lib/contract-variables";
+import { substituteVariables, formatDateYMD, type ContractVariables, OFFICIAL_CDD_TEMPLATE_HTML } from "@/lib/contract-variables";
 
 /**
  * Contracts API (المرحلة 5 — §4/§5/§26/§42)
@@ -27,8 +27,8 @@ function hasContractsView(role: string): boolean {
 async function generateContractNumber(clubId: string): Promise<string> {
   const year = new Date().getFullYear();
   const count = await db.employmentContract.count({ where: { clubId } });
-  const seq = String(count + 1).padStart(3, "0");
-  return `CTR-${year}-${seq}`;
+  const seq = String(count + 1).padStart(2, "0");
+  return `${seq} / ن.ر.ر.س. ${year}`;
 }
 
 export async function GET(req: NextRequest) {
@@ -111,8 +111,11 @@ export async function POST(req: NextRequest) {
     const clubId = user.clubId!;
     const body = await req.json();
     const {
-      employeeId, templateId, startDate, endDate, hourRate, workSchedule, notes,
-      contractType, title, weeklyHours, asDraft,
+      employeeId, templateId, startDate, endDate, hourRate, monthlySalary, workSchedule, notes,
+      contractType, title, weeklyHours, asDraft, contractNumber: customContractNum,
+      workplace, firstPartyRep, firstPartyRole, associationPresident, associationPresidentRole,
+      city, contractDate, wageClause: customWageClause, content: customContent,
+      clubName, clubAddress,
     } = body;
 
     if (!employeeId) return NextResponse.json({ error: "employeeId مطلوب" }, { status: 400 });
@@ -129,44 +132,51 @@ export async function POST(req: NextRequest) {
     const settingsMap: Record<string, string> = {};
     settings.forEach((s) => { settingsMap[s.key] = s.value; });
 
-    const contractNumber = await generateContractNumber(clubId);
+    const contractNumber = customContractNum?.trim() || (await generateContractNumber(clubId));
     const sd = new Date(startDate);
     const ed = endDate ? new Date(endDate) : null;
-    const rate = hourRate ?? employee.hourRate ?? 200;
+    const rate = hourRate !== undefined ? Math.max(0, Math.round(Number(hourRate) || 0)) : (employee.hourRate ?? 200);
+    const salary = monthlySalary ? Math.max(0, Math.round(Number(monthlySalary))) : null;
     const position = employee.position;
     const cType = (CONTRACT_TYPES as readonly string[]).includes(contractType) ? contractType : "HOURLY";
     const weekly = weeklyHours ? Math.max(0, Math.round(Number(weeklyHours))) : null;
 
+    const wageClause = customWageClause || (salary && salary > 0
+      ? `يتقاضى الطرف الثاني راتباً شهرياً قدره ${salary.toLocaleString("en-US")} دج عن كل شهر عمل.`
+      : "يتقاضى الطرف الثاني أجرًا يُحسب على أساس الحجم الساعي كل شهر.");
+
     // Build variables
     const vars: ContractVariables = {
-      club_name: settingsMap.clubName || "النادي",
-      club_branch: settingsMap.branchName || settingsMap.clubNameFr || "",
+      contract_number: contractNumber,
+      year: sd.getFullYear(),
+      club_name: clubName || settingsMap.clubName || "الجمعية الرياضية الهاوية النادي الرياضي متعدد الرياضات الرائد لبلدية سعيدة – فرع السباحة",
+      club_branch: settingsMap.branchName || "فرع السباحة",
+      club_address: clubAddress || settingsMap.clubAddress || "طاب لحسن",
+      first_party_rep: firstPartyRep || settingsMap.branchPresident || settingsMap.clubPresident || "—",
+      first_party_role: firstPartyRole || "رئيس فرع السباحة",
       worker_name: `${employee.lastName} ${employee.firstName}`.trim(),
       birth_date: formatDateYMD(employee.birthDate),
-      birth_place: employee.birthPlace || "—",
-      address: employee.address || "—",
+      birth_place: employee.birthPlace || "سعيدة",
+      address: employee.address || "سعيدة",
       phone: employee.phone || "—",
       national_id: employee.nationalId || "—",
-      position,
-      contract_number: contractNumber,
+      position: position === "lifeguard" ? "حارس سباحة (منقذ مائي)" : position,
       start_date: formatDateYMD(sd),
       end_date: formatDateYMD(ed),
+      workplace: workplace || "المسبح النصف الأولمبي طاب لحسن",
+      work_schedule: workSchedule || (weekly ? `${weekly} ساعة/أسبوع` : "وفقاً لجدول فرع السباحة"),
       hour_rate: rate,
-      work_schedule: workSchedule || (weekly ? `${weekly} ساعة/أسبوع` : "—"),
-      club_president: settingsMap.clubPresident || "—",
-      association_president: settingsMap.associationPresident || "—",
+      monthly_salary: salary || undefined,
+      wage_clause: wageClause,
+      city: city || settingsMap.wilaya || "سعيدة",
+      contract_date: contractDate || formatDateYMD(new Date()),
+      association_president: associationPresident || settingsMap.associationPresident || settingsMap.clubPresident || "—",
+      association_president_role: associationPresidentRole || "رئيس الجمعية الرياضية الهاوية",
       today: formatDateYMD(new Date()),
     };
 
-    // Get template content (fallback to a minimal default if no template)
-    const templateContent = template?.content || `<div dir="rtl" style="font-family:'Cairo','Tahoma',Arial;font-size:12pt;padding:20px;">
-<h2 style="text-align:center;color:#0f766e;">عقد عمل</h2>
-<p>في اليوم {{today}}، بين {{club_name}} والسيد/ة {{worker_name}}.</p>
-<p>المنصب: {{position}}</p>
-<p>المدة: من {{start_date}} إلى {{end_date}}</p>
-<p>الأجر: {{hour_rate}} دج/ساعة</p>
-<p>رقم العقد: {{contract_number}}</p>
-</div>`;
+    // Get template content (fallback to official CDD template)
+    const templateContent = customContent || template?.content || OFFICIAL_CDD_TEMPLATE_HTML;
 
     const renderedContent = substituteVariables(templateContent, vars);
 
@@ -180,6 +190,7 @@ export async function POST(req: NextRequest) {
         startDate: sd,
         endDate: ed,
         hourRate: rate,
+        monthlySalary: salary,
         workSchedule: workSchedule || null,
         contractType: cType,
         title: title ? String(title).trim() : null,

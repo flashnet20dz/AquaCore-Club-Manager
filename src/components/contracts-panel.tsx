@@ -18,6 +18,8 @@ import {
   Loader2, RefreshCw, Archive, Eye, X, FilePlus, UserPlus,
   Calendar, DollarSign, Layers, Search, Users, BadgeCheck,
   AlertTriangle, FileSignature, Ban, CheckCircle2,
+  Building2, Shield, UserCheck, Coins, Clock, MapPin, Maximize2,
+  Sparkles, ChevronDown, ChevronUp, Check, RotateCcw, Copy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,7 +38,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { unifiedReportHeaderHTML } from "@/components/unified-report-header";
 import type { EnteteConfig } from "@/components/unified-report-header";
-import { AVAILABLE_VARIABLES, substituteVariables } from "@/lib/contract-variables";
+import { AVAILABLE_VARIABLES, substituteVariables, OFFICIAL_CDD_TEMPLATE_HTML } from "@/lib/contract-variables";
 import { ExportButton } from "@/components/shared/export-button";
 // ★ المرحلة 5: مساعدات مشتركة + ملف الموظف الكامل
 import {
@@ -189,169 +191,182 @@ function escHTML(s: unknown): string {
 // يُبنى مرة واحدة كـ HTML خام ويُستخدم في: حوار العرض + الطباعة + Word
 // حتى تكون المعاينة مطابقة تماماً للمطبوع. الحقول كلها من بيانات العقد الفعلية.
 
-function docSectionHTML(no: string, title: string, bodyHTML: string): string {
-  return `
-  <div style="margin-bottom:12px;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;break-inside:avoid;">
-    <div style="background:#f0fdfa;color:#0f766e;font-weight:700;font-size:12.5px;padding:7px 12px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:8px;">
-      <span style="background:#0f766e;color:#fff;min-width:20px;height:20px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;">${no}</span>
-      <span>${escHTML(title)}</span>
-    </div>
-    <div style="padding:10px 12px;font-size:12.5px;color:#1e293b;line-height:1.9;">${bodyHTML}</div>
-  </div>`;
+function renderOfficialContractFromContract(c: Contract, clubSettings: Record<string, string>): string {
+  const emp = c.employee;
+  const workerName = emp ? `${emp.lastName} ${emp.firstName}`.trim() : "—";
+  const birthDate = emp?.birthDate ? formatDate(emp.birthDate) : "—";
+  const birthPlace = emp?.birthPlace || "سعيدة";
+  const address = emp?.address || "سعيدة";
+  const nationalId = emp?.nationalId || "—";
+  const phone = emp?.phone || "—";
+  const position = positionLabel(c.position) || "حارس سباحة (منقذ مائي)";
+  const startDate = formatDate(c.startDate);
+  const endDate = formatDate(c.endDate);
+  const workplace = "المسبح النصف الأولمبي طاب لحسن";
+  const schedule = c.workSchedule || "احترام جدول العمل الذي تحدده إدارة فرع السباحة";
+  const wage = c.monthlySalary && c.monthlySalary > 0
+    ? `يتقاضى الطرف الثاني راتباً شهرياً قدره ${c.monthlySalary.toLocaleString("en-US")} دج عن كل شهر عمل.`
+    : "يتقاضى الطرف الثاني أجرًا يُحسب على أساس الحجم الساعي كل شهر.";
+  const clubName = clubSettings.clubName || "الجمعية الرياضية الهاوية النادي الرياضي متعدد الرياضات الرائد لبلدية سعيدة – فرع السباحة";
+  const clubAddress = clubSettings.clubAddress || "طاب لحسن";
+  const repName = clubSettings.branchPresident || clubSettings.clubPresident || ".................................";
+  const assocPres = clubSettings.associationPresident || clubSettings.clubPresident || ".................................";
+  const today = formatDate(new Date());
+
+  return substituteVariables(OFFICIAL_CDD_TEMPLATE_HTML, {
+    contract_number: c.contractNumber,
+    club_name: clubName,
+    club_address: clubAddress,
+    first_party_rep: repName,
+    first_party_role: "رئيس فرع السباحة",
+    worker_name: workerName,
+    birth_date: birthDate,
+    birth_place: birthPlace,
+    address: address,
+    national_id: nationalId,
+    phone: phone,
+    position: position,
+    start_date: startDate,
+    end_date: endDate,
+    workplace: workplace,
+    work_schedule: schedule,
+    wage_clause: wage,
+    city: clubSettings.wilaya || "سعيدة",
+    contract_date: today,
+    association_president: assocPres,
+    association_president_role: "رئيس الجمعية الرياضية الهاوية",
+  });
 }
 
-function docKVTableHTML(pairs: Array<[string, string | number | null | undefined]>): string {
-  return `<table style="width:100%;border-collapse:collapse;">${pairs.map(([k, v]) => `
-    <tr>
-      <td style="padding:5px 8px;color:#64748b;font-size:11.5px;width:36%;border-bottom:1px dashed #e2e8f0;vertical-align:top;">${escHTML(k)}</td>
-      <td style="padding:5px 8px;font-weight:600;font-size:12px;border-bottom:1px dashed #e2e8f0;color:#0f172a;">${v === null || v === undefined || v === "" ? "—" : v}</td>
-    </tr>`).join("")}</table>`;
-}
-
-function docSignatureBlockHTML(): string {
-  const slot = (label: string, hint: string) => `
-    <div style="flex:1;text-align:center;">
-      <p style="font-size:11.5px;font-weight:700;color:#334155;margin:0 0 42px;">${escHTML(label)}</p>
-      <div style="border-top:1.5px dashed #94a3b8;width:85%;margin:0 auto;padding-top:5px;font-size:9.5px;color:#94a3b8;">${escHTML(hint)}</div>
-    </div>`;
-  return `
-  <div style="margin-top:16px;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;break-inside:avoid;">
-    <div style="background:#f0fdfa;color:#0f766e;font-weight:700;font-size:12.5px;padding:7px 12px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:8px;">
-      <span style="background:#0f766e;color:#fff;min-width:20px;height:20px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
-      </span>
-      <span>التواقيع</span>
-    </div>
-    <div style="display:flex;gap:10px;padding:16px 12px 12px;">
-      ${slot("توقيع مسؤول النادي", "الاسم والتوقيع")}
-      ${slot("توقيع العامل", "الاسم والتوقيع")}
-      ${slot("التاريخ", "__.__ / __.__ / __.___")}
-    </div>
-  </div>
-  <p style="margin-top:12px;text-align:center;font-size:9.5px;color:#94a3b8;">
-    أُنشئ هذا العقد إلكترونياً عبر نظام إدارة النادي — جميع الحقول أعلاه معتمدة من بيانات العقد المحفوظة
-  </p>`;
-}
-
-function contractDocumentBodyHTML(c: Contract): string {
-  const emp = c.employee ?? null;
-  const parts: Array<{ title: string; body: string }> = [];
-
-  // 1 — بيانات العامل (من سجل العامل المرتبط بالعقد)
-  if (emp) {
-    parts.push({
-      title: "بيانات العامل",
-      body: docKVTableHTML([
-        ["الاسم واللقب", escHTML(`${emp.lastName} ${emp.firstName}`.trim())],
-        ["تاريخ الميلاد", emp.birthDate ? formatDate(emp.birthDate) : "—"],
-        ["مكان الميلاد", emp.birthPlace || "—"],
-        ["العنوان", emp.address || "—"],
-        ["الهاتف", emp.phone || "—"],
-        ["رقم بطاقة التعريف", emp.nationalId || "—"],
-      ]),
-    });
-  }
-
-  // 2 — الوظيفة
-  parts.push({
-    title: "الوظيفة",
-    body: docKVTableHTML([
-      ["المنصب", escHTML(positionLabel(c.position))],
-      ...(emp ? ([["تاريخ التوظيف", formatDate(emp.hireDate)]] as Array<[string, string]>) : []),
-    ]),
-  });
-
-  // 3 — نوع العقد (القالب المستخدم)
-  parts.push({
-    title: "نوع العقد",
-    body: docKVTableHTML([
-      ["نوع العقد", escHTML(contractType(c))],
-      ["رمز القالب", c.template?.code || "—"],
-      ["نسخة العقد", `v${c.version}`],
-    ]),
-  });
-
-  // 4 — مدة العقد
-  const duration = contractDurationDays(c);
-  parts.push({
-    title: "مدة العقد",
-    body: docKVTableHTML([
-      ["من تاريخ", formatDate(c.startDate)],
-      ["إلى تاريخ", c.endDate ? formatDate(c.endDate) : "غير محدد"],
-      ["المدة الإجمالية", duration !== null ? `${duration.toLocaleString("en-US")} يوماً` : "—"],
-    ]),
-  });
-
-  // 5 — الأجر وطريقة الحساب
-  const wageBody = (c.monthlySalary && c.monthlySalary > 0)
-    ? `<p>يتقاضى العامل راتباً شهرياً قدره <strong style="color:#0f766e;">${c.monthlySalary.toLocaleString("en-US")} دج</strong> عن كل شهر عمل.</p>`
-    : `<p>يتقاضى العامل أجراً قدره <strong style="color:#0f766e;">${(c.hourRate ?? 0).toLocaleString("en-US")} دج</strong> عن كل ساعة عمل، بناءً على الساعات الفعلية المسجلة.</p>`;
-  parts.push({ title: "الأجر وطريقة الحساب", body: wageBody });
-
-  // 6 — ساعات وأيام العمل
-  parts.push({
-    title: "ساعات وأيام العمل",
-    body: c.workSchedule
-      ? `<p>${escHTML(c.workSchedule)}</p>`
-      : `<p style="color:#94a3b8;">غير محدد في بيانات العقد</p>`,
-  });
-
-  // 7 — نص العقد والشروط (النسخة المعتمدة المحفوظة كما هي)
-  parts.push({ title: "نص العقد والشروط", body: c.content || "—" });
-
-  // 8 — ملاحظات (إن وُجدت)
-  if (c.notes) {
-    parts.push({ title: "ملاحظات", body: `<p>${escHTML(c.notes)}</p>` });
-  }
-
-  return parts
-    .map((p, i) => docSectionHTML(String(i + 1), p.title, p.body))
-    .join("") + docSignatureBlockHTML();
-}
-
-/** ترويسة موحدة + أقسام المستند — نفس ما يُعرض ويُطبع */
+/** ترويسة موحدة + عقد العمل الإداري الرسمي الكامل A4 */
 function buildContractDocument(
   c: Contract,
   entete: EnteteConfig | null,
   clubSettings: Record<string, string>,
 ): string {
   const headerHTML = unifiedReportHeaderHTML({
-    reportType: "عقد عمل",
+    reportType: "عقد عمل محدد المدة (CDD)",
     reportNumber: c.contractNumber,
     date: formatDate(new Date()),
     entete: entete || undefined,
     settings: {
-      clubName: clubSettings.clubName,
-      branchName: clubSettings.branchName,
-      wilaya: clubSettings.wilaya,
-      clubAddress: clubSettings.clubAddress,
+      clubName: clubSettings.clubName || "الجمعية الرياضية الهاوية النادي الرياضي متعدد الرياضات الرائد لبلدية سعيدة – فرع السباحة",
+      branchName: clubSettings.branchName || "فرع السباحة",
+      wilaya: clubSettings.wilaya || "سعيدة",
+      clubAddress: clubSettings.clubAddress || "طاب لحسن",
       clubPhone: clubSettings.clubPhone,
       clubEmail: clubSettings.clubEmail,
       clubWebsite: clubSettings.clubWebsite,
-      sportSeason: clubSettings.sportSeason,
+      sportSeason: clubSettings.sportSeason || "2026/2027",
     },
   });
-  return headerHTML + contractDocumentBodyHTML(c);
+
+  const bodyHTML = (c.content && c.content.includes("contract-document"))
+    ? c.content
+    : renderOfficialContractFromContract(c, clubSettings);
+
+  return `
+    <div class="contract-official-wrapper" style="direction:rtl;text-align:right;">
+      ${headerHTML}
+      <div style="margin-top:14px;">
+        ${bodyHTML}
+      </div>
+    </div>
+  `;
 }
 
 /** تحويل مسارات الصور النسبية إلى مطلقة (ضروري داخل نافذة الطباعة about:blank) */
 function absoluteizeAssets(html: string): string {
-  const origin = window.location.origin;
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
   return html.replace(/src="\//g, `src="${origin}/`);
 }
 
 const PRINT_DOC_CSS = `
-  *{font-family:'Cairo','Tahoma',Arial,sans-serif;box-sizing:border-box;margin:0;}
-  body{padding:16px;background:#f1f5f9;}
-  .doc-sheet{max-width:210mm;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px;box-shadow:0 2px 12px rgba(0,0,0,.06);}
-  .print-btn{display:block;margin:14px auto 0;background:#0f766e;color:#fff;border:none;padding:10px 30px;border-radius:8px;font-weight:700;cursor:pointer;font-family:inherit;font-size:13px;}
-  @page{size:A4;margin:11mm;}
-  @media print{
-    body{padding:0;background:#fff;}
-    .doc-sheet{border:none;border-radius:0;padding:0;box-shadow:none;max-width:none;}
-    .noprint{display:none !important;}
+  @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=Tajawal:wght@400;500;700;800&display=swap');
+  * { font-family: 'Cairo', 'Tajawal', Tahoma, Arial, sans-serif; box-sizing: border-box; margin: 0; }
+  body { padding: 16px; background: #f1f5f9; color: #0f172a; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .doc-sheet { max-width: 210mm; margin: 0 auto; background: #fff; border: 1px solid #cbd5e1; border-radius: 12px; padding: 16px 20px; box-shadow: 0 4px 20px rgba(0,0,0,.08); }
+  .print-btn { display: block; margin: 16px auto 0; background: #0f766e; color: #fff; border: none; padding: 12px 34px; border-radius: 8px; font-weight: 700; cursor: pointer; font-family: inherit; font-size: 14px; box-shadow: 0 2px 8px rgba(15,118,110,0.3); }
+  .print-btn:hover { background: #115e59; }
+  @page { size: A4; margin: 8mm 10mm; }
+  @media print {
+    html, body {
+      padding: 0 !important;
+      margin: 0 !important;
+      background: #fff !important;
+      color: #0f172a !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    .doc-sheet {
+      border: none !important;
+      border-radius: 0 !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      box-shadow: none !important;
+      max-width: none !important;
+      width: 100% !important;
+    }
+    .noprint, .page-divider-screen {
+      display: none !important;
+    }
+    .contract-page-1 {
+      page-break-after: always !important;
+      break-after: page !important;
+    }
+    .contract-page-2 {
+      margin-top: 0 !important;
+      page-break-before: always !important;
+      break-before: page !important;
+      page-break-after: avoid !important;
+      break-after: avoid !important;
+    }
   }
 `;
+
+/** طباعة مستند العقد فوراً بمقاس A4 */
+function printContractHtml(docHTML: string, contractNumber: string) {
+  const printWin = window.open("", "_blank");
+  if (!printWin) {
+    toast.error("فشل فتح نافذة الطباعة — اسمح بالنوافذ المنبثقة");
+    return;
+  }
+  const processed = absoluteizeAssets(docHTML);
+  printWin.document.write(`
+    <!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
+    <title>عقد ${escHTML(contractNumber)}</title>
+    <style>${PRINT_DOC_CSS}</style></head><body>
+    <div class="doc-sheet">${processed}</div>
+    <button class="print-btn noprint" onclick="window.print()">🖨 طباعة / حفظ PDF</button>
+    <script>setTimeout(function(){try{window.print()}catch(e){}},400);</script>
+    </body></html>
+  `);
+  printWin.document.close();
+}
+
+/** تصدير مستند العقد بصيغة Word (.doc) مع الترويسة الموحدة */
+function exportContractHtmlAsWord(docHTML: string, contractNumber: string) {
+  const processed = absoluteizeAssets(docHTML);
+  const html = `<!DOCTYPE html>
+<html dir="rtl" lang="ar" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word">
+<head><meta charset="utf-8"><title>عقد ${escHTML(contractNumber)}</title>
+<style>
+  *{font-family:'Cairo','Tahoma',Arial,sans-serif;box-sizing:border-box;}
+  body{padding:15px;}
+  @page{size:A4;margin:1.5cm;}
+</style></head>
+<body>
+<div class="doc-sheet" style="border:none;padding:0;">${processed}</div>
+</body></html>`;
+  const blob = new Blob([html], { type: "application/msword" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const safeNum = contractNumber.replace(/[\/\\?%*:|"<>]/g, "_").trim();
+  a.download = `عقد_${safeNum || "موحد"}.doc`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 // ──────────────── StatCard (نفس أسلوب work-hours-management) ────────────────
 function StatCard({ icon: Icon, label, value, sublabel, color, delay = 0 }: {
@@ -395,16 +410,24 @@ function MiniInfo({ label, value }: { label: string; value: string }) {
 export function ContractsPanel() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
+  const [entete, setEntete] = useState<EnteteConfig | null>(null);
+  const [clubSettings, setClubSettings] = useState<Record<string, string>>({});
+  const [activeTab, setActiveTab] = useState("create");
   const [loading, setLoading] = useState(true);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [empData, conData] = await Promise.all([
+      const [empData, conData, enteteData, settsData] = await Promise.all([
         fetch("/api/employees").then((r) => r.json()).catch(() => ({})),
         fetch("/api/contracts").then((r) => r.json()).catch(() => ({})),
+        fetch("/api/entete").then((r) => r.json()).catch(() => ({})),
+        fetch("/api/settings").then((r) => r.json()).catch(() => ({})),
       ]);
       setEmployees(empData.employees || []);
       setContracts(conData.contracts || []);
+      setEntete(enteteData.config || null);
+      setClubSettings(settsData.settings || {});
     } finally {
       setLoading(false);
     }
@@ -474,36 +497,49 @@ export function ContractsPanel() {
       </div>
 
       {/* ── التبويبات ── */}
-      <Tabs defaultValue="employees" className="w-full">
-        <TabsList className="w-full grid grid-cols-2 md:grid-cols-4 h-auto gap-1 p-1">
-          <TabsTrigger value="employees" className="text-xs gap-1.5 py-2">
-            <Briefcase className="h-3.5 w-3.5" /> قائمة العمال
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="w-full grid grid-cols-2 md:grid-cols-4 h-auto gap-1 p-1 bg-muted/60">
+          <TabsTrigger value="create" className="text-xs gap-1.5 py-2 font-bold data-[state=active]:bg-teal-600 data-[state=active]:text-white transition-all">
+            <FileSignature className="h-3.5 w-3.5" /> إنشاء وتحرير عقد
           </TabsTrigger>
-          <TabsTrigger value="contracts" className="text-xs gap-1.5 py-2">
+          <TabsTrigger value="contracts" className="text-xs gap-1.5 py-2 data-[state=active]:bg-card transition-all">
             <FileText className="h-3.5 w-3.5" /> أرشيف العقود
             {contracts.length > 0 && (
               <Badge variant="outline" className="text-[9px] px-1 h-4 hidden sm:inline-flex">{contracts.length}</Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="templates" className="text-xs gap-1.5 py-2">
+          <TabsTrigger value="templates" className="text-xs gap-1.5 py-2 data-[state=active]:bg-card transition-all">
             <Layers className="h-3.5 w-3.5" /> قوالب العقود
           </TabsTrigger>
-          <TabsTrigger value="create" className="text-xs gap-1.5 py-2">
-            <FilePlus className="h-3.5 w-3.5" /> إنشاء عقد
+          <TabsTrigger value="employees" className="text-xs gap-1.5 py-2 data-[state=active]:bg-card transition-all">
+            <Briefcase className="h-3.5 w-3.5" /> قائمة العمال
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="employees" className="mt-3">
-          <EmployeesTab employees={employees} loading={loading} onChanged={refresh} />
+        <TabsContent value="create" className="mt-3">
+          <CreateContractTab
+            employees={employees}
+            contracts={contracts}
+            entete={entete}
+            clubSettings={clubSettings}
+            onCreated={refresh}
+            onSwitchToArchive={() => setActiveTab("contracts")}
+          />
         </TabsContent>
         <TabsContent value="contracts" className="mt-3">
-          <ContractsArchiveTab contracts={contracts} loading={loading} onChanged={refresh} />
+          <ContractsArchiveTab
+            contracts={contracts}
+            loading={loading}
+            onChanged={refresh}
+            entete={entete}
+            clubSettings={clubSettings}
+          />
         </TabsContent>
         <TabsContent value="templates" className="mt-3">
           <TemplatesTab />
         </TabsContent>
-        <TabsContent value="create" className="mt-3">
-          <CreateContractTab employees={employees} onCreated={refresh} />
+        <TabsContent value="employees" className="mt-3">
+          <EmployeesTab employees={employees} loading={loading} onChanged={refresh} />
         </TabsContent>
       </Tabs>
     </div>
@@ -857,10 +893,18 @@ function EmployeesTab({ employees, loading, onChanged }: {
 }
 
 // ════════════ Tab 2: Contracts Archive ════════════
-function ContractsArchiveTab({ contracts, loading, onChanged }: {
+function ContractsArchiveTab({
+  contracts,
+  loading,
+  onChanged,
+  entete: propEntete,
+  clubSettings: propClubSettings,
+}: {
   contracts: Contract[];
   loading: boolean;
   onChanged: () => void;
+  entete?: EnteteConfig | null;
+  clubSettings?: Record<string, string>;
 }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -873,24 +917,26 @@ function ContractsArchiveTab({ contracts, loading, onChanged }: {
   const [terminateTarget, setTerminateTarget] = useState<Contract | null>(null);
   const [terminateReason, setTerminateReason] = useState("");
   const [terminating, setTerminating] = useState(false);
-  const [entete, setEntete] = useState<EnteteConfig | null>(null);
-  const [clubSettings, setClubSettings] = useState<Record<string, string>>({});
+  const [entete, setEntete] = useState<EnteteConfig | null>(propEntete || null);
+  const [clubSettings, setClubSettings] = useState<Record<string, string>>(propClubSettings || {});
 
-  // بيانات الترويسة الموحدة (GET فقط) — لتكون المعاينة والطباعة مطابقتين تماماً
+  // مزامنة الترويسة الموحدة من props أو جلبها إذا لم تُمرر
   useEffect(() => {
-    let cancelled = false;
-    Promise.all([
-      fetch("/api/entete").then((r) => r.json()).catch(() => ({})),
-      fetch("/api/settings").then((r) => r.json()).catch(() => ({})),
-    ]).then(([eData, sData]) => {
-      if (cancelled) return;
-      setEntete(eData.config || null);
-      setClubSettings(sData.settings || {});
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (propEntete) setEntete(propEntete);
+    if (propClubSettings && Object.keys(propClubSettings).length > 0) setClubSettings(propClubSettings);
+    if (!propEntete || !propClubSettings || Object.keys(propClubSettings).length === 0) {
+      let cancelled = false;
+      Promise.all([
+        fetch("/api/entete").then((r) => r.json()).catch(() => ({})),
+        fetch("/api/settings").then((r) => r.json()).catch(() => ({})),
+      ]).then(([eData, sData]) => {
+        if (cancelled) return;
+        if (!propEntete) setEntete(eData.config || null);
+        if (!propClubSettings) setClubSettings(sData.settings || {});
+      });
+      return () => { cancelled = true; };
+    }
+  }, [propEntete, propClubSettings]);
 
   // الفلترة: بحث بالاسم/رقم العقد + فلتر الحالة + فلتر نوع العقد (§5)
   const filtered = useMemo(() => {
@@ -994,44 +1040,13 @@ function ContractsArchiveTab({ contracts, loading, onChanged }: {
   };
 
   const handlePrint = (contract: Contract) => {
-    const printWin = window.open("", "_blank");
-    if (!printWin) {
-      toast.error("فشل فتح نافذة الطباعة — اسمح بالنوافذ المنبثقة");
-      return;
-    }
-    const docHTML = absoluteizeAssets(buildContractDocument(contract, entete, clubSettings));
-    printWin.document.write(`
-      <!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
-      <title>عقد ${escHTML(contract.contractNumber)}</title>
-      <style>${PRINT_DOC_CSS}</style></head><body>
-      <div class="doc-sheet">${docHTML}</div>
-      <button class="print-btn noprint" onclick="window.print()">🖨 طباعة / حفظ PDF</button>
-      <script>setTimeout(function(){try{window.print()}catch(e){}},400);</script>
-      </body></html>
-    `);
-    printWin.document.close();
+    const docHTML = buildContractDocument(contract, entete, clubSettings);
+    printContractHtml(docHTML, contract.contractNumber);
   };
 
   const handleExportWord = (contract: Contract) => {
     const docHTML = buildContractDocument(contract, entete, clubSettings);
-    const html = `<!DOCTYPE html>
-<html dir="rtl" lang="ar" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word">
-<head><meta charset="utf-8"><title>عقد ${escHTML(contract.contractNumber)}</title>
-<style>
-  *{font-family:'Cairo','Tahoma',Arial,sans-serif;box-sizing:border-box;}
-  body{padding:15px;}
-  @page{size:A4;margin:1.5cm;}
-</style></head>
-<body>
-<div class="doc-sheet" style="border:none;padding:0;">${docHTML}</div>
-</body></html>`;
-    const blob = new Blob([html], { type: "application/msword" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `عقد_${contract.contractNumber}.doc`;
-    a.click();
-    URL.revokeObjectURL(url);
+    exportContractHtmlAsWord(docHTML, contract.contractNumber);
   };
 
   const exportColumns = [
@@ -1669,156 +1684,388 @@ function TemplatesTab() {
 }
 
 // ════════════ Tab 4: Create Contract ════════════
-function CreateContractTab({ employees, onCreated }: {
+function CreateContractTab({
+  employees,
+  contracts,
+  entete,
+  clubSettings,
+  onCreated,
+  onSwitchToArchive,
+}: {
   employees: Employee[];
+  contracts: Contract[];
+  entete: EnteteConfig | null;
+  clubSettings: Record<string, string>;
   onCreated: () => void;
+  onSwitchToArchive: () => void;
 }) {
-  const [templates, setTemplates] = useState<Template[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({
-    employeeId: "",
-    templateId: "",
-    startDate: new Date().toISOString().split("T")[0],
-    endDate: "",
-    hourRate: 200,
-    workSchedule: "",
-    notes: "",
-    // ★ المرحلة 5 (§4): نوع العقد + عنوان + ساعات أسبوعية + مسودة
-    contractType: "HOURLY",
-    title: "",
-    weeklyHours: "",
-    asDraft: false,
-  });
-  const [preview, setPreview] = useState<string>("");
+  const currentYear = useMemo(() => new Date().getFullYear(), []);
 
-  useEffect(() => {
-    fetch("/api/contract-templates")
-      .then((r) => r.json())
-      .then((tplData) => {
-        setTemplates(tplData.templates || []);
-      })
-      .catch(() => undefined)
-      .finally(() => setLoading(false));
-  }, []);
+  // حساب الرقم التسلسلي المقترح للعقد حسب السنة الحالية
+  const defaultSeq = useMemo(() => {
+    const yrStr = String(currentYear);
+    const yrContracts = contracts.filter((c) => c.contractNumber?.includes(yrStr));
+    const nextNum = yrContracts.length + 1;
+    return String(nextNum).padStart(2, "0");
+  }, [contracts, currentYear]);
 
-  // Auto-fill hourRate from selected employee
+  // حالة النموذج
+  const [selectedEmpId, setSelectedEmpId] = useState<string>("");
+  const [contractNumber, setContractNumber] = useState<string>(`${defaultSeq} / ن.ر.ر.س. ${currentYear}`);
+  const [contractType, setContractType] = useState<string>("FIXED_TERM");
+  const [title, setTitle] = useState<string>("عقد عمل محدد المدة (CDD) — حارس سباحة");
+  const [startDate, setStartDate] = useState<string>("2026-06-21");
+  const [endDate, setEndDate] = useState<string>("2026-09-21");
+
+  // الطرف الأول (صاحب العمل)
+  const defaultClubName = clubSettings.clubName || "الجمعية الرياضية الهاوية النادي الرياضي متعدد الرياضات الرائد لبلدية سعيدة – فرع السباحة";
+  const defaultClubAddress = clubSettings.clubAddress || "طاب لحسن";
+  const defaultFirstPartyRep = clubSettings.branchPresident || clubSettings.clubPresident || ".................................";
+  const [clubName, setClubName] = useState<string>(defaultClubName);
+  const [clubAddress, setClubAddress] = useState<string>(defaultClubAddress);
+  const [firstPartyRep, setFirstPartyRep] = useState<string>(defaultFirstPartyRep);
+  const [firstPartyRole, setFirstPartyRole] = useState<string>("رئيس فرع السباحة");
+
+  // الطرف الثاني (العامل)
+  const [workerName, setWorkerName] = useState<string>("");
+  const [birthDate, setBirthDate] = useState<string>("");
+  const [birthPlace, setBirthPlace] = useState<string>("سعيدة");
+  const [address, setAddress] = useState<string>("سعيدة");
+  const [nationalId, setNationalId] = useState<string>("");
+  const [phone, setPhone] = useState<string>("");
+  const [position, setPosition] = useState<string>("حارس سباحة (منقذ مائي)");
+
+  // تأشيرة رئيس الجمعية الرياضية الهاوية
+  const defaultAssocPres = clubSettings.associationPresident || clubSettings.clubPresident || ".................................";
+  const [assocPresident, setAssocPresident] = useState<string>(defaultAssocPres);
+  const [assocRole, setAssocRole] = useState<string>("رئيس الجمعية الرياضية الهاوية");
+
+  // بنود العمل والأجر
+  const [workplace, setWorkplace] = useState<string>("المسبح النصف الأولمبي طاب لحسن");
+  const [workSchedule, setWorkSchedule] = useState<string>(
+    "احترام جدول العمل الذي تحدده إدارة فرع السباحة، الحضور قبل بداية العمل بـ15 دقيقة، ويمنع مغادرة المنصب دون ترخيص."
+  );
+  const [wageType, setWageType] = useState<"hourly" | "monthly">("hourly");
+  const [hourRate, setHourRate] = useState<number>(200);
+  const [monthlySalary, setMonthlySalary] = useState<number>(30000);
+  const [city, setCity] = useState<string>(clubSettings.wilaya || "سعيدة");
+  const [contractDate, setContractDate] = useState<string>(formatDate(new Date()));
+  const [notes, setNotes] = useState<string>("");
+
+  // محرر نصوص المواد
+  const [showArticlesEditor, setShowArticlesEditor] = useState<boolean>(false);
+  const [customArticlesHTML, setCustomArticlesHTML] = useState<string>(OFFICIAL_CDD_TEMPLATE_HTML);
+
+  const [saving, setSaving] = useState<boolean>(false);
+
+  // تحديث الحقول تلقائياً عند تغيير الإعدادات العامة
   useEffect(() => {
-    if (form.employeeId) {
-      const emp = employees.find((e) => e.id === form.employeeId);
-      if (emp) {
-        setForm((f) => ({ ...f, hourRate: emp.hourRate }));
-        // Auto-fill end date from template defaultDuration
-        const tpl = templates.find((t) => t.id === form.templateId);
-        if (tpl) {
-          const sd = new Date(form.startDate);
-          sd.setDate(sd.getDate() + tpl.defaultDuration);
-          setForm((f) => ({ ...f, endDate: sd.toISOString().split("T")[0] }));
-        }
+    if (clubSettings.clubName) setClubName(clubSettings.clubName);
+    if (clubSettings.clubAddress) setClubAddress(clubSettings.clubAddress);
+    if (clubSettings.branchPresident || clubSettings.clubPresident) {
+      setFirstPartyRep(clubSettings.branchPresident || clubSettings.clubPresident || "");
+    }
+    if (clubSettings.associationPresident) {
+      setAssocPresident(clubSettings.associationPresident);
+    }
+    if (clubSettings.wilaya) setCity(clubSettings.wilaya);
+  }, [clubSettings]);
+
+  // ملء بيانات العامل تلقائياً عند اختياره من القائمة
+  useEffect(() => {
+    if (!selectedEmpId) return;
+    const emp = employees.find((e) => e.id === selectedEmpId);
+    if (!emp) return;
+    setWorkerName(`${emp.lastName} ${emp.firstName}`.trim());
+    if (emp.birthDate) {
+      const d = new Date(emp.birthDate);
+      if (!isNaN(d.getTime())) {
+        setBirthDate(d.toISOString().split("T")[0]);
       }
     }
-  }, [form.employeeId, employees]);
+    if (emp.birthPlace) setBirthPlace(emp.birthPlace);
+    if (emp.address) setAddress(emp.address);
+    if (emp.nationalId) setNationalId(emp.nationalId);
+    if (emp.phone) setPhone(emp.phone);
+    if (emp.position) setPosition(positionLabel(emp.position));
+    if (emp.hourRate && emp.hourRate > 0) setHourRate(emp.hourRate);
+  }, [selectedEmpId, employees]);
 
-  // Update preview when inputs change
-  useEffect(() => {
-    if (!form.employeeId || !form.templateId) {
-      setPreview("");
+  // صياغة بند الأجر (المادة 05 لا يُكتب فيها السعر أو الحجم الساعي في العقد)
+  const wageClause = useMemo(() => {
+    if (wageType === "monthly" && Number(monthlySalary) > 0) {
+      return `يتقاضى الطرف الثاني راتباً شهرياً قدره ${Number(monthlySalary).toLocaleString("en-US")} دج عن كل شهر عمل.`;
+    }
+    return "يتقاضى الطرف الثاني أجرًا يُحسب على أساس الحجم الساعي كل شهر.";
+  }, [wageType, monthlySalary]);
+
+  // المتغيرات الجاهزة للاستبدال
+  const currentVariables = useMemo(() => {
+    return {
+      contract_number: contractNumber || "......... / ن.ر.ر.س. 2026",
+      club_name: clubName || "الجمعية الرياضية الهاوية النادي الرياضي متعدد الرياضات الرائد لبلدية سعيدة – فرع السباحة",
+      club_address: clubAddress || "طاب لحسن",
+      first_party_rep: firstPartyRep || ".................................",
+      first_party_role: firstPartyRole || "رئيس فرع السباحة",
+      worker_name: workerName || ".......................",
+      birth_date: birthDate ? formatDate(birthDate) : "...................",
+      birth_place: birthPlace || "سعيدة",
+      address: address || "سعيدة",
+      national_id: nationalId || "............................................",
+      phone: phone || ".....................",
+      position: position || "حارس سباحة (منقذ مائي)",
+      start_date: startDate ? formatDate(startDate) : "21/06/2026",
+      end_date: endDate ? formatDate(endDate) : "21/09/2026",
+      workplace: workplace || "المسبح النصف الأولمبي طاب لحسن",
+      work_schedule: workSchedule,
+      wage_clause: wageClause,
+      city: city || "سعيدة",
+      contract_date: contractDate || formatDate(new Date()),
+      association_president: assocPresident || ".................................",
+      association_president_role: assocRole || "رئيس الجمعية الرياضية الهاوية",
+    };
+  }, [
+    contractNumber, clubName, clubAddress, firstPartyRep, firstPartyRole,
+    workerName, birthDate, birthPlace, address, nationalId, phone, position,
+    startDate, endDate, workplace, workSchedule, wageClause, city, contractDate,
+    assocPresident, assocRole,
+  ]);
+
+  // جسم العقد النهائي بعد استبدال المتغيرات
+  const renderedBodyHTML = useMemo(() => {
+    return substituteVariables(customArticlesHTML || OFFICIAL_CDD_TEMPLATE_HTML, currentVariables);
+  }, [customArticlesHTML, currentVariables]);
+
+  // المستند الكامل: ترويسة موحدة + جسم العقد + التواقيع
+  const fullDocumentHTML = useMemo(() => {
+    const headerHTML = unifiedReportHeaderHTML({
+      reportType: "عقد عمل محدد المدة (CDD)",
+      reportNumber: contractNumber || "......... / ن.ر.ر.س. 2026",
+      date: contractDate || formatDate(new Date()),
+      entete: entete || undefined,
+      settings: {
+        clubName: clubName,
+        branchName: clubSettings.branchName || "فرع السباحة",
+        wilaya: city || "سعيدة",
+        clubAddress: clubAddress,
+        clubPhone: clubSettings.clubPhone,
+        clubEmail: clubSettings.clubEmail,
+        clubWebsite: clubSettings.clubWebsite,
+        sportSeason: clubSettings.sportSeason || "2026/2027",
+      },
+    });
+
+    return `
+      <div class="contract-official-wrapper" style="direction:rtl;text-align:right;">
+        ${headerHTML}
+        <div style="margin-top:14px;">
+          ${renderedBodyHTML}
+        </div>
+      </div>
+    `;
+  }, [contractNumber, contractDate, entete, clubName, clubSettings, city, clubAddress, renderedBodyHTML]);
+
+  // ملء بيانات نموذجية للاختبار والمعاينة
+  const handleFillSample = () => {
+    setContractNumber(`01 / ن.ر.ر.س. ${currentYear}`);
+    setWorkerName("سفيان بن علي");
+    setBirthDate("1995-04-12");
+    setBirthPlace("سعيدة");
+    setAddress("حي النصر، بلدية سعيدة");
+    setNationalId("108920192837482910");
+    setPhone("0661234567");
+    setPosition("حارس سباحة (منقذ مائي)");
+    setStartDate("2026-06-21");
+    setEndDate("2026-09-21");
+    setWorkplace("المسبح النصف الأولمبي طاب لحسن");
+    setWorkSchedule("احترام جدول العمل الذي تحدده إدارة فرع السباحة، الحضور قبل بداية العمل بـ15 دقيقة، ويمنع مغادرة المنصب دون ترخيص.");
+    setWageType("hourly");
+    setHourRate(250);
+    setCity("سعيدة");
+    setContractDate("21/06/2026");
+    setFirstPartyRep(clubSettings.branchPresident || clubSettings.clubPresident || "عبد القادر دحمان");
+    setFirstPartyRole("رئيس فرع السباحة");
+    setAssocPresident(clubSettings.associationPresident || clubSettings.clubPresident || "محمد بلقاسم");
+    setAssocRole("رئيس الجمعية الرياضية الهاوية");
+    toast.success("تم ملء البيانات النموذجية لتجربة المعاينة الفورية");
+  };
+
+  // استعادة النموذج الافتراضي الأصلي
+  const handleReset = () => {
+    setCustomArticlesHTML(OFFICIAL_CDD_TEMPLATE_HTML);
+    setContractNumber(`${defaultSeq} / ن.ر.ر.س. ${currentYear}`);
+    setStartDate("2026-06-21");
+    setEndDate("2026-09-21");
+    setWorkplace("المسبح النصف الأولمبي طاب لحسن");
+    setWageType("hourly");
+    setHourRate(200);
+    toast.info("تمت استعادة النموذج والبنود الإدارية الافتراضية");
+  };
+
+  // الطباعة المباشرة
+  const handleInstantPrint = () => {
+    printContractHtml(fullDocumentHTML, contractNumber || "عقد-عمل-محدد-المدة");
+  };
+
+  // التصدير إلى Word
+  const handleInstantWord = () => {
+    exportContractHtmlAsWord(fullDocumentHTML, contractNumber || "عقد-عمل-محدد-المدة");
+  };
+
+  // حفظ العقد في قاعدة البيانات (نشط أو مسودة)
+  const handleSaveContract = async (asDraft: boolean) => {
+    let empId = selectedEmpId;
+    if (!empId) {
+      const found = employees.find(
+        (e) => `${e.lastName} ${e.firstName}`.trim().toLowerCase() === workerName.trim().toLowerCase()
+      );
+      if (found) {
+        empId = found.id;
+      } else if (employees.length > 0) {
+        toast.error("يرجى اختيار العامل من القائمة لربط العقد بملفه وساعاته");
+        return;
+      } else {
+        toast.error("يرجى إضافة عمال في قائمة العمال أولاً");
+        return;
+      }
+    }
+
+    if (!startDate) {
+      toast.error("يرجى إدخال تاريخ بداية العقد");
       return;
     }
-    const emp = employees.find((e) => e.id === form.employeeId);
-    const tpl = templates.find((t) => t.id === form.templateId);
-    if (!emp || !tpl) return;
-    const rendered = substituteVariables(tpl.content, {
-      club_name: "—",
-      club_branch: "—",
-      worker_name: `${emp.lastName} ${emp.firstName}`.trim(),
-      birth_date: formatDate(emp.birthDate),
-      birth_place: emp.birthPlace || "—",
-      address: emp.address || "—",
-      phone: emp.phone || "—",
-      national_id: emp.nationalId || "—",
-      position: positionLabel(emp.position),
-      contract_number: "CTR-PREVIEW",
-      start_date: formatDate(form.startDate),
-      end_date: formatDate(form.endDate),
-      hour_rate: form.hourRate,
-      work_schedule: form.workSchedule || "—",
-      today: formatDate(new Date()),
-    });
-    setPreview(rendered);
-  }, [form, employees, templates]);
 
-  const handleCreate = async () => {
-    if (!form.employeeId) { toast.error("اختر العامل"); return; }
-    if (!form.templateId) { toast.error("اختر القالب"); return; }
-    if (!form.startDate) { toast.error("أدخل تاريخ البداية"); return; }
-    setCreating(true);
+    setSaving(true);
     try {
       const res = await fetch("/api/contracts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          employeeId: form.employeeId,
-          templateId: form.templateId,
-          startDate: form.startDate,
-          endDate: form.endDate || null,
-          hourRate: form.hourRate,
-          workSchedule: form.workSchedule,
-          notes: form.notes,
-          contractType: form.contractType,
-          title: form.title,
-          weeklyHours: form.weeklyHours ? Number(form.weeklyHours) : null,
-          asDraft: form.asDraft,
+          employeeId: empId,
+          contractNumber: contractNumber.trim() || undefined,
+          contractType,
+          title: title.trim() || "عقد عمل محدد المدة (CDD)",
+          startDate,
+          endDate: endDate || null,
+          hourRate: wageType === "hourly" ? hourRate : undefined,
+          monthlySalary: wageType === "monthly" ? monthlySalary : null,
+          wageClause,
+          workSchedule,
+          workplace,
+          firstPartyRep,
+          firstPartyRole,
+          associationPresident: assocPresident,
+          associationPresidentRole: assocRole,
+          city,
+          contractDate,
+          customContent: fullDocumentHTML,
+          notes,
+          asDraft,
         }),
       });
-      if (!res.ok) throw new Error();
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "فشل إنشاء العقد");
+      }
+
       const data = await res.json();
-      toast.success(`تم إنشاء العقد ${data.contract.contractNumber} بنجاح`);
-      // Reset form
-      setForm({
-        employeeId: "", templateId: "",
-        startDate: new Date().toISOString().split("T")[0],
-        endDate: "", hourRate: 200, workSchedule: "", notes: "",
-        contractType: "HOURLY", title: "", weeklyHours: "", asDraft: false,
-      });
-      setPreview("");
+      toast.success(
+        asDraft
+          ? `تم حفظ المسودة بنجاح (${data.contract.contractNumber})`
+          : `تم اعتماد العقد ${data.contract.contractNumber} وحفظه في الأرشيف بنجاح`
+      );
+
       onCreated();
-    } catch {
-      toast.error("فشل إنشاء العقد");
+      onSwitchToArchive();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "فشل حفظ العقد";
+      toast.error(msg);
     } finally {
-      setCreating(false);
+      setSaving(false);
     }
   };
 
-  if (loading) return <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
-
   return (
-    <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
-      {/* رأس القسم */}
-      <div className="p-4 border-b border-border/60 flex items-center gap-2">
-        <div className="flex h-9 w-9 rounded-xl bg-primary/10 items-center justify-center shrink-0">
-          <FilePlus className="h-4 w-4 text-primary" />
-        </div>
-        <div className="min-w-0">
-          <h3 className="font-bold text-sm">إنشاء عقد جديد</h3>
-          <p className="text-[10px] text-muted-foreground">
-            تعبئة تلقائية من بيانات العامل + رقم عقد فريد + حفظ في الأرشيف
-          </p>
+    <div className="space-y-4">
+      {/* ── شريط رأس القسم ── */}
+      <div className="rounded-2xl border border-border/60 bg-gradient-to-l from-card via-card to-teal-500/5 p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex h-11 w-11 rounded-2xl bg-teal-600/10 text-teal-700 items-center justify-center shrink-0 shadow-inner">
+              <FileSignature className="h-6 w-6" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h3 className="font-extrabold text-base md:text-lg text-foreground tracking-tight">
+                  إنشاء وتحرير عقد عمل موحّد (CDD)
+                </h3>
+                <Badge className="bg-teal-600 text-white text-[10px] px-2 py-0.5 font-bold">
+                  النموذج الرسمي المعتمد
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                الطرف الأول (فرع السباحة) • الطرف الثاني (العامل) • تأشيرة رئيس الجمعية • الترويسة الموحدة
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleFillSample}
+              className="text-xs gap-1.5 border-teal-500/40 text-teal-700 hover:bg-teal-50 dark:hover:bg-teal-950/40"
+              title="ملء بيانات نموذجية للاختبار والمعاينة الفورية"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+              نموذج تجريبي
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleReset}
+              className="text-xs gap-1.5 text-muted-foreground hover:text-foreground"
+              title="استعادة البنود الإدارية الافتراضية"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              استعادة الافتراضي
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onSwitchToArchive}
+              className="text-xs gap-1.5"
+            >
+              <Archive className="h-3.5 w-3.5" />
+              أرشيف العقود
+            </Button>
+          </div>
         </div>
       </div>
 
-      <div className="p-4">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Right: form (RTL أول عمود) */}
-          <div className="space-y-3">
+      {/* ── تقسيم الصفحة: عمود الإدخال (يمين) + عمود المعاينة المباشرة (يسار) ── */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
+        {/* ══════════ عمود المدخلات (5 أعمدة على الشاشات الكبيرة) ══════════ */}
+        <div className="xl:col-span-5 space-y-4">
+          {/* بطاقة الطرف الثاني (العامل) */}
+          <div className="rounded-2xl border border-teal-500/30 bg-card p-4 space-y-3 shadow-sm">
+            <div className="flex items-center justify-between pb-2 border-b border-border/60">
+              <span className="text-xs font-bold text-teal-700 flex items-center gap-1.5">
+                <UserCheck className="h-4 w-4" />
+                معلومات الطرف الثاني (العامل)
+              </span>
+              <span className="text-[10px] text-muted-foreground">ربط فوري بملف الموظف</span>
+            </div>
+
             <div>
-              <Label className="text-xs flex items-center gap-1"><Briefcase className="h-3 w-3" /> العامل *</Label>
-              <Select
-                value={form.employeeId || undefined}
-                onValueChange={(v) => setForm({ ...form, employeeId: v })}
-              >
-                <SelectTrigger className="w-full h-9 text-xs">
-                  <SelectValue placeholder="— اختر العامل —" />
+              <Label className="text-xs font-semibold">اختيار العامل من السجل *</Label>
+              <Select value={selectedEmpId} onValueChange={setSelectedEmpId}>
+                <SelectTrigger className="w-full h-9 text-xs mt-1 bg-muted/20">
+                  <SelectValue placeholder="— اختر العامل لملء البيانات تلقائياً —" />
                 </SelectTrigger>
                 <SelectContent>
                   {employees.map((emp) => (
@@ -1830,104 +2077,459 @@ function CreateContractTab({ employees, onCreated }: {
               </Select>
             </div>
 
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs">الاسم واللقب *</Label>
+                <Input
+                  value={workerName}
+                  onChange={(e) => setWorkerName(e.target.value)}
+                  placeholder="سفيان بن علي"
+                  className="h-8 text-xs mt-1"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">المهنة / الصفة في العقد</Label>
+                <Input
+                  value={position}
+                  onChange={(e) => setPosition(e.target.value)}
+                  placeholder="حارس سباحة (منقذ مائي)"
+                  className="h-8 text-xs mt-1"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs">تاريخ الميلاد</Label>
+                <Input
+                  type="date"
+                  value={birthDate}
+                  onChange={(e) => setBirthDate(e.target.value)}
+                  className="h-8 text-xs mt-1"
+                  dir="ltr"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">مكان الميلاد</Label>
+                <Input
+                  value={birthPlace}
+                  onChange={(e) => setBirthPlace(e.target.value)}
+                  placeholder="سعيدة"
+                  className="h-8 text-xs mt-1"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs">العنوان</Label>
+                <Input
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="سعيدة"
+                  className="h-8 text-xs mt-1"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">رقم الهاتف</Label>
+                <Input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="0661234567"
+                  className="h-8 text-xs mt-1"
+                  dir="ltr"
+                />
+              </div>
+            </div>
+
             <div>
-              <Label className="text-xs flex items-center gap-1"><Layers className="h-3 w-3" /> القالب *</Label>
-              <Select
-                value={form.templateId || undefined}
-                onValueChange={(v) => setForm({ ...form, templateId: v })}
-              >
-                <SelectTrigger className="w-full h-9 text-xs">
-                  <SelectValue placeholder="— اختر القالب —" />
-                </SelectTrigger>
-                <SelectContent>
-                  {templates.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label className="text-xs flex items-center gap-1"><Calendar className="h-3 w-3" /> تاريخ البداية *</Label>
-                <Input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className="h-9" dir="ltr" />
-              </div>
-              <div>
-                <Label className="text-xs flex items-center gap-1"><Calendar className="h-3 w-3" /> تاريخ النهاية</Label>
-                <Input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} className="h-9" dir="ltr" />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label className="text-xs flex items-center gap-1"><DollarSign className="h-3 w-3" /> سعر الساعة (دج)</Label>
-                <Input type="number" value={form.hourRate} onChange={(e) => setForm({ ...form, hourRate: +e.target.value })} className="h-9" />
-              </div>
-              <div>
-                <Label className="text-xs">جدول العمل</Label>
-                <Input value={form.workSchedule} onChange={(e) => setForm({ ...form, workSchedule: e.target.value })} className="h-9" placeholder="40 ساعة/أسبوع" />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label className="text-xs">نوع العقد</Label>
-                <select
-                  value={form.contractType}
-                  onChange={(e) => setForm({ ...form, contractType: e.target.value })}
-                  className="w-full h-9 text-xs rounded border bg-card px-2"
-                >
-                  {CONTRACT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-                </select>
-              </div>
-              <div>
-                <Label className="text-xs">ساعات العمل الأسبوعية</Label>
-                <Input type="number" value={form.weeklyHours} onChange={(e) => setForm({ ...form, weeklyHours: e.target.value })} className="h-9" placeholder="40" />
-              </div>
-            </div>
-
-            <div>
-              <Label className="text-xs">عنوان العقد</Label>
-              <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className="h-9" placeholder="مثال: عقد حارس موسمي 2026" />
-            </div>
-
-            <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={form.asDraft}
-                onChange={(e) => setForm({ ...form, asDraft: e.target.checked })}
-                className="h-4 w-4 accent-teal-600"
+              <Label className="text-xs">رقم بطاقة التعريف الوطنية</Label>
+              <Input
+                value={nationalId}
+                onChange={(e) => setNationalId(e.target.value)}
+                placeholder="108920192837482910"
+                className="h-8 text-xs mt-1 font-mono"
+                dir="ltr"
               />
-              حفظ كمسودة (تُفعَّل لاحقاً بعد المراجعة)
-            </label>
-
-            <div>
-              <Label className="text-xs">ملاحظات</Label>
-              <Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={2} className="text-xs" />
             </div>
-
-            <Button onClick={handleCreate} disabled={creating} className="w-full">
-              {creating ? <Loader2 className="h-4 w-4 animate-spin ml-1" /> : <FilePlus className="h-4 w-4 ml-1" />}
-              إنشاء العقد وحفظه في الأرشيف
-            </Button>
           </div>
 
-          {/* Left: live preview */}
-          <div className="space-y-2">
-            <Label className="text-xs">معاينة مباشرة</Label>
-            <div className="rounded-xl border border-border/60 overflow-hidden">
-              <div className="bg-muted/40 p-2 text-[10px] text-muted-foreground text-center">
-                المعاينة تستخدم بيانات العامل المختار
+          {/* بطاقة الطرف الأول (صاحب العمل) */}
+          <div className="rounded-2xl border border-border/60 bg-card p-4 space-y-3 shadow-sm">
+            <div className="flex items-center justify-between pb-2 border-b border-border/60">
+              <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                <Building2 className="h-4 w-4 text-primary" />
+                معلومات الطرف الأول (صاحب العمل)
+              </span>
+              <Badge variant="outline" className="text-[9px]">فرع السباحة</Badge>
+            </div>
+
+            <div>
+              <Label className="text-xs">الجمعية الرياضية الهاوية</Label>
+              <Input
+                value={clubName}
+                onChange={(e) => setClubName(e.target.value)}
+                className="h-8 text-xs mt-1"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs">الكائن مقرها بـ</Label>
+                <Input
+                  value={clubAddress}
+                  onChange={(e) => setClubAddress(e.target.value)}
+                  placeholder="طاب لحسن"
+                  className="h-8 text-xs mt-1"
+                />
               </div>
-              <div className="bg-white max-h-[500px] overflow-y-auto">
-                {preview ? (
-                  <div className="[&_h2]:text-[#0f766e] [&_h3]:text-[#0f766e] p-4" dangerouslySetInnerHTML={{ __html: preview }} />
-                ) : (
-                  <div className="p-12 text-center text-muted-foreground text-xs">
-                    اختر العامل والقالب لعرض المعاينة
+              <div>
+                <Label className="text-xs">ويمثلها السيد</Label>
+                <Input
+                  value={firstPartyRep}
+                  onChange={(e) => setFirstPartyRep(e.target.value)}
+                  placeholder="اسم ممثل النادي"
+                  className="h-8 text-xs mt-1"
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs">صفة ممثل الطرف الأول</Label>
+              <Input
+                value={firstPartyRole}
+                onChange={(e) => setFirstPartyRole(e.target.value)}
+                placeholder="رئيس فرع السباحة"
+                className="h-8 text-xs mt-1"
+              />
+            </div>
+          </div>
+
+          {/* بطاقة تأشيرة رئيس الجمعية الرياضية الهاوية */}
+          <div className="rounded-2xl border border-border/60 bg-card p-4 space-y-3 shadow-sm">
+            <div className="flex items-center justify-between pb-2 border-b border-border/60">
+              <span className="text-xs font-bold text-amber-700 dark:text-amber-500 flex items-center gap-1.5">
+                <Shield className="h-4 w-4" />
+                تأشيرة رئيس الجمعية الرياضية الهاوية (للنادي)
+              </span>
+              <span className="text-[10px] text-muted-foreground">التوقيع والختم الإداري الثالث</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs">الاسم واللقب</Label>
+                <Input
+                  value={assocPresident}
+                  onChange={(e) => setAssocPresident(e.target.value)}
+                  placeholder="اسم رئيس الجمعية"
+                  className="h-8 text-xs mt-1"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">الصفة الرسمية</Label>
+                <Input
+                  value={assocRole}
+                  onChange={(e) => setAssocRole(e.target.value)}
+                  placeholder="رئيس الجمعية الرياضية الهاوية"
+                  className="h-8 text-xs mt-1"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* بطاقة تفاصيل العقد وبنود العمل */}
+          <div className="rounded-2xl border border-border/60 bg-card p-4 space-y-3 shadow-sm">
+            <div className="flex items-center justify-between pb-2 border-b border-border/60">
+              <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                <Calendar className="h-4 w-4 text-primary" />
+                بيانات العقد والمدة ومكان العمل والأجر
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs">رقم العقد *</Label>
+                <Input
+                  value={contractNumber}
+                  onChange={(e) => setContractNumber(e.target.value)}
+                  placeholder="01 / ن.ر.ر.س. 2026"
+                  className="h-8 text-xs mt-1 font-mono"
+                  dir="ltr"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">تاريخ التحرير (سعيدة في:)</Label>
+                <Input
+                  value={contractDate}
+                  onChange={(e) => setContractDate(e.target.value)}
+                  placeholder="21/06/2026"
+                  className="h-8 text-xs mt-1"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs">سريان العقد ابتداءً من *</Label>
+                <Input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="h-8 text-xs mt-1"
+                  dir="ltr"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">إلى غاية تاريخ</Label>
+                <Input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="h-8 text-xs mt-1"
+                  dir="ltr"
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs">مكان العمل (المادة 03)</Label>
+              <Input
+                value={workplace}
+                onChange={(e) => setWorkplace(e.target.value)}
+                placeholder="المسبح النصف الأولمبي طاب لحسن"
+                className="h-8 text-xs mt-1"
+              />
+            </div>
+
+            {/* طريقة احتساب الأجر (المادة 05) */}
+            <div className="p-2.5 rounded-xl bg-muted/40 space-y-2 border border-border/40">
+              <Label className="text-xs font-bold flex items-center gap-1 text-teal-700">
+                <DollarSign className="h-3.5 w-3.5" />
+                طريقة احتساب الأجر (المادة 05)
+              </Label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setWageType("hourly")}
+                  className={cn(
+                    "text-xs py-1.5 px-2 rounded-lg border text-center font-medium transition-all",
+                    wageType === "hourly"
+                      ? "bg-teal-600 text-white border-teal-600 shadow-sm"
+                      : "bg-card hover:bg-muted border-border text-foreground"
+                  )}
+                >
+                  حسب الحجم الساعي
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWageType("monthly")}
+                  className={cn(
+                    "text-xs py-1.5 px-2 rounded-lg border text-center font-medium transition-all",
+                    wageType === "monthly"
+                      ? "bg-teal-600 text-white border-teal-600 shadow-sm"
+                      : "bg-card hover:bg-muted border-border text-foreground"
+                  )}
+                >
+                  راتب شهري ثابت
+                </button>
+              </div>
+
+              {wageType === "hourly" ? (
+                <div>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-[11px] text-muted-foreground">سعر الساعة بالنظام (دج/ساعة)</Label>
+                    <span className="text-[10px] text-amber-600 font-medium">للحساب الداخلي للنظام فقط — لا يُكتب في العقد</span>
                   </div>
-                )}
+                  <Input
+                    type="number"
+                    value={hourRate}
+                    onChange={(e) => setHourRate(+e.target.value)}
+                    className="h-8 text-xs mt-1"
+                    placeholder="200"
+                  />
+                  <div className="mt-1.5 p-2 rounded-lg bg-teal-500/10 border border-teal-500/20 text-[11px] text-teal-900 dark:text-teal-200 font-medium leading-relaxed">
+                    نص المادة 05 في العقد: <strong>«يتقاضى الطرف الثاني أجرًا يُحسب على أساس الحجم الساعي كل شهر.»</strong>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <Label className="text-[11px] text-muted-foreground">الراتب الشهري الصافي (دج/شهر)</Label>
+                  <Input
+                    type="number"
+                    value={monthlySalary}
+                    onChange={(e) => setMonthlySalary(+e.target.value)}
+                    className="h-8 text-xs mt-1"
+                    placeholder="30000"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div>
+              <Label className="text-xs">أوقات العمل وجدول الدوام (المادة 04)</Label>
+              <Textarea
+                value={workSchedule}
+                onChange={(e) => setWorkSchedule(e.target.value)}
+                rows={2}
+                className="text-xs mt-1 resize-none"
+              />
+            </div>
+
+            <div>
+              <Label className="text-xs">ملاحظات داخلية (اختياري)</Label>
+              <Textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={1}
+                placeholder="ملاحظات لإدارة النادي لا تظهر في العقد المطبوع..."
+                className="text-xs mt-1 resize-none"
+              />
+            </div>
+          </div>
+
+          {/* محرر المواد القانونية (قابلة للتعديل والطي) */}
+          <div className="rounded-2xl border border-border/60 bg-card overflow-hidden shadow-sm">
+            <button
+              type="button"
+              onClick={() => setShowArticlesEditor(!showArticlesEditor)}
+              className="w-full flex items-center justify-between p-3.5 text-xs font-bold text-foreground hover:bg-muted/40 transition-colors"
+            >
+              <span className="flex items-center gap-2">
+                <FileText className="h-4 w-4 text-teal-600" />
+                تخصيص نصوص المواد العشر (المادة 01 إلى 10)
+              </span>
+              <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <span>{showArticlesEditor ? "إخفاء المحرر" : "فتح والتعديل"}</span>
+                {showArticlesEditor ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
               </div>
+            </button>
+
+            {showArticlesEditor && (
+              <div className="p-3 border-t border-border/60 bg-muted/20 space-y-2">
+                <p className="text-[11px] text-muted-foreground">
+                  يمكنك تعديل أي مادة من المواد العشر أدناه. تستبدل المتغيرات المضمنة بين <code className="font-mono bg-muted px-1 rounded">{"{{}}"}</code> تلقائياً:
+                </p>
+                <Textarea
+                  value={customArticlesHTML}
+                  onChange={(e) => setCustomArticlesHTML(e.target.value)}
+                  rows={14}
+                  className="font-mono text-[11px] dir-ltr text-left"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setCustomArticlesHTML(OFFICIAL_CDD_TEMPLATE_HTML)}
+                  className="text-xs text-rose-600 hover:text-rose-700"
+                >
+                  <RotateCcw className="h-3 w-3 ml-1" />
+                  استعادة النص النموذجي الأصلي للمواد العشر
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* أزرار الحفظ والإجراءات في عمود المدخلات */}
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <Button
+              type="button"
+              onClick={() => handleSaveContract(false)}
+              disabled={saving}
+              className="h-10 text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white gap-1.5 shadow-sm"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              حفظ واعتماد العقد
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => handleSaveContract(true)}
+              disabled={saving}
+              className="h-10 text-xs font-bold gap-1.5"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
+              حفظ كمسودة
+            </Button>
+          </div>
+        </div>
+
+        {/* ══════════ عمود المعاينة المباشرة المطبوعة (7 أعمدة على الشاشات الكبيرة) ══════════ */}
+        <div className="xl:col-span-7 space-y-3">
+          {/* شريط الإجراءات السريعة للمعاينة */}
+          <div className="rounded-xl border border-border/60 bg-card p-3 flex flex-wrap items-center justify-between gap-2 shadow-sm">
+            <div className="flex items-center gap-2">
+              <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-xs font-bold text-foreground">
+                معاينة مستند A4 المعتمد (الترويسة الموحدة + التواقيع)
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleInstantPrint}
+                className="h-8 text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-100 dark:hover:bg-slate-200 dark:text-slate-900 gap-1"
+                title="طباعة العقد بمقاس A4 أو حفظه كـ PDF"
+              >
+                <Printer className="h-3.5 w-3.5" />
+                طباعة فورية / PDF
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleInstantWord}
+                className="h-8 text-xs font-medium gap-1"
+                title="تصدير بصيغة Word جاهز للتعديل"
+              >
+                <Download className="h-3.5 w-3.5 text-blue-600" />
+                Word
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => handleSaveContract(false)}
+                disabled={saving}
+                className="h-8 text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white gap-1"
+              >
+                {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                اعتماد وحفظ
+              </Button>
+            </div>
+          </div>
+
+          {/* حاوية الورقة A4 المطبوعة */}
+          <div className="rounded-2xl border border-slate-300 dark:border-slate-800 bg-slate-100 dark:bg-slate-950 p-2 sm:p-4 shadow-inner">
+            <div className="mx-auto w-full max-w-[210mm] bg-white rounded-xl shadow-xl border border-slate-200 p-5 md:p-8 max-h-[820px] overflow-y-auto text-foreground print:max-h-none print:shadow-none print:border-none">
+              <div dangerouslySetInnerHTML={{ __html: fullDocumentHTML }} />
+            </div>
+          </div>
+
+          {/* شريط الإجراءات السفلي لتسهيل الاستخدام بعد التمرير */}
+          <div className="flex items-center justify-between gap-2 p-2 bg-muted/30 rounded-xl text-xs text-muted-foreground">
+            <span>جاهز للتسليم والاعتماد الإداري من 3 نسخ</span>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleInstantPrint}
+                className="h-8 text-xs gap-1"
+              >
+                <Printer className="h-3.5 w-3.5" />
+                طباعة سريعة
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => handleSaveContract(false)}
+                disabled={saving}
+                className="h-8 text-xs bg-teal-600 hover:bg-teal-700 text-white font-bold gap-1"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                اعتماد العقد
+              </Button>
             </div>
           </div>
         </div>
@@ -1935,3 +2537,4 @@ function CreateContractTab({ employees, onCreated }: {
     </div>
   );
 }
+

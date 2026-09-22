@@ -68,6 +68,7 @@ import { StaffCompensationsPanel } from "@/components/staff-compensations-panel"
 import { WaitlistPanel } from "@/components/waitlist-panel";
 import { useSubscriptionTypes } from "@/hooks/use-subscription-types";
 import { ContractsPanel } from "@/components/contracts-panel";
+import { IncomingMailPanel } from "@/components/incoming-mail-panel";
 
 
 import { NotificationBell } from "@/components/notification-bell";
@@ -211,12 +212,35 @@ export default function Home() {
   const [recordTarget, setRecordTarget] = useState<SubscriberWithComputed | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  // ★ التبويبات المالية المدمجة — قديم → جديد (توافق مع الروابط السابقة)
+  const LEGACY_TAB_MAP: Record<string, string> = {
+    "financial-dashboard": "financial-hub",
+    "cash-register": "financial-hub",
+    "charges": "financial-hub",
+    "financial-payments": "financial-hub",
+    "financial-reports": "financial-hub",
+  };
+
   // Controlled tabs + mobile nav drawer
-  // 🔑 التبويب الافتراضي حسب الدور، لكن يُحفظ في localStorage ليبقى عند التحديث
+  // 🔑 التبويب الافتراضي حسب الدور
   const defaultTab = sessionUser?.role === "accountant" ? "financial-hub"
     : (sessionUser?.role === "admin" || sessionUser?.role === "superadmin" ? "dashboard" : "attendance");
-  const [activeTab, setActiveTab] = useState<string>(defaultTab);
-  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set([defaultTab]));
+
+  // ★ تحديد التبويب الأولي: إذا تم تحديث الصفحة (F5) يبقى في التبويب الحالي
+  // بينما فتح الحساب الجديد يبدأ من أول صفحة (لوحة التحكم)
+  const getInitialTab = (): string => {
+    if (typeof window === "undefined") return defaultTab;
+    try {
+      const hash = window.location.hash.replace(/^#/, "");
+      if (hash && hash !== "dashboard") return LEGACY_TAB_MAP[hash] || hash;
+      const sessionTab = sessionStorage.getItem("rcs-active-tab");
+      if (sessionTab && sessionTab !== "dashboard") return LEGACY_TAB_MAP[sessionTab] || sessionTab;
+    } catch {}
+    return defaultTab;
+  };
+
+  const [activeTab, setActiveTab] = useState<string>(getInitialTab);
+  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set([getInitialTab()]));
 
   // حالة طي القائمة الجانبية مع التخزين في localStorage وتكيف تلقائي للأجهزة اللوحية
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
@@ -256,26 +280,35 @@ export default function Home() {
   // التقرير المفتوح حالياً في مركز التقارير
   const [openReportId, setOpenReportId] = useState<string | null>(null);
 
-  // ★ التبويبات المالية المدمجة — قديم → جديد (توافق مع localStorage القديم)
-  const LEGACY_TAB_MAP: Record<string, string> = {
-    "financial-dashboard": "financial-hub",
-    "cash-register": "financial-hub",
-    "charges": "financial-hub",
-    "financial-payments": "financial-hub",
-    "financial-reports": "financial-hub",
-  };
-  // ★ استرجاع التبويب المحفوظ عند تحميل الصفحة (يبقى عند التحديث)
+  // ★ استرجاع التبويب عند تحديث الصفحة F5
   useEffect(() => {
     try {
-      const savedTab = localStorage.getItem("rcs-active-tab");
-      if (savedTab) setActiveTab(LEGACY_TAB_MAP[savedTab] || savedTab);
+      const hash = window.location.hash.replace(/^#/, "");
+      if (hash) {
+        const mapped = LEGACY_TAB_MAP[hash] || hash;
+        setActiveTab(mapped);
+      } else {
+        const sessionTab = sessionStorage.getItem("rcs-active-tab");
+        if (sessionTab) {
+          const mapped = LEGACY_TAB_MAP[sessionTab] || sessionTab;
+          setActiveTab(mapped);
+        }
+      }
     } catch {}
   }, []);
 
-  // مسح التقرير المفتوح عند تغيير التبويب + حفظ التبويب
+  // مسح التقرير المفتوح عند تغيير التبويب + حفظ التبويب في الجلسة والرابط للـ F5
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
-    try { localStorage.setItem("rcs-active-tab", tab); } catch {}
+    try {
+      sessionStorage.setItem("rcs-active-tab", tab);
+      localStorage.setItem("rcs-active-tab", tab);
+      if (typeof window !== "undefined") {
+        const newHash = tab === defaultTab || tab === "dashboard" ? "" : `#${tab}`;
+        const newUrl = window.location.pathname + window.location.search + newHash;
+        window.history.replaceState(null, "", newUrl);
+      }
+    } catch {}
     if (tab !== "export") setOpenReportId(null);
   };
   // Filters drawer (mobile)
@@ -348,6 +381,10 @@ export default function Home() {
   }, []);
 
   const handleLogout = async () => {
+    try {
+      sessionStorage.removeItem("rcs-active-tab");
+      localStorage.removeItem("rcs-active-tab");
+    } catch {}
     await fetch("/api/auth/logout", { method: "POST" });
     window.location.href = "/login";
   };
@@ -1129,6 +1166,13 @@ export default function Home() {
             <TabsContent value="staff-compensations" forceMount className="mt-0 data-[state=inactive]:hidden">
               {/* ★ المحاسب المالي يرى التعويضات لكن لا يضيف/يعدّل (canManage=false) */}
               <StaffCompensationsPanel canManage={hasPermission(sessionUser.role, "staffCompensationsManage")} />
+            </TabsContent>
+          )}
+
+          {/* INCOMING MAIL TAB (الوارد الإداري) */}
+          {hasPermission(sessionUser.role, "incomingMail") && visitedTabs.has("incoming-mail") && (
+            <TabsContent value="incoming-mail" forceMount className="mt-0 data-[state=inactive]:hidden">
+              <IncomingMailPanel userRole={sessionUser.role} />
             </TabsContent>
           )}
 

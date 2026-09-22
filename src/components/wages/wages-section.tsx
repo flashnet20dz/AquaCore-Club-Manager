@@ -45,6 +45,9 @@ import { toast } from "sonner";
 import { notifyFinancialUpdated } from "@/lib/financial-events";
 import { toLocalYMD } from "@/lib/wall-clock";
 import { ExportButton } from "@/components/shared/export-button";
+import { WageReceiptDialog, type WageReceiptInitialData } from "@/components/wages/wage-receipt-dialog";
+import { WageReceiptsList } from "@/components/wages/wage-receipts-list";
+import { FileText } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -178,6 +181,10 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
   const [voidTarget, setVoidTarget] = useState<(WagePaymentRow & { workerName?: string }) | null>(null);
   const [voidReason, setVoidReason] = useState("");
   const [voiding, setVoiding] = useState(false);
+
+  // حوار إنشاء وصل استلام المستحقات وأرشيف الوصولات
+  const [receiptTarget, setReceiptTarget] = useState<WageReceiptInitialData | null>(null);
+  const [showReceiptsList, setShowReceiptsList] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -346,6 +353,16 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
                 { key: "status", label: "حالة الدفع", format: (w) => (STATUS_UI[w.status]?.label || w.status) },
               ]}
             />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowReceiptsList(true)}
+              className="h-8 text-xs gap-1.5 border-teal-600/30 text-teal-700 dark:text-teal-300 hover:bg-teal-50 dark:hover:bg-teal-950/40"
+              title="عرض وطباعة وصولات الأجور السابقة"
+            >
+              <FileText className="h-3.5 w-3.5 text-teal-600" />
+              سجل وصولات الأجور
+            </Button>
             <div className="flex rounded-xl border border-border overflow-hidden">
               <button
                 onClick={() => setMode("month")}
@@ -469,16 +486,42 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
                           </Badge>
                         </td>
                         <td className="p-2 text-center">
-                          {w.remaining > 0 && canPay ? (
+                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
                             <Button
-                              size="sm" className="h-8 bg-amber-600 hover:bg-amber-700 text-white gap-1"
-                              onClick={() => { setPayTarget(w); setPayAmount(String(w.remaining)); setPayMethod("cash"); setPayDate(toLocalYMD()); setPayNote(""); setPayIdemKey(crypto.randomUUID()); }}
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-xs gap-1 text-teal-700 dark:text-teal-300 border-teal-500/40 hover:bg-teal-50 dark:hover:bg-teal-950/40"
+                              onClick={() => {
+                                setReceiptTarget({
+                                  userId: w.userId,
+                                  workerName: w.name,
+                                  workerPosition: w.position || ROLE_LABELS[w.role] || w.role,
+                                  periodLabel: periodLabel,
+                                  daysWorked: w.daysWorked,
+                                  workHours: w.totalHours,
+                                  hourRate: w.hourRate,
+                                  baseWage: Math.round(w.totalHours * w.hourRate),
+                                  gross: w.gross,
+                                  allowances: 0,
+                                  deductions: 0,
+                                  netAmount: w.gross,
+                                });
+                              }}
+                              title="إنشاء وصل استلام المستحقات المالية"
                             >
-                              <Banknote className="h-3.5 w-3.5" /> تسديد الأجر
+                              <FileText className="h-3.5 w-3.5 text-teal-600" /> إنشاء وصل
                             </Button>
-                          ) : (
-                            <span className="text-emerald-600 text-xs font-semibold">✓ مدفوع بالكامل</span>
-                          )}
+                            {w.remaining > 0 && canPay ? (
+                              <Button
+                                size="sm" className="h-8 bg-amber-600 hover:bg-amber-700 text-white gap-1"
+                                onClick={() => { setPayTarget(w); setPayAmount(String(w.remaining)); setPayMethod("cash"); setPayDate(toLocalYMD()); setPayNote(""); setPayIdemKey(crypto.randomUUID()); }}
+                              >
+                                <Banknote className="h-3.5 w-3.5" /> تسديد الأجر
+                              </Button>
+                            ) : (
+                              <span className="text-emerald-600 text-xs font-semibold">✓ مدفوع بالكامل</span>
+                            )}
+                          </div>
                         </td>
                       </motion.tr>
                     );
@@ -526,14 +569,43 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
                       <MiniStat label="المدفوع" value={formatDA(w.paid)} tone="emerald" />
                       <MiniStat label="المتبقي" value={formatDA(w.remaining)} tone={w.remaining > 0 ? "rose" : "emerald"} />
                     </div>
-                    {w.remaining > 0 && canPay && (
+                    <div className="grid grid-cols-2 gap-2 pt-1">
                       <Button
-                        size="sm" className="w-full h-9 bg-amber-600 hover:bg-amber-700 text-white gap-1"
-                        onClick={() => { setPayTarget(w); setPayAmount(String(w.remaining)); setPayMethod("cash"); setPayDate(toLocalYMD()); setPayNote(""); setPayIdemKey(crypto.randomUUID()); }}
+                        size="sm"
+                        variant="outline"
+                        className="h-9 text-xs gap-1 text-teal-700 dark:text-teal-300 border-teal-500/40 hover:bg-teal-50 dark:hover:bg-teal-950/40"
+                        onClick={() => {
+                          setReceiptTarget({
+                            userId: w.userId,
+                            workerName: w.name,
+                            workerPosition: w.position || ROLE_LABELS[w.role] || w.role,
+                            periodLabel: periodLabel,
+                            daysWorked: w.daysWorked,
+                            workHours: w.totalHours,
+                            hourRate: w.hourRate,
+                            baseWage: Math.round(w.totalHours * w.hourRate),
+                            gross: w.gross,
+                            allowances: 0,
+                            deductions: 0,
+                            netAmount: w.gross,
+                          });
+                        }}
                       >
-                        <Banknote className="h-4 w-4" /> تسديد الأجر
+                        <FileText className="h-4 w-4 text-teal-600" /> وصل المستحقات
                       </Button>
-                    )}
+                      {w.remaining > 0 && canPay ? (
+                        <Button
+                          size="sm" className="h-9 bg-amber-600 hover:bg-amber-700 text-white gap-1"
+                          onClick={() => { setPayTarget(w); setPayAmount(String(w.remaining)); setPayMethod("cash"); setPayDate(toLocalYMD()); setPayNote(""); setPayIdemKey(crypto.randomUUID()); }}
+                        >
+                          <Banknote className="h-4 w-4" /> تسديد الأجر
+                        </Button>
+                      ) : (
+                        <div className="flex items-center justify-center text-xs font-semibold text-emerald-600 bg-emerald-500/10 rounded-lg">
+                          ✓ مدفوع
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -767,6 +839,21 @@ export function WagesSection({ onChanged, compact, refreshSignal }: WagesSection
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ═══ حوار إنشاء وصل استلام المستحقات المالية ═══ */}
+      <WageReceiptDialog
+        open={!!receiptTarget}
+        onOpenChange={(o) => !o && setReceiptTarget(null)}
+        data={receiptTarget}
+        onSaved={fetchData}
+      />
+
+      {/* ═══ حوار أرشيف وسجل وصولات الأجور ═══ */}
+      <WageReceiptsList
+        open={showReceiptsList}
+        onOpenChange={setShowReceiptsList}
+        canManage={canVoid}
+      />
     </div>
   );
 }

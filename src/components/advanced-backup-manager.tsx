@@ -17,6 +17,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { type AutoBackupConfig } from "@/app/api/backup/auto/route";
+import { RestoreProgressDialog, type RestoreFilePayload } from "@/components/restore-progress-dialog";
 
 interface BackupFile {
   filename: string;
@@ -44,9 +45,8 @@ export function AdvancedBackupManager() {
   const [history, setHistory] = useState<BackupFile[]>([]);
   const [defaultDir, setDefaultDir] = useState("");
 
-  // استيراد واستعادة JSON و DB
-  const [importing, setImporting] = useState(false);
-  const [importingDb, setImportingDb] = useState(false);
+  // استيراد واستعادة JSON و DB عبر النافذة التفاعلية الاحترافية
+  const [restorePayload, setRestorePayload] = useState<RestoreFilePayload | null>(null);
   const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
   const fileRef = useRef<HTMLInputElement>(null);
   const dbFileRef = useRef<HTMLInputElement>(null);
@@ -148,71 +148,28 @@ export function AdvancedBackupManager() {
     }
   };
 
-  // 5. استيراد واستعادة ملف JSON
-  const handleImportJson = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 5. استيراد واستعادة ملف JSON أو DB عبر النافذة التفاعلية الاحترافية
+  const handleImportJson = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    if (!confirm(
-      importMode === "replace"
-        ? "⚠️ تنبيه هام: وضع الاستبدال سيقوم بحذف كافة السجلات الحالية واستبدالها بكافة بيانات النسخة (100%). هل تود المتابعة؟"
-        : "سيتم دمج بيانات النسخة الاحتياطية مع السجلات الحالية. هل تود المتابعة؟"
-    )) {
-      if (fileRef.current) fileRef.current.value = "";
-      return;
-    }
-
-    setImporting(true);
-    try {
-      const text = await file.text();
-      const backup = JSON.parse(text);
-      const res = await fetch("/api/backup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ backup, mode: importMode }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "فشل الاستيراد");
-      toast.success(data.message || `تمت استعادة البيانات بنجاح (${data.totalImported || data.imported} سجل)`);
-      setTimeout(() => window.location.reload(), 1500);
-    } catch (e: any) {
-      toast.error(e?.message || "فشل قراءة ملف النسخة الاحتياطية");
-    } finally {
-      setImporting(false);
-      if (fileRef.current) fileRef.current.value = "";
-    }
+    setRestorePayload({
+      file,
+      targetEndpoint: "/api/backup",
+      defaultMode: importMode,
+    });
+    if (fileRef.current) fileRef.current.value = "";
   };
 
   // 6. استيراد واستعادة ملف قاعدة البيانات المباشر (.db / .sqlite)
-  const handleImportDb = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportDb = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    if (!confirm(
-      "⚠️ تنبيه شديد الأهمية:\nاستعادة ملف قاعدة البيانات المباشر (.db) ستستبدل قاعدة بيانات النادي بالكامل بالنسخة المستوردة، مع إنشاء نسخة أمان احتياطية تلقائية للملف الحالي.\n\nهل أنت متأكد من رغبتك في المتابعة؟"
-    )) {
-      if (dbFileRef.current) dbFileRef.current.value = "";
-      return;
-    }
-
-    setImportingDb(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/backup/restore-db", {
-        method: "POST",
-        body: formData,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "فشلت استعادة قاعدة البيانات");
-      toast.success(data.message || "تمت استعادة قاعدة البيانات بنجاح 100%");
-      setTimeout(() => window.location.reload(), 1500);
-    } catch (err: any) {
-      toast.error(err?.message || "تعذرت استعادة قاعدة البيانات");
-    } finally {
-      setImportingDb(false);
-      if (dbFileRef.current) dbFileRef.current.value = "";
-    }
+    setRestorePayload({
+      file,
+      targetEndpoint: "/api/backup/restore-db",
+      defaultMode: "replace",
+    });
+    if (dbFileRef.current) dbFileRef.current.value = "";
   };
 
   const formatBytes = (bytes: number) => {
@@ -472,13 +429,17 @@ export function AdvancedBackupManager() {
         <div className="flex items-center gap-2">
           <Upload className="h-4 w-4 text-amber-600" />
           <h4 className="font-bold text-sm text-foreground">استيراد واستعادة البيانات الشاملة</h4>
-          <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 text-[10px]">
-            دعم ملفات .db و .json
+          <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-[10px]">
+            يشمل 100% من كل صفحات وأقسام الموقع
           </Badge>
         </div>
-        <p className="text-xs text-muted-foreground leading-relaxed">
-          يمكنك استعادة بيانات النادي كاملة 100% إما من لقطة قاعدة البيانات المباشرة (.db) أو من ملف البيانات المهيكل (.json).
-        </p>
+        <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 text-xs text-amber-900 dark:text-amber-300 leading-relaxed flex items-start gap-2">
+          <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5 text-amber-600" />
+          <div>
+            <span className="font-bold">تغطية تامة وشاملة بدون استثناء:</span>
+            <span> النسخ الاحتياطي والاستعادة يغطيان كافة صفحات الموقع الـ 24 وجداول قاعدة البيانات الـ 48 (المنخرطون، الصور الشخصية، العقود الإلكترونية، الحضور، التجديدات، الحصص والتعويضات، الدفتر المالي، عمال المسبح، ساعات العمل، أجور العمال، الوارد الإداري، جدول المسبح، بطاقات الانخراط، الإعدادات، والمستخدمون).</span>
+          </div>
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
           {/* خيار 1: استعادة ملف قاعدة البيانات المباشر (.db) */}
@@ -499,7 +460,7 @@ export function AdvancedBackupManager() {
             <div>
               <input
                 type="file"
-                accept=".db,.sqlite"
+                accept=".db,.sqlite,.json"
                 ref={dbFileRef}
                 onChange={handleImportDb}
                 className="hidden"
@@ -507,10 +468,9 @@ export function AdvancedBackupManager() {
               />
               <Button
                 onClick={() => dbFileRef.current?.click()}
-                disabled={importingDb}
-                className="w-full text-xs font-bold gap-2 h-9 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+                className="w-full text-xs font-bold gap-2 h-9 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs cursor-pointer"
               >
-                {importingDb ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Database className="h-3.5 w-3.5" />}
+                <Database className="h-3.5 w-3.5" />
                 اختيار ملف قاعدة البيانات (.db) والاستعادة
               </Button>
             </div>
@@ -544,7 +504,7 @@ export function AdvancedBackupManager() {
 
               <input
                 type="file"
-                accept=".json"
+                accept=".json,.db,.sqlite"
                 ref={fileRef}
                 onChange={handleImportJson}
                 className="hidden"
@@ -553,17 +513,23 @@ export function AdvancedBackupManager() {
 
               <Button
                 onClick={() => fileRef.current?.click()}
-                disabled={importing}
                 variant="outline"
-                className="w-full text-xs font-bold gap-2 h-9 border-blue-500/30 hover:bg-blue-500/10 text-blue-700 dark:text-blue-400"
+                className="w-full text-xs font-bold gap-2 h-9 border-blue-500/30 hover:bg-blue-500/10 text-blue-700 dark:text-blue-400 cursor-pointer"
               >
-                {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                <Upload className="h-3.5 w-3.5" />
                 اختيار ملف واستعادة البيانات (.json)
               </Button>
             </div>
           </div>
         </div>
       </div>
+
+      {/* نافذة التقدم والاستعادة التفاعلية الاحترافية */}
+      <RestoreProgressDialog
+        payload={restorePayload}
+        onClose={() => setRestorePayload(null)}
+        onSuccess={fetchConfigAndHistory}
+      />
     </div>
   );
 }
