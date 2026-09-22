@@ -6,6 +6,7 @@
  */
 import { db } from "../src/lib/db";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 
 const CLUB_EMAIL = "club@rcs.dz";
 
@@ -38,10 +39,8 @@ async function main() {
     console.log("♻️  حذف البيانات التجريبية القديمة...");
     await db.club.delete({ where: { id: existing.id } });
   }
-  // حذف مستخدمي الحسابات الافتراضية القديمة (بدون نادي)
-  for (const email of ["admin@rcs.dz", "coach@rcs.dz", "guard@rcs.dz"]) {
-    await db.user.deleteMany({ where: { email } });
-  }
+  // حذف مستخدمي الحسابات الافتراضية القديمة
+  await db.user.deleteMany({ where: { email: { in: ["demo-admin@aquacore.local", "demo-coach@aquacore.local", "demo-guard@aquacore.local"] } } });
 
   const now = new Date();
 
@@ -84,18 +83,23 @@ async function main() {
   });
 
   // ─── 3) المستخدمون ───
-  const adminHash = await bcrypt.hash("admin123", 10);
-  const coachHash = await bcrypt.hash("coach123", 10);
+  const adminPass = process.env.DEMO_ADMIN_PASSWORD || crypto.randomBytes(8).toString("hex");
+  const coachPass = process.env.DEMO_COACH_PASSWORD || crypto.randomBytes(8).toString("hex");
+  const adminHash = await bcrypt.hash(adminPass, 10);
+  const coachHash = await bcrypt.hash(coachPass, 10);
+  const adminEmail = process.env.DEMO_ADMIN_EMAIL || "demo-admin@aquacore.local";
+  const coachEmail = process.env.DEMO_COACH_EMAIL || "demo-coach@aquacore.local";
+  const guardEmail = process.env.DEMO_GUARD_EMAIL || "demo-guard@aquacore.local";
   const admin = await db.user.create({
-    data: { clubId: club.id, email: "admin@rcs.dz", name: "المدير العام", passwordHash: adminHash, role: "admin", phone: "0550123456", active: true, pending: false },
+    data: { clubId: club.id, email: adminEmail, name: "المدير العام", passwordHash: adminHash, role: "admin", phone: "0550123456", active: true, pending: false },
   });
   const coach = await db.user.create({
-    data: { clubId: club.id, email: "coach@rcs.dz", name: "المدرب يوسف", passwordHash: coachHash, role: "assistant", phone: "0661123456", active: true, pending: false },
+    data: { clubId: club.id, email: coachEmail, name: "المدرب يوسف", passwordHash: coachHash, role: "assistant", phone: "0661123456", active: true, pending: false },
   });
   const guard = await db.user.create({
-    data: { clubId: club.id, email: "guard@rcs.dz", name: "الحارس كريم", passwordHash: coachHash, role: "lifeguard", phone: "0770123456", active: true, pending: false },
+    data: { clubId: club.id, email: guardEmail, name: "الحارس كريم", passwordHash: coachHash, role: "lifeguard", phone: "0770123456", active: true, pending: false },
   });
-  console.log("✓ المستخدمون: admin@rcs.dz / coach@rcs.dz / guard@rcs.dz");
+  console.log(`✓ المستخدمون: ${adminEmail} / ${coachEmail} / ${guardEmail}`);
 
   // ─── 4) أنواع الاشتراك ───
   const types = [
@@ -352,10 +356,6 @@ async function main() {
 
   console.log("\n════════════════════════════════════════");
   console.log("🎉 تمت التهيئة بنجاح!");
-  console.log("   المدير:      admin@rcs.dz / admin123");
-  console.log("   المدرب:      coach@rcs.dz / coach123");
-  console.log("   الحارس:      guard@rcs.dz / coach123");
-  console.log("   PIN الكاشير: 1234");
   console.log("════════════════════════════════════════");
 }
 

@@ -1,5 +1,6 @@
 import { db } from "../src/lib/db";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 
 const FIRST_NAMES_M = [
   "محمد الأمين", "ياسين صلاح الدين", "فؤاد عبد القادر", "أحمد", "يوسف", "عبد الرحمن",
@@ -48,13 +49,15 @@ async function main() {
     console.log("  • النادي موجود:", club.name);
   }
 
-  // 2. تحديث / إنشاء الحسابات مع ربطها بالنادي
-  const defaultUsers = [
-    { email: "admin@rcs.dz", name: "المدير العام", password: "admin123", role: "admin", phone: "0550000000" },
-    { email: "assistant@rcs.dz", name: "المساعد الإداري", password: "assistant123", role: "assistant", phone: "0660000000" },
-    { email: "coach@rcs.dz", name: "حارس السباحة الرئيسي", password: "coach123", role: "lifeguard", phone: "0770000000" },
-    { email: "observer@rcs.dz", name: "المراقب", password: "observer123", role: "observer", phone: "0560000000" },
-  ];
+  // 2. تحديث / إنشاء الحسابات مع ربطها بالنادي إذا تم طلب ذلك صراحة
+  if (process.env.SEED_LOCAL_USERS !== "true") {
+    console.log("  ℹ️ تخطي إنشاء الحسابات التجريبية الافتراضية لمنع الثغرات الأمنية.");
+    console.log("  لتوليد مستخدم محلي، يمكنك تسجيل حسابك عبر الواجهة /register-club أو ضبط SEED_LOCAL_USERS=true.");
+  } else {
+    const adminPass = process.env.LOCAL_ADMIN_PASSWORD || crypto.randomBytes(8).toString("hex");
+    const defaultUsers = [
+      { email: process.env.LOCAL_ADMIN_EMAIL || "admin@aquacore.local", name: "مدير النظام", password: adminPass, role: "admin", phone: "0550000000" },
+    ];
 
   for (const u of defaultUsers) {
     const hash = await bcrypt.hash(u.password, 10);
@@ -78,6 +81,7 @@ async function main() {
     });
     console.log(`  ✓ المستخدم: ${u.email} (${u.role})`);
   }
+}
 
   // 3. إنشاء الإعدادات الأساسية
   const settings = [
@@ -184,12 +188,8 @@ async function main() {
     console.log("  ✓ تم إنشاء 30 منخرطاً مع سجلات الحضور");
 
   console.log("\n==================================================");
-  console.log("🎉 اكتملت تهيئة قاعدة البيانات المحلية بنجاح!");
-  console.log("بيانات تسجيل الدخول:");
-  console.log("  👑 المدير:    admin@rcs.dz     /  admin123");
-  console.log("  💼 المساعد:   assistant@rcs.dz /  assistant123");
-  console.log("  🏊 المدرب:    coach@rcs.dz     /  coach123");
-  console.log("  👁️ المراقب:   observer@rcs.dz  /  observer123");
+  console.log("🎉 اكتملت تهيئة قاعدة البيانات بنجاح!");
+  console.log("سجل الدخول بحسابك عبر صفحة /login أو أنشئ حساباً جديداً.");
   console.log("==================================================\n");
 }
 

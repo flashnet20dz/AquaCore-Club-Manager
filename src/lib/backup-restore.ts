@@ -123,7 +123,7 @@ export async function restoreSqliteBuffer(
           email: currentUser.email,
           name: currentUser.name || "المدير العام",
           role: "admin",
-          passwordHash: await bcrypt.hash("admin123", 10),
+          passwordHash: await bcrypt.hash(crypto.randomBytes(24).toString("hex"), 10),
           clubId: targetClub.id,
           active: true,
         },

@@ -39,12 +39,13 @@ export async function ensureDefaultAdmin(): Promise<void> {
       return;
     }
 
-    const password = crypto.randomBytes(16).toString("base64url"); // ~22 محرفاً عشوائياً
+    const adminEmail = process.env.INITIAL_ADMIN_EMAIL || "admin@aquacore.local";
+    const password = process.env.INITIAL_ADMIN_PASSWORD || crypto.randomBytes(16).toString("base64url");
     const passwordHash = await bcrypt.hash(password, 10);
     await db.user.create({
       data: {
-        email: "admin@rcs.dz",
-        name: "المدير العام",
+        email: adminEmail.toLowerCase().trim(),
+        name: process.env.INITIAL_ADMIN_NAME || "مدير النظام",
         passwordHash,
         role: "admin",
         phone: "0550000000",
@@ -53,8 +54,7 @@ export async function ensureDefaultAdmin(): Promise<void> {
       },
     });
     console.log(
-      "✓ Default admin created: admin@rcs.dz / " + password +
-        " — غيّر كلمة السر فوراً بعد أول دخول!"
+      `✓ Initial admin bootstrap: ${adminEmail} / ${password} — غيّر كلمة السر فوراً بعد أول دخول!`
     );
   } catch (e) {
     console.error("ensureDefaultAdmin error:", e);

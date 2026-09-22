@@ -53,10 +53,6 @@ for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /i "IPv4"') do (
 )
 echo  ═══════════════════════════════════════════════════
 echo.
-echo  الحسابات الافتراضية:
-echo    المدير:    admin@rcs.dz  /  admin123
-echo    المدرب:    coach@rcs.dz  /  coach123
-echo.
 echo  اضغط Ctrl+C لإيقاف الخادم
 echo  ═══════════════════════════════════════════════════
 echo.

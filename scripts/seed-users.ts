@@ -4,42 +4,26 @@ import bcrypt from "bcryptjs";
 async function main() {
   console.log("🌱 Seeding users & settings...");
 
-  // Default admin
-  const adminEmail = "admin@rcs.dz";
-  const existingAdmin = await db.user.findUnique({ where: { email: adminEmail } });
-  if (!existingAdmin) {
-    const hash = await bcrypt.hash("admin123", 10);
-    await db.user.create({
-      data: {
-        email: adminEmail,
-        name: "المدير العام",
-        passwordHash: hash,
-        role: "admin",
-        phone: "0550000000",
-      },
-    });
-    console.log(`  ✓ Admin: ${adminEmail} / admin123`);
+  if (process.env.SEED_USERS !== "true") {
+    console.log("ℹ️ تم تخطي زرع المستخدمين الافتراضيين لحماية الأمان.");
   } else {
-    console.log(`  • Admin already exists`);
-  }
-
-  // Default coach
-  const coachEmail = "coach@rcs.dz";
-  const existingCoach = await db.user.findUnique({ where: { email: coachEmail } });
-  if (!existingCoach) {
-    const hash = await bcrypt.hash("coach123", 10);
-    await db.user.create({
-      data: {
-        email: coachEmail,
-        name: "المدرب الرئيسي",
-        passwordHash: hash,
-        role: "coach",
-        phone: "0660000000",
-      },
-    });
-    console.log(`  ✓ Coach: ${coachEmail} / coach123`);
-  } else {
-    console.log(`  • Coach already exists`);
+    // Optional bootstrap only if explicitly enabled
+    const adminEmail = process.env.INITIAL_ADMIN_EMAIL || "admin@aquacore.local";
+    const existingAdmin = await db.user.findUnique({ where: { email: adminEmail } });
+    if (!existingAdmin) {
+      const password = process.env.INITIAL_ADMIN_PASSWORD || "AdminPass@" + Math.random().toString(36).slice(-6);
+      const hash = await bcrypt.hash(password, 10);
+      await db.user.create({
+        data: {
+          email: adminEmail,
+          name: "المدير العام",
+          passwordHash: hash,
+          role: "admin",
+          phone: "0550000000",
+        },
+      });
+      console.log(`  ✓ Admin created: ${adminEmail}`);
+    }
   }
 
   // Settings — Setting is club-scoped (@@unique([clubId, key]))
@@ -127,9 +111,6 @@ async function main() {
   }
 
   console.log("\n✅ Seed complete!");
-  console.log("\n📋 Login credentials:");
-  console.log("  Admin: admin@rcs.dz / admin123");
-  console.log("  Coach: coach@rcs.dz / coach123");
 }
 
 main()

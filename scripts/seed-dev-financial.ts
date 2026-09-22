@@ -17,11 +17,13 @@ async function main() {
       status: "active",
     } as any,
   });
-  const hash = await bcrypt.hash("admin123", 10);
+  const adminEmail = process.env.DEV_ADMIN_EMAIL || "admin@aquacore.local";
+  const adminPass = process.env.DEV_ADMIN_PASSWORD || "DevAdminPass@" + Math.random().toString(36).slice(-6);
+  const hash = await bcrypt.hash(adminPass, 10);
   const admin = await db.user.upsert({
-    where: { email: "admin@rcs.dz" },
+    where: { email: adminEmail },
     update: { clubId, passwordHash: hash, active: true, pending: false },
-    create: { email: "admin@rcs.dz", name: "المدير العام", passwordHash: hash, role: "admin", phone: "0550000000", active: true, pending: false, clubId },
+    create: { email: adminEmail, name: "المدير العام", passwordHash: hash, role: "admin", phone: "0550000000", active: true, pending: false, clubId },
   });
   // أنواع اشتراك واقعية (RCS)
   const types = [

@@ -215,15 +215,15 @@ export async function GET(req: NextRequest) {
       // SQLite / صلاحيات ناقصة — تجاهل بلا فشل
     }
 
-    // Seed default admin
+    // Optional seed admin if provided via environment
     const userCount = await db.user.count().catch(() => -1);
-    if (userCount === 0) {
+    if (userCount === 0 && process.env.INITIAL_ADMIN_EMAIL && process.env.INITIAL_ADMIN_PASSWORD) {
       const bcrypt = (await import("bcryptjs")).default;
-      const hash = await bcrypt.hash("admin123", 10);
+      const hash = await bcrypt.hash(process.env.INITIAL_ADMIN_PASSWORD, 10);
       await db.user.create({
         data: {
-          email: "admin@rcs.dz",
-          name: "المدير العام",
+          email: process.env.INITIAL_ADMIN_EMAIL.toLowerCase().trim(),
+          name: process.env.INITIAL_ADMIN_NAME || "مدير النظام",
           passwordHash: hash,
           role: "admin",
           phone: "0550000000",
@@ -231,9 +231,9 @@ export async function GET(req: NextRequest) {
           pending: false,
         },
       });
-      results.push("✓ Default admin created: admin@rcs.dz / admin123");
+      results.push(`✓ Initial admin created from environment: ${process.env.INITIAL_ADMIN_EMAIL}`);
     } else {
-      results.push(`• Users already exist (${userCount})`);
+      results.push(`• Users present or register at /register-club (${userCount >= 0 ? userCount : 0})`);
     }
 
     // Seed default settings (use default-club-1 as fallback)
@@ -268,7 +268,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       results,
-      message: "Database setup complete. You can now log in with admin@rcs.dz / admin123",
+      message: "Database setup complete.",
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

@@ -60,9 +60,11 @@ async function main() {
 
   // ═══ 0) تسجيل الدخول ═══
   console.log("\n📋 0) تسجيل الدخول");
+  const testEmail = process.env.TEST_EMAIL || "test@aquacore.local";
+  const testPassword = process.env.TEST_PASSWORD || "TestPass123";
   const login = await api("/api/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email: "admin@rcs.dz", password: "admin123" }),
+    body: JSON.stringify({ email: testEmail, password: testPassword }),
   });
   ok("login 200", login.status === 200, `role=${login.data?.user?.role}`);
   const adminId = login.data?.user?.id;

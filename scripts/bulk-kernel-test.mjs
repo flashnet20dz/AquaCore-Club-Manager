@@ -28,7 +28,9 @@ async function api(path, opts = {}) {
 async function main() {
   console.log(`\n🧪 BULK INSURANCE × BATCH KERNEL — ${TAG}\n${"═".repeat(60)}`);
 
-  const login = await api("/api/auth/login", { method: "POST", body: JSON.stringify({ email: "admin@rcs.dz", password: "admin123" }) });
+  const testEmail = process.env.TEST_EMAIL || "test@aquacore.local";
+  const testPassword = process.env.TEST_PASSWORD || "TestPass123";
+  const login = await api("/api/auth/login", { method: "POST", body: JSON.stringify({ email: testEmail, password: testPassword }) });
   ok("login 200", login.status === 200, login.data?.user?.role);
   const clubId = login.data?.user?.clubId;
   if (!clubId) { console.log("ℹ️ clubId من القاعدة مباشرة…"); }
