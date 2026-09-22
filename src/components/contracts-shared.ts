@@ -44,12 +44,13 @@ export function employeeStatusInfo(emp: { status?: string; active: boolean }): {
   return EMPLOYEE_STATUS_UI[s] || EMPLOYEE_STATUS_UI.ACTIVE;
 }
 
+/** تاريخ العرض بصيغة DD/MM/YYYY — مثل باقي تواريخ الموقع (date-utils) */
 export function formatDate(d: string | Date | null | undefined): string {
   if (!d) return "—";
   const date = new Date(d);
   if (isNaN(date.getTime())) return "—";
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
-  return `${y}/${m}/${day}`;
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const y = date.getFullYear();
+  return `${day}/${m}/${y}`;
 }

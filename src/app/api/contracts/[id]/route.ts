@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
-import { substituteVariables, formatDateYMD, type ContractVariables } from "@/lib/contract-variables";
+import { resolveTargetClubId } from "@/lib/tenant";
+import { substituteVariables, formatDateDMY, type ContractVariables } from "@/lib/contract-variables";
 
 /**
  * /api/contracts/[id] (المرحلة 5 — §4/§24/§26/§35)
@@ -24,11 +25,14 @@ export async function GET(
 ) {
   try {
     const user = await getCurrentUser();
-    if (!user || !user.clubId) return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
+    if (!user) return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
+    // 🔑 superadmin: أول نادٍ نشط بدل 403 صامت
+    const ctxClubId = await resolveTargetClubId(user);
+    if (!ctxClubId) return NextResponse.json({ error: "لم يتم العثور على نادٍ" }, { status: 400 });
     const { id } = await params;
 
     const contract = await db.employmentContract.findFirst({
-      where: { id, clubId: user.clubId },
+      where: { id, clubId: ctxClubId },
       include: { employee: true, template: true },
     });
     if (!contract) return NextResponse.json({ error: "غير موجود" }, { status: 404 });
@@ -50,7 +54,9 @@ export async function PATCH(
     }
     const { id } = await params;
     const body = await req.json();
-    const clubId = user.clubId!;
+    // 🔑 superadmin: حل نادي الهدف
+    const clubId = await resolveTargetClubId(user, body.clubId);
+    if (!clubId) return NextResponse.json({ error: "لم يتم العثور على نادٍ" }, { status: 400 });
 
     const original = await db.employmentContract.findFirst({ where: { id, clubId } });
     if (!original) return NextResponse.json({ error: "غير موجود" }, { status: 404 });
@@ -158,20 +164,20 @@ export async function PATCH(
         club_name: settingsMap.clubName || "النادي",
         club_branch: settingsMap.branchName || "",
         worker_name: `${employee.lastName} ${employee.firstName}`.trim(),
-        birth_date: formatDateYMD(employee.birthDate),
+        birth_date: formatDateDMY(employee.birthDate),
         birth_place: employee.birthPlace || "—",
         address: employee.address || "—",
         phone: employee.phone || "—",
         national_id: employee.nationalId || "—",
         position: original.position,
         contract_number: newContractNumber,
-        start_date: formatDateYMD(sd),
-        end_date: formatDateYMD(newEndDate),
+        start_date: formatDateDMY(sd),
+        end_date: formatDateDMY(newEndDate),
         hour_rate: rate,
         work_schedule: original.workSchedule || "—",
         club_president: settingsMap.clubPresident || "—",
         association_president: settingsMap.associationPresident || "—",
-        today: formatDateYMD(new Date()),
+        today: formatDateDMY(new Date()),
       };
 
       // Get template content
@@ -276,7 +282,9 @@ export async function DELETE(
     if (!user || (user.role !== "admin" && user.role !== "superadmin")) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
     }
-    const clubId = user.clubId!;
+    // 🔑 superadmin: حل نادي الهدف
+    const clubId = await resolveTargetClubId(user);
+    if (!clubId) return NextResponse.json({ error: "لم يتم العثور على نادٍ" }, { status: 400 });
     const { id } = await params;
 
     const existing = await db.employmentContract.findFirst({ where: { id, clubId } });

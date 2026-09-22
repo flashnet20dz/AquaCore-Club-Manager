@@ -63,11 +63,12 @@ export async function ensureDefaultAdmin(): Promise<void> {
 
 /**
  * Ensure default settings exist (currency=دج, WhatsApp template, etc.)
+ * @param clubIdOverride نادٍ الهدف صراحةً (يُستخدم لـ superadmin الذي لا نادي له في الجلسة)
  */
-export async function ensureDefaultSettings(): Promise<void> {
+export async function ensureDefaultSettings(clubIdOverride?: string): Promise<void> {
   try {
-    const currentUser = await getCurrentUser();
-    const clubId = currentUser?.clubId;
+    const currentUser = clubIdOverride ? null : await getCurrentUser();
+    const clubId = clubIdOverride || currentUser?.clubId;
     if (!clubId) return;
 
     const count = await db.setting.count({ where: { clubId } });

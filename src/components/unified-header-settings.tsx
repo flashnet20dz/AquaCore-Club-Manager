@@ -23,6 +23,7 @@ import {
   type EnteteConfig,
   type EnteteElement,
 } from "@/components/unified-report-header";
+import { CLUB_FULL_NAME_ROLE, UNIFIED_LOGO_SIZE, composeClubFullName } from "@/lib/entete-shared";
 
 // ──────────────── Types ────────────────
 type Slot = "header-left" | "header-center" | "header-right" | "footer-left" | "footer-center" | "footer-right";
@@ -589,6 +590,7 @@ export function UnifiedHeaderSettings() {
                     placeholder="سعيدة في:"
                   />
                 </div>
+
 
                 <div className="space-y-1.5">
                   <Label className="text-xs flex items-center gap-1">

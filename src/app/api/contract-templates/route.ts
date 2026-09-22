@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { OFFICIAL_CDD_TEMPLATE_HTML } from "@/lib/contract-variables";
+import { resolveTargetClubId } from "@/lib/tenant";
+import { CDD_TEMPLATE, ensureCddTemplate } from "@/lib/cdd-template";
 
 // ─── Default templates (seeded on first GET if empty) ───
 const DEFAULT_TEMPLATES = [
@@ -141,22 +143,28 @@ const DEFAULT_TEMPLATES = [
   },
 ];
 
-// ─── GET: list templates (auto-seed defaults if empty) ───
+// ─── GET: list templates (auto-seed defaults if empty + ضمان النموذج الرسمي CDD) ───
 export async function GET() {
   try {
     const user = await getCurrentUser();
-    if (!user || !user.clubId) return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
+    if (!user) return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
+    // 🔑 superadmin: أول نادٍ نشط — بذل القوالب والقراءة تعملان لكل الأدوار
+    const clubId = await resolveTargetClubId(user);
+    if (!clubId) return NextResponse.json({ error: "لم يتم العثور على نادٍ" }, { status: 400 });
 
     // Seed defaults if none exist
-    const existing = await db.contractTemplate.count({ where: { clubId: user.clubId } });
+    const existing = await db.contractTemplate.count({ where: { clubId } });
     if (existing === 0) {
       await db.contractTemplate.createMany({
-        data: DEFAULT_TEMPLATES.map((t) => ({ ...t, clubId: user.clubId! })),
+        data: [...DEFAULT_TEMPLATES, { ...CDD_TEMPLATE }].map((t) => ({ ...t, clubId })),
       });
+    } else {
+      // النموذج الرسمي يُزرع حتى للأندية التي لديها قوالب قديمة (idempotent)
+      await ensureCddTemplate(clubId);
     }
 
     const templates = await db.contractTemplate.findMany({
-      where: { clubId: user.clubId },
+      where: { clubId },
       orderBy: { name: "asc" },
     });
     return NextResponse.json({ templates });
@@ -174,10 +182,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
     }
     const body = await req.json();
+    // 🔑 superadmin: حل نادي الهدف
+    const clubId = await resolveTargetClubId(user, body?.clubId);
+    if (!clubId) return NextResponse.json({ error: "لم يتم العثور على نادٍ" }, { status: 400 });
     const template = await db.contractTemplate.create({
       data: {
         ...body,
-        clubId: user.clubId!,
+        clubId,
       },
     });
     return NextResponse.json({ template }, { status: 201 });

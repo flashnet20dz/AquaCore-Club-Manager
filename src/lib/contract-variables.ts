@@ -34,6 +34,7 @@ export interface ContractVariables {
   position?: string;
   contract_number?: string;
   year?: string | number;
+  season_year?: string;
   start_date?: string;
   end_date?: string;
   hour_rate?: string | number;
@@ -41,12 +42,19 @@ export interface ContractVariables {
   wage_clause?: string;
   work_schedule?: string;
   workplace?: string;
+  club_seat?: string;
+  position_title?: string;
   first_party_rep?: string;
   first_party_role?: string;
+  first_party_representative?: string;
+  first_party_rep_title?: string;
   club_president?: string;
   association_president?: string;
   association_president_role?: string;
+  association_president_title?: string;
   city?: string;
+  sign_city?: string;
+  sign_date?: string;
   contract_date?: string;
   today?: string;
 }
@@ -76,7 +84,40 @@ export function formatDateYMD(d: Date | string | null | undefined): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
-  return `${y}/${m}/${day}`;
+  return `${day}/${m}/${y}`;
+}
+
+export function formatDateDMY(d: Date | string | null | undefined): string {
+  return formatDateYMD(d);
+}
+
+const DOTTED = ".........................";
+
+function escapeHtmlValue(s: unknown): string {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+export function renderContractHTML(
+  template: string,
+  vars: ContractVariables,
+  opts?: { dotted?: boolean },
+): string {
+  const dotted = opts?.dotted !== false;
+  let result = template;
+  for (const [key, value] of Object.entries(vars)) {
+    const placeholder = new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, "g");
+    const raw = String(value ?? "").trim();
+    result = result.replace(
+      placeholder,
+      raw ? escapeHtmlValue(raw) : dotted ? DOTTED : "—",
+    );
+  }
+  result = result.replace(/\{\{\s*\\w+\\s*\}\}/g, DOTTED);
+  return result;
 }
 
 export const AVAILABLE_VARIABLES = [

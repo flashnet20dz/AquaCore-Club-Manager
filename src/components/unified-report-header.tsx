@@ -422,6 +422,7 @@ export function unifiedReportHeaderHTML(opts: {
   reportType?: string;
   reportSubtitle?: string;
   reportNumber?: string;
+  showReportNumber?: boolean;
   date?: string;
   entete?: EnteteConfig;
   settings?: ClubSettings;
@@ -483,7 +484,7 @@ export function unifiedReportHeaderHTML(opts: {
   const refRowHTML = `
     <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:6px 16px;font-size:10pt;color:#334155;font-family:'Cairo','Tahoma',Arial;background:#f8fafc;">
       <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;">
-        ${entete.showReferenceRow ? `<span style="font-weight:bold;color:#0f172a;">${opts.reportNumber || `${entete.referenceNumberText || "الرقم: . . ./ن.ر.ر.س"} ${new Date().getFullYear()}`}</span>` : ""}
+        ${entete.showReferenceRow && opts.showReportNumber !== false ? `<span style="font-weight:bold;color:#0f172a;">${opts.reportNumber || `${entete.referenceNumberText || "الرقم: . . ./ن.ر.ر.س"} ${new Date().getFullYear()}`}</span>` : ""}
         <span style="color:#64748b;font-weight:600;">الموسم الرياضي: ${season}</span>
       </div>
       <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;">
