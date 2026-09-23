@@ -1289,3 +1289,27 @@ Stage Summary:
 - ✅ كل حقول التاريخ في صفحة العقود DD/MM/YYYY كموافقة بقية الموقع، والقيم محفوظة ISO دون أي تغيير على APIs
 - ✅ العقود الجديدة ستُولد بتواريخ DD/MM/YYYY (الميلاد/البداية/النهاية/التحرير)
 - ✅ POST/DELETE employees يعملان 201/200 — لا «فشل حفظ»
+
+---
+Task ID: 1
+Agent: Z.ai Code (main)
+Task: تغيير معلومات مدير الموقع — حذف الحساب التجريبي admin@rcs.dz وتفعيل الحساب الموثوق aladine20dz@gmail.com + إزالة كل الحسابات الافتراضية من GitHub
+
+Work Log:
+- جرد شامل: 31 ملفاً كانت تحتوي admin@rcs.dz/admin123 (+ super123 وworker123 وPIN 1234 وcoach/assistant/observer)
+- src/lib/session.ts: ensureDefaultAdmin أصبح يُنشئ الحساب الموثوق حصراً من ADMIN_EMAIL/ADMIN_PASSWORD/ADMIN_NAME + SEED_DEFAULT_ADMIN=true — لا يطبع كلمة السر أبداً ولا يبطل تغيير كلمة سر حساب موجود
+- src/app/api/setup/route.ts: bootstrap الحساب من متغيرات البيئة فقط، وإن لم تُضبط فلن يُنشأ أي حساب افتراضي إطلاقاً
+- scripts/seed-local-sqlite.ts + seed-users.ts: الحساب الموثوق من .env، والحسابات التجريبية اختيارية (SEED_DEMO_USERS=true) بكلمات سر عشوائية
+- scripts/seed-dev-worker.ts + seed-demo.ts: كلمات سر عشوائية تُطبع مرة واحدة، PIN الكاشير عشوائي
+- تنظيف 28 ملفاً مدعوم (docs + scripts + worklog) من كل بيانات الدخول الثابتة، وحذف security-fixes.patch وtest-pass.mjs وscripts/_fix-admin.ts (نية البعد)
+- .env المحلي: ADMIN_EMAIL=aladine20dz@gmail.com / ADMIN_PASSWORD=*** / SEED_DEFAULT_ADMIN=true (+DIRECT_URL لمتطلب directUrl في schema) — .env غير مرفوع لgit (تأكد git log --all -- .env فارغ)
+- scripts/set-owner-account.ts: حذف حسابات @rcs.dz من قاعدة البيانات المحلية وترقية الحساب الموثوق admin — النتيجة: حساب واحد فقط aladine20dz@gmail.com
+- إعادة توليد Prisma Client (كان سبب «فشل الحفظ» المحلي عميلاً قديماً)؛ الترحيلات 20260921/20260922 موجودة وستُطبق على إنتاج Vercel تلقائياً عبر migrate deploy
+- دمج origin/main (عمل الجلسة السابقة: عقود العمل + الترويسة + تنظيفها الأمني الموازي) بحسم: نسختي لملفات التشغيل/البذور (توحيد ADMIN_*) ونسخة البعد للمستندات وسكربتات الاختبار، مع الإجراء الجراحي لschema.prisma (HEAD=postgresql، العمل المحلي=sqlite + skip-worktree)
+- دفع وتحقق: remote HEAD == local HEAD == 0c465bc
+
+Stage Summary:
+- ✅ الدخول المحلي بالحساب الموثوق aladine20dz@gmail.com يعمل (200) وadmin@rcs.dz مرفوض (401) وحساب واحد فقط في قاعدة البيانات المحلية
+- ✅ صفر بيانات دخول ثابتة في المستودع المرفوع؛ كلمة السر الحقيقية موجودة فقط في .env المحلي (مستثنى) — يجب إضافتها كمتغيرات بيئة في Vercel عند الحاجة
+- ✅ إنتاج Vercel: سيحصل على ترحيلات الأعمدة تلقائياً؛ لتبديل حساب الإنتاج: ضع ADMIN_EMAIL/ADMIN_PASSWORD/SEED_DEFAULT_ADMIN=true في Vercel ثم سجّل الدخول مرة ثم احذف admin@rcs.dz من إدارة المستخدمين ثم أزل متغيرات كلمة السر
+- ⚠️ درس: skip-worktree على schema.prisma حماية مقصودة (استبدال جراحي sqlite محلياً vs postgresql في git) — لا تزلها إلا للدمج مع استعادتها فوراً
