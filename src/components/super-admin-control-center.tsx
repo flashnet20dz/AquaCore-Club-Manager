@@ -2736,7 +2736,7 @@ function AuditLogsTab() {
 //  المكوّن الرئيسي — مركز تحكم السوبر أدمن (12 تبويب)
 // ═══════════════════════════════════════════════════════════════
 
-export function SuperAdminControlCenter() {
+export function SuperAdminControlCenter({ initialTab = "general" }: { initialTab?: string } = {}) {
   return (
     <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
       <div className="p-4 border-b bg-gradient-to-l from-teal-500/10 to-sky-500/10">
@@ -2749,7 +2749,7 @@ export function SuperAdminControlCenter() {
         </p>
       </div>
 
-      <Tabs defaultValue="general" className="w-full p-4">
+      <Tabs defaultValue={initialTab} className="w-full p-4">
         <ScrollArea className="w-full">
           <TabsList className="grid w-max grid-cols-3 sm:grid-cols-6 lg:grid-cols-12 mb-4 h-auto">
             {TAB_LIST.map((t) => (
