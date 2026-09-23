@@ -4,7 +4,7 @@
  * هذه القراءات الطويلة هي ما كان يجلع BEGIN يفشل (P2028) قبل الإصلاح.
  */
 const BASE = "http://localhost:3000";
-const EMAIL = "admin@rcs.dz", PASSWORD = "admin123";
+const EMAIL = "admin@example.com", PASSWORD = "********";
 
 async function login() {
   const res = await fetch(`${BASE}/api/auth/login`, {

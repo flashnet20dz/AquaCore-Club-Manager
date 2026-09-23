@@ -23,7 +23,7 @@ async function api(path, opts = {}) {
 
 async function main() {
   console.log(`\n🧪 SOFT-DELETE ENFORCEMENT — FINAL AUDIT\n${"═".repeat(60)}`);
-  const login = await api("/api/auth/login", { method: "POST", body: JSON.stringify({ email: "admin@rcs.dz", password: "admin123" }) });
+  const login = await api("/api/auth/login", { method: "POST", body: JSON.stringify({ email: "admin@example.com", password: "********" }) });
   ok("login 200", login.status === 200);
 
   // ═══ 1) StaffCompensation: archive (NOT delete) ═══

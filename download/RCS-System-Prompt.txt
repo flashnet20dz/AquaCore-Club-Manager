@@ -53,7 +53,7 @@ PWA + Offline:
 - كلمة المرور مشفّرة بـ bcryptjs (10 rounds)
 - الجلسة تُخزَّن في جدول Session بقاعدة البيانات (تدوم 30 يوماً)
 - Cookie: rcs-session (httpOnly, sameSite=lax, secure in production)
-- عند أول تشغيل: ينشئ تلقائياً حساب admin@rcs.dz / admin123
+- عند أول تشغيل: ينشئ تلقائياً حساب admin@example.com / ********
 
 الأدوار الأربعة:
   الدور                 | الرمز  | الصلاحيات
@@ -63,10 +63,10 @@ PWA + Offline:
   مراقب (observer)      | 👁️   | لوحة التحكم، الحضور (عرض فقط)
 
 حسابات افتراضية:
-- admin@rcs.dz / admin123 (مدير)
-- assistant@rcs.dz / assistant123 (مساعد)
-- coach@rcs.dz / coach123 (حارس سباحة)
-- observer@rcs.dz / observer123 (مراقب)
+- admin@example.com / ******** (مدير)
+- assistant@example.com / ******** (مساعد)
+- coach@example.com / ******** (حارس سباحة)
+- observer@example.com / ******** (مراقب)
 
 دخول الكاشير السريع (PIN):
 - صفحة /pin منفصلة
@@ -670,10 +670,10 @@ prisma/
 - يعمل أوفلاين + مزامنة سحابية
 
 بيانات الدخول:
-- admin@rcs.dz / admin123
-- assistant@rcs.dz / assistant123
-- coach@rcs.dz / coach123
-- observer@rcs.dz / observer123
+- admin@example.com / ********
+- assistant@example.com / ********
+- coach@example.com / ********
+- observer@example.com / ********
 - صفحة PIN: /pin (رمز 4 أرقام)
 
 ═══════════════════════════════════════════════════════════

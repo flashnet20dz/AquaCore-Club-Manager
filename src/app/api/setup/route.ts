@@ -215,23 +215,32 @@ export async function GET(req: NextRequest) {
       // SQLite / صلاحيات ناقصة — تجاهل بلا فشل
     }
 
-    // Seed default admin
+    // Seed the designated owner account from environment variables
+    // 🔒 SECURITY: لا توجد أي بيانات دخول مكتوبة في الكود — إن لم تُضبط
+    // ADMIN_EMAIL/ADMIN_PASSWORD فلن يُنشأ أي حساب افتراضي إطلاقاً.
     const userCount = await db.user.count().catch(() => -1);
     if (userCount === 0) {
-      const bcrypt = (await import("bcryptjs")).default;
-      const hash = await bcrypt.hash("admin123", 10);
-      await db.user.create({
-        data: {
-          email: "admin@rcs.dz",
-          name: "المدير العام",
-          passwordHash: hash,
-          role: "admin",
-          phone: "0550000000",
-          active: true,
-          pending: false,
-        },
-      });
-      results.push("✓ Default admin created: admin@rcs.dz / admin123");
+      const adminEmail = process.env.ADMIN_EMAIL?.toLowerCase().trim();
+      const adminPassword = process.env.ADMIN_PASSWORD;
+      if (adminEmail && adminPassword) {
+        const bcrypt = (await import("bcryptjs")).default;
+        const hash = await bcrypt.hash(adminPassword, 10);
+        await db.user.create({
+          data: {
+            email: adminEmail,
+            name: process.env.ADMIN_NAME || "المدير العام",
+            passwordHash: hash,
+            role: "admin",
+            active: true,
+            pending: false,
+          },
+        });
+        results.push(`✓ حساب المدير الموثوق أُنشئ من متغيرات البيئة: ${adminEmail}`);
+      } else {
+        results.push(
+          "⚠️ لا يوجد مستخدمون ولم تُضبط ADMIN_EMAIL/ADMIN_PASSWORD — لن يُنشأ أي حساب افتراضي (الإعداد الآمن)"
+        );
+      }
     } else {
       results.push(`• Users already exist (${userCount})`);
     }
@@ -268,7 +277,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       results,
-      message: "Database setup complete. You can now log in with admin@rcs.dz / admin123",
+      message: "تم إعداد قاعدة البيانات. سجّل الدخول بحساب المدير الموثوق المضبوط في متغيرات البيئة (ADMIN_EMAIL).",
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

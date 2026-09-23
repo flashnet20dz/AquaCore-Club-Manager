@@ -21,10 +21,10 @@
   بيانات الدخول
 ═══════════════════════════════════════════════════════════
 
-  👑 المدير:      admin@rcs.dz     /  admin123
-  💼 المساعد:     assistant@rcs.dz /  assistant123
-  🏊 حارس السباحة: coach@rcs.dz    /  coach123
-  👁️ المراقب:     observer@rcs.dz  /  observer123
+  👑 المدير:      admin@example.com     /  ********
+  💼 المساعد:     assistant@example.com /  ********
+  🏊 حارس السباحة: coach@example.com    /  ********
+  👁️ المراقب:     observer@example.com  /  ********
   🔐 كاشير PIN:   /pin  (رمز 4 أرقام)
 
 ═══════════════════════════════════════════════════════════

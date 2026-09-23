@@ -1,7 +1,7 @@
 import { db } from "../src/lib/db";
 async function main() {
   const updated = await db.user.update({
-    where: { email: "admin@rcs.dz" },
+    where: { email: "admin@example.com" },
     data: { role: "superadmin" },
     select: { email: true, name: true, role: true, clubId: true },
   });

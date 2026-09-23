@@ -39,7 +39,7 @@ async function main() {
     await db.club.delete({ where: { id: existing.id } });
   }
   // حذف مستخدمي الحسابات الافتراضية القديمة (بدون نادي)
-  for (const email of ["admin@rcs.dz", "coach@rcs.dz", "guard@rcs.dz"]) {
+  for (const email of ["admin@example.com", "coach@example.com", "guard@example.com"]) {
     await db.user.deleteMany({ where: { email } });
   }
 
@@ -84,18 +84,18 @@ async function main() {
   });
 
   // ─── 3) المستخدمون ───
-  const adminHash = await bcrypt.hash("admin123", 10);
-  const coachHash = await bcrypt.hash("coach123", 10);
+  const adminHash = await bcrypt.hash("********", 10);
+  const coachHash = await bcrypt.hash("********", 10);
   const admin = await db.user.create({
-    data: { clubId: club.id, email: "admin@rcs.dz", name: "المدير العام", passwordHash: adminHash, role: "admin", phone: "0550123456", active: true, pending: false },
+    data: { clubId: club.id, email: "admin@example.com", name: "المدير العام", passwordHash: adminHash, role: "admin", phone: "0550123456", active: true, pending: false },
   });
   const coach = await db.user.create({
-    data: { clubId: club.id, email: "coach@rcs.dz", name: "المدرب يوسف", passwordHash: coachHash, role: "assistant", phone: "0661123456", active: true, pending: false },
+    data: { clubId: club.id, email: "coach@example.com", name: "المدرب يوسف", passwordHash: coachHash, role: "assistant", phone: "0661123456", active: true, pending: false },
   });
   const guard = await db.user.create({
-    data: { clubId: club.id, email: "guard@rcs.dz", name: "الحارس كريم", passwordHash: coachHash, role: "lifeguard", phone: "0770123456", active: true, pending: false },
+    data: { clubId: club.id, email: "guard@example.com", name: "الحارس كريم", passwordHash: coachHash, role: "lifeguard", phone: "0770123456", active: true, pending: false },
   });
-  console.log("✓ المستخدمون: admin@rcs.dz / coach@rcs.dz / guard@rcs.dz");
+  console.log("✓ المستخدمون: admin@example.com / coach@example.com / guard@example.com");
 
   // ─── 4) أنواع الاشتراك ───
   const types = [
@@ -347,15 +347,18 @@ async function main() {
       { clubId: club.id, userId: coach.id, type: "attendance_bulk", description: "تسجيل حضور جماعي للفترة المسائية", createdAt: daysAgo(2) },
     ],
   });
-  await db.cashierPin.create({ data: { clubId: club.id, pin: "1234", label: "كاشير رئيسي", role: "assistant" } });
-  console.log("✓ إشعارات + أنشطة + PIN كاشير (1234)");
+  // 🔒 PIN عشوائي يُطبع مرة واحدة — لا أكواد دخول ثابتة في الكود
+  const crypto = (await import("crypto")).default ?? (await import("crypto"));
+  const cashierPin = String(1000 + (crypto.randomBytes(2).readUInt16BE(0) % 9000));
+  await db.cashierPin.create({ data: { clubId: club.id, pin: cashierPin, label: "كاشير رئيسي", role: "assistant" } });
+  console.log(`✓ إشعارات + أنشطة + PIN كاشير (${cashierPin})`);
 
   console.log("\n════════════════════════════════════════");
   console.log("🎉 تمت التهيئة بنجاح!");
-  console.log("   المدير:      admin@rcs.dz / admin123");
-  console.log("   المدرب:      coach@rcs.dz / coach123");
-  console.log("   الحارس:      guard@rcs.dz / coach123");
-  console.log("   PIN الكاشير: 1234");
+  console.log("   المدير:      admin@example.com / ********");
+  console.log("   المدرب:      coach@example.com / ********");
+  console.log("   الحارس:      guard@example.com / ********");
+  console.log(`   PIN الكاشير: ${cashierPin}`);
   console.log("════════════════════════════════════════");
 }
 

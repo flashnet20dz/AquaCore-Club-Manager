@@ -47,7 +47,7 @@ async function main() {
       country: "الجزائر",
       managerName: "مدير الاختبار",
       phone: "0480000000",
-      email: "test-club@rcs.dz",
+      email: "test-club@example.com",
       status: "active",
     },
   });

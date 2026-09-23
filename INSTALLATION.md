@@ -50,8 +50,8 @@ start-server.bat
 4. ستجد صفحة تسجيل الدخول
 
 ### تسجيل الدخول:
-- **المدير**: `admin@rcs.dz` / `admin123`
-- **المدرب**: `coach@rcs.dz` / `coach123`
+- **المدير**: `admin@example.com` / `********`
+- **المدرب**: `coach@example.com` / `********`
 
 ---
 

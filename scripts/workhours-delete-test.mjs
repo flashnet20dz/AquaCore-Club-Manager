@@ -17,8 +17,8 @@
  * Usage: node scripts/workhours-delete-test.mjs [baseUrl]
  */
 const BASE = process.argv[2] || "http://localhost:3000";
-const EMAIL = process.env.TEST_EMAIL || "admin@rcs.dz";
-const PASSWORD = process.env.TEST_PASSWORD || "admin123";
+const EMAIL = process.env.TEST_EMAIL || "admin@example.com";
+const PASSWORD = process.env.TEST_PASSWORD || "********";
 
 // يوم اختبار معزول — بعيد عن بيانات المستخدم الحقيقية
 const DATE = process.env.TEST_DATE || "2026-09-16";

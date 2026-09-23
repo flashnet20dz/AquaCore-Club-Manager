@@ -14,8 +14,8 @@
 4. ثبّت كتطبيق (Add to Home Screen)
 
 ### الحسابات الافتراضية:
-- المدير: `admin@rcs.dz` / `admin123`
-- المدرب: `coach@rcs.dz` / `coach123`
+- المدير: `admin@example.com` / `********`
+- المدرب: `coach@example.com` / `********`
 
 ### بناء تطبيق سطح المكتب (.exe):
 ```bash

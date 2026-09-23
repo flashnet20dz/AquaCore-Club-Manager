@@ -70,8 +70,8 @@ if (Test-Path $portableExe) {
 }
 
 Write-Host "`n  🔑 معلومات الدخول:" -ForegroundColor Yellow
-Write-Host "     admin@rcs.dz / admin123" -ForegroundColor White
-Write-Host "     super@rcs.dz / super123" -ForegroundColor White
+Write-Host "     admin@example.com / ********" -ForegroundColor White
+Write-Host "     super@example.com / ********" -ForegroundColor White
 
 Write-Host "`n  🖥️ وضع التشغيل:" -ForegroundColor Yellow
 Write-Host "     1. يحاول تشغيل خادم محلي (Offline + SQLite)" -ForegroundColor White

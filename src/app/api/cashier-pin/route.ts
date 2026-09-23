@@ -6,7 +6,7 @@ import { rateLimit, incrementRateLimit, resetRateLimit, getClientIp } from "@/li
 
 /**
  * POST /api/cashier-pin
- * Body: { pin: "1234" }
+ * Body: { pin: "<رمز من 4 أرقام>" }
  * Authenticates via 4-digit PIN and creates a session.
  * Used for fast tablet cashier login.
  *

@@ -19,43 +19,56 @@ function generateToken(): string {
 }
 
 /**
- * Ensure a default admin account exists. Called from /api/auth/login
- * so the system is always usable on a fresh database.
+ * Ensure the designated owner account exists. Called from /api/auth/login.
+ *
+ * 🔒 SECURITY: لا توجد أي بيانات دخول مكتوبة في الكود — الحساب الموثوق
+ * يُدار حصرياً عبر متغيرات البيئة (غير مرفوعة إلى GitHub):
+ *   ADMIN_EMAIL          بريد المدير الموثوق
+ *   ADMIN_PASSWORD       كلمة السر (تُستخدم فقط عند إنشاء الحساب أول مرة)
+ *   ADMIN_NAME           الاسم المعروض (اختياري)
+ *   SEED_DEFAULT_ADMIN   يجب أن تكون "true" لتفعيل الإنشاء التلقائي
  */
 export async function ensureDefaultAdmin(): Promise<void> {
   try {
-    const count = await db.user.count();
-    if (count > 0) return;
+    const adminEmail = process.env.ADMIN_EMAIL?.toLowerCase().trim();
+    const adminPassword = process.env.ADMIN_PASSWORD;
 
-    // 🔒 الحساب الافتراضي لم يعد يُنشأ تلقائياً بكلمة سر معروفة — كانت "admin123"
-    // تتيح لأول زائر على قاعدة بيانات فارغة الاستيلاء على النظام كاملاً.
-    // الآن: يتطلب تفعيلاً صريحاً بمتغير البيئة SEED_DEFAULT_ADMIN=true،
-    // وتُولَّد كلمة سر عشوائية قوية تُطبع مرة واحدة في سجل الخادم.
-    if (process.env.SEED_DEFAULT_ADMIN !== "true") {
-      console.warn(
-        "⚠️ قاعدة البيانات فارغة ولا يوجد مستخدمون. " +
-          "لإنشاء حساب مدير أولي: اضبط SEED_DEFAULT_ADMIN=true ثم أعد المحاولة."
-      );
+    if (!adminEmail || !adminPassword || process.env.SEED_DEFAULT_ADMIN !== "true") {
+      const count = await db.user.count().catch(() => -1);
+      if (count === 0) {
+        console.warn(
+          "⚠️ قاعدة البيانات فارغة ولا يوجد مستخدمون. " +
+            "لإنشاء حساب المدير الموثوق: اضبط ADMIN_EMAIL و ADMIN_PASSWORD و SEED_DEFAULT_ADMIN=true ثم أعد المحاولة."
+        );
+      }
       return;
     }
 
-    const password = crypto.randomBytes(16).toString("base64url"); // ~22 محرفاً عشوائياً
-    const passwordHash = await bcrypt.hash(password, 10);
-    await db.user.create({
-      data: {
-        email: "admin@rcs.dz",
-        name: "المدير العام",
-        passwordHash,
-        role: "admin",
-        phone: "0550000000",
-        active: true,
-        pending: false,
-      },
-    });
-    console.log(
-      "✓ Default admin created: admin@rcs.dz / " + password +
-        " — غيّر كلمة السر فوراً بعد أول دخول!"
-    );
+    const existing = await db.user.findUnique({ where: { email: adminEmail } });
+    if (!existing) {
+      const passwordHash = await bcrypt.hash(adminPassword, 10);
+      await db.user.create({
+        data: {
+          email: adminEmail,
+          name: process.env.ADMIN_NAME || "المدير العام",
+          passwordHash,
+          role: "admin",
+          active: true,
+          pending: false,
+        },
+      });
+      // لا نطبع كلمة السر إطلاقاً — تُقرأ من متغيرات البيئة عند الحاجة
+      console.log("✓ تم إنشاء حساب المدير الموثوق من متغيرات البيئة:", adminEmail);
+    } else if (existing.role !== "admin" || !existing.active || existing.pending) {
+      // الحساب موجود لكنه ليس مديراً مفعّلاً — ترقيته فقط.
+      // ملاحظة: لا نكتب كلمة السر من البيئة على حساب موجود مسبقاً،
+      // حتى لا تُبطل أي تغيير لكلمة السر تم من الواجهة.
+      await db.user.update({
+        where: { id: existing.id },
+        data: { role: "admin", active: true, pending: false },
+      });
+      console.log("✓ تمت ترقية الحساب الموجود إلى مدير مفعّل:", adminEmail);
+    }
   } catch (e) {
     console.error("ensureDefaultAdmin error:", e);
   }

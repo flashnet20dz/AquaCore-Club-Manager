@@ -3,7 +3,10 @@ const db = new PrismaClient();
 async function main() {
   const clubId = "dev-club-1";
   const bcrypt = (await import("bcryptjs")).default;
-  const hash = await bcrypt.hash("worker123", 10);
+  // 🔒 كلمة سر عشوائية تُطبع مرة واحدة — لا كلمات سر ثابتة في الكود
+  const crypto = (await import("crypto")).default ?? (await import("crypto"));
+  const password = crypto.randomBytes(12).toString("base64url");
+  const hash = await bcrypt.hash(password, 10);
   const worker = await db.user.upsert({
     where: { email: "karim@test.dz" },
     update: { clubId },
@@ -33,6 +36,6 @@ async function main() {
     });
     created++;
   }
-  console.log("worker seeded:", worker.id, "workdays created:", created);
+  console.log("worker seeded:", worker.id, "workdays created:", created, "كلمة السر المؤقتة:", password);
 }
 main().finally(() => db.$disconnect());

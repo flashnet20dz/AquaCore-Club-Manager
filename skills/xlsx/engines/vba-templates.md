@@ -407,7 +407,7 @@ Public Sub SetupProtection()
     Set ws = ThisWorkbook.Sheets("Input")
     
     ' First unlock everything
-    ws.Unprotect Password:="admin123"
+    ws.Unprotect Password:="********"
     ws.Cells.Locked = True
     
     ' Unlock editable ranges
@@ -419,7 +419,7 @@ Public Sub SetupProtection()
     ws.Range("E5:E20").Interior.Color = RGB(255, 255, 230)
     
     ' Protect with options
-    ws.Protect Password:="admin123", _
+    ws.Protect Password:="********", _
         DrawingObjects:=True, _
         Contents:=True, _
         Scenarios:=True, _

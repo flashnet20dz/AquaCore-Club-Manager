@@ -62,7 +62,7 @@ async function main() {
   console.log("\n📋 0) تسجيل الدخول");
   const login = await api("/api/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email: "admin@rcs.dz", password: "admin123" }),
+    body: JSON.stringify({ email: "admin@example.com", password: "********" }),
   });
   ok("login 200", login.status === 200, `role=${login.data?.user?.role}`);
   const adminId = login.data?.user?.id;

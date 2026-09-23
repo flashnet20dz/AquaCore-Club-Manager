@@ -1,6 +1,6 @@
 /**
  * seed-workhours-repro.ts — بيئة إعادة إنتاج سيناريو «تسجيل 4 حصص»
- * نادي + admin@rcs.dz مرتبط بالنادي + عامل حارس (Abdelkrim, 400دج/س)
+ * نادي + admin@example.com مرتبط بالنادي + عامل حارس (Abdelkrim, 400دج/س)
  * + 4 حصص صباحية 09-10/10-11/11-12/12-13 (عامة — بلا dayOfWeek)
  * Run: bunx tsx scripts/seed-workhours-repro.ts
  */
@@ -9,7 +9,7 @@ import bcrypt from "bcryptjs";
 
 async function main() {
   // نادي
-  let club = await db.club.findFirst({ where: { email: "test@rcs.dz" } });
+  let club = await db.club.findFirst({ where: { email: "test@example.com" } });
   if (!club) {
     club = await db.club.create({
       data: {
@@ -17,7 +17,7 @@ async function main() {
         city: "الجزائر",
         managerName: "مدير الاختبار",
         phone: "0550112233",
-        email: "test@rcs.dz",
+        email: "test@example.com",
         status: "active",
       },
     });
@@ -25,8 +25,8 @@ async function main() {
   } else console.log("• Club exists:", club.id);
 
   // مدير مرتبط بالنادي
-  const adminEmail = "admin@rcs.dz";
-  const hash = await bcrypt.hash("admin123", 10);
+  const adminEmail = "admin@example.com";
+  const hash = await bcrypt.hash("********", 10);
   const admin = await db.user.upsert({
     where: { email: adminEmail },
     update: { clubId: club.id, role: "admin", active: true, pending: false, passwordHash: hash },
@@ -35,7 +35,7 @@ async function main() {
   console.log("✓ Admin:", admin.id, "clubId:", admin.clubId);
 
   // حارس المسبح Abdelkrim
-  const guardEmail = "abdelkrim@rcs.dz";
+  const guardEmail = "abdelkrim@example.com";
   const guard = await db.user.upsert({
     where: { email: guardEmail },
     update: { clubId: club.id, role: "lifeguard", active: true, pending: false },

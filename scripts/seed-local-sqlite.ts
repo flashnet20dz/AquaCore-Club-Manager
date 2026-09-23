@@ -48,35 +48,64 @@ async function main() {
     console.log("  • النادي موجود:", club.name);
   }
 
-  // 2. تحديث / إنشاء الحسابات مع ربطها بالنادي
-  const defaultUsers = [
-    { email: "admin@rcs.dz", name: "المدير العام", password: "admin123", role: "admin", phone: "0550000000" },
-    { email: "assistant@rcs.dz", name: "المساعد الإداري", password: "assistant123", role: "assistant", phone: "0660000000" },
-    { email: "coach@rcs.dz", name: "حارس السباحة الرئيسي", password: "coach123", role: "lifeguard", phone: "0770000000" },
-    { email: "observer@rcs.dz", name: "المراقب", password: "observer123", role: "observer", phone: "0560000000" },
-  ];
-
-  for (const u of defaultUsers) {
-    const hash = await bcrypt.hash(u.password, 10);
+  // 2. الحساب الموثوق يُدار عبر متغيرات البيئة — لا بيانات دخول في الكود
+  // 🔒 SECURITY: ADMIN_EMAIL + ADMIN_PASSWORD (غير مرفوعة إلى GitHub)
+  const adminEmail = process.env.ADMIN_EMAIL?.toLowerCase().trim();
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  if (adminEmail && adminPassword) {
+    const hash = await bcrypt.hash(adminPassword, 10);
     await db.user.upsert({
-      where: { email: u.email },
+      where: { email: adminEmail },
       update: {
         clubId: club.id,
-        role: u.role,
+        role: "admin",
         active: true,
-        name: u.name,
+        pending: false,
+        name: process.env.ADMIN_NAME || "المدير العام",
       },
       create: {
-        email: u.email,
-        name: u.name,
+        email: adminEmail,
+        name: process.env.ADMIN_NAME || "المدير العام",
         passwordHash: hash,
-        role: u.role,
-        phone: u.phone,
+        role: "admin",
+        phone: "0550000000",
         clubId: club.id,
         active: true,
+        pending: false,
       },
     });
-    console.log(`  ✓ المستخدم: ${u.email} (${u.role})`);
+    console.log(`  ✓ حساب المدير الموثوق: ${adminEmail}`);
+  } else {
+    console.log("  ⚠️ اضبط ADMIN_EMAIL و ADMIN_PASSWORD في .env لإنشاء حساب المدير الموثوق");
+  }
+
+  // حسابات أدوار تجريبية للتطوير فقط — لا تُنشأ إلا بـ SEED_DEMO_USERS=true
+  // وكلمات السر تُولَّد عشوائياً (لا تُطبع كلمات سر ثابتة في الكود)
+  if (process.env.SEED_DEMO_USERS === "true") {
+    const crypto = await import("crypto");
+    const demoUsers = [
+      { email: "assistant@example.com", name: "المساعد الإداري", role: "assistant", phone: "0660000000" },
+      { email: "coach@example.com", name: "حارس السباحة الرئيسي", role: "lifeguard", phone: "0770000000" },
+      { email: "observer@example.com", name: "المراقب", role: "observer", phone: "0560000000" },
+    ];
+    for (const u of demoUsers) {
+      const pw = crypto.randomBytes(12).toString("base64url");
+      const hash = await bcrypt.hash(pw, 10);
+      await db.user.upsert({
+        where: { email: u.email },
+        update: { clubId: club.id, role: u.role, active: true, name: u.name },
+        create: {
+          email: u.email,
+          name: u.name,
+          passwordHash: hash,
+          role: u.role,
+          phone: u.phone,
+          clubId: club.id,
+          active: true,
+        },
+      });
+      console.log(`  ✓ حساب تجريبي: ${u.email} (كلمة السر: ${pw} — للتطوير فقط)`);
+    }
   }
 
   // 3. إنشاء الإعدادات الأساسية
@@ -185,11 +214,11 @@ async function main() {
 
   console.log("\n==================================================");
   console.log("🎉 اكتملت تهيئة قاعدة البيانات المحلية بنجاح!");
-  console.log("بيانات تسجيل الدخول:");
-  console.log("  👑 المدير:    admin@rcs.dz     /  admin123");
-  console.log("  💼 المساعد:   assistant@rcs.dz /  assistant123");
-  console.log("  🏊 المدرب:    coach@rcs.dz     /  coach123");
-  console.log("  👁️ المراقب:   observer@rcs.dz  /  observer123");
+  if (process.env.ADMIN_EMAIL) {
+    console.log(`حساب المدير الموثوق: ${process.env.ADMIN_EMAIL} (كلمة السر من ADMIN_PASSWORD في .env)`);
+  } else {
+    console.log("⚠️ لم يُضبط ADMIN_EMAIL — لا يوجد حساب مدير");
+  }
   console.log("==================================================\n");
 }
 

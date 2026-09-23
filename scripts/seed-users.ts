@@ -4,42 +4,28 @@ import bcrypt from "bcryptjs";
 async function main() {
   console.log("🌱 Seeding users & settings...");
 
-  // Default admin
-  const adminEmail = "admin@rcs.dz";
-  const existingAdmin = await db.user.findUnique({ where: { email: adminEmail } });
-  if (!existingAdmin) {
-    const hash = await bcrypt.hash("admin123", 10);
-    await db.user.create({
-      data: {
-        email: adminEmail,
-        name: "المدير العام",
-        passwordHash: hash,
-        role: "admin",
-        phone: "0550000000",
-      },
-    });
-    console.log(`  ✓ Admin: ${adminEmail} / admin123`);
+  // 🔒 الحساب الموثوق من متغيرات البيئة — لا بيانات دخول في الكود
+  const adminEmail = process.env.ADMIN_EMAIL?.toLowerCase().trim();
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  if (!adminEmail || !adminPassword) {
+    console.log("  ⚠️ اضبط ADMIN_EMAIL و ADMIN_PASSWORD في .env لإنشاء حساب المدير الموثوق");
   } else {
-    console.log(`  • Admin already exists`);
-  }
-
-  // Default coach
-  const coachEmail = "coach@rcs.dz";
-  const existingCoach = await db.user.findUnique({ where: { email: coachEmail } });
-  if (!existingCoach) {
-    const hash = await bcrypt.hash("coach123", 10);
-    await db.user.create({
-      data: {
-        email: coachEmail,
-        name: "المدرب الرئيسي",
-        passwordHash: hash,
-        role: "coach",
-        phone: "0660000000",
-      },
-    });
-    console.log(`  ✓ Coach: ${coachEmail} / coach123`);
-  } else {
-    console.log(`  • Coach already exists`);
+    const existingAdmin = await db.user.findUnique({ where: { email: adminEmail } });
+    if (!existingAdmin) {
+      const hash = await bcrypt.hash(adminPassword, 10);
+      await db.user.create({
+        data: {
+          email: adminEmail,
+          name: process.env.ADMIN_NAME || "المدير العام",
+          passwordHash: hash,
+          role: "admin",
+          phone: "0550000000",
+        },
+      });
+      console.log(`  ✓ حساب المدير الموثوق: ${adminEmail}`);
+    } else {
+      console.log(`  • حساب المدير الموثوق موجود: ${adminEmail}`);
+    }
   }
 
   // Settings — Setting is club-scoped (@@unique([clubId, key]))
@@ -127,9 +113,9 @@ async function main() {
   }
 
   console.log("\n✅ Seed complete!");
-  console.log("\n📋 Login credentials:");
-  console.log("  Admin: admin@rcs.dz / admin123");
-  console.log("  Coach: coach@rcs.dz / coach123");
+  if (adminEmail) {
+    console.log(`\n📋 حساب المدير الموثوق: ${adminEmail} (كلمة السر من ADMIN_PASSWORD في .env)`);
+  }
 }
 
 main()

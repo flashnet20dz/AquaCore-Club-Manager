@@ -278,9 +278,9 @@ index 863a4f6..f8cdd99 100644
    try {
      const count = await db.user.count();
      if (count > 0) return;
--    const passwordHash = await bcrypt.hash("admin123", 10);
+-    const passwordHash = await bcrypt.hash("********", 10);
 +
-+    // 🔒 الحساب الافتراضي لم يعد يُنشأ تلقائياً بكلمة سر معروفة — كانت "admin123"
++    // 🔒 الحساب الافتراضي لم يعد يُنشأ تلقائياً بكلمة سر معروفة — كانت "********"
 +    // تتيح لأول زائر على قاعدة بيانات فارغة الاستيلاء على النظام كاملاً.
 +    // الآن: يتطلب تفعيلاً صريحاً بمتغير البيئة SEED_DEFAULT_ADMIN=true،
 +    // وتُولَّد كلمة سر عشوائية قوية تُطبع مرة واحدة في سجل الخادم.
@@ -296,14 +296,14 @@ index 863a4f6..f8cdd99 100644
 +    const passwordHash = await bcrypt.hash(password, 10);
      await db.user.create({
        data: {
-         email: "admin@rcs.dz",
+         email: "admin@example.com",
 @@ -37,7 +52,10 @@ export async function ensureDefaultAdmin(): Promise<void> {
          pending: false,
        },
      });
--    console.log("✓ Default admin created (admin@rcs.dz / admin123)");
+-    console.log("✓ Default admin created (admin@example.com / ********)");
 +    console.log(
-+      "✓ Default admin created: admin@rcs.dz / " + password +
++      "✓ Default admin created: admin@example.com / " + password +
 +        " — غيّر كلمة السر فوراً بعد أول دخول!"
 +    );
    } catch (e) {

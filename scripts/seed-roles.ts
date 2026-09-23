@@ -5,10 +5,10 @@ async function main() {
   console.log("🌱 Seeding users with new roles...");
 
   const users = [
-    { email: "admin@rcs.dz", name: "المدير العام", password: "admin123", role: "admin", phone: "0550000000" },
-    { email: "assistant@rcs.dz", name: "المساعد الإداري", password: "assistant123", role: "assistant", phone: "0660000000" },
-    { email: "coach@rcs.dz", name: "حارس السباحة الرئيسي", password: "coach123", role: "lifeguard", phone: "0770000000" },
-    { email: "observer@rcs.dz", name: "المراقب", password: "observer123", role: "observer", phone: "0560000000" },
+    { email: "admin@example.com", name: "المدير العام", password: "********", role: "admin", phone: "0550000000" },
+    { email: "assistant@example.com", name: "المساعد الإداري", password: "********", role: "assistant", phone: "0660000000" },
+    { email: "coach@example.com", name: "حارس السباحة الرئيسي", password: "********", role: "lifeguard", phone: "0770000000" },
+    { email: "observer@example.com", name: "المراقب", password: "********", role: "observer", phone: "0560000000" },
   ];
 
   for (const u of users) {
@@ -36,7 +36,7 @@ async function main() {
   }
 
   // Seed some work hours for the lifeguard
-  const lifeguard = await db.user.findUnique({ where: { email: "coach@rcs.dz" } });
+  const lifeguard = await db.user.findUnique({ where: { email: "coach@example.com" } });
   if (lifeguard) {
     const existingWh = await db.workHours.count();
     if (existingWh === 0) {
@@ -93,10 +93,10 @@ async function main() {
 
   console.log("\n✅ Seed complete!");
   console.log("\n📋 Login credentials:");
-  console.log("  👑 admin@rcs.dz / admin123 (مدير)");
-  console.log("  💼 assistant@rcs.dz / assistant123 (مساعد إداري)");
-  console.log("  🏊 coach@rcs.dz / coach123 (حارس سباحة)");
-  console.log("  👁️ observer@rcs.dz / observer123 (مراقب)");
+  console.log("  👑 admin@example.com / ******** (مدير)");
+  console.log("  💼 assistant@example.com / ******** (مساعد إداري)");
+  console.log("  🏊 coach@example.com / ******** (حارس سباحة)");
+  console.log("  👁️ observer@example.com / ******** (مراقب)");
 }
 
 main()

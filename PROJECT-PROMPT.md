@@ -232,8 +232,8 @@ model ContractTemplate {
 - Club isolation: all queries filter by `clubId`
 
 ### Login Credentials
-- Admin: `admin@rcs.dz` / `admin123`
-- SuperAdmin: `super@rcs.dz` / `super123`
+- Admin: `admin@example.com` / `********`
+- SuperAdmin: `super@example.com` / `********`
 
 ---
 
