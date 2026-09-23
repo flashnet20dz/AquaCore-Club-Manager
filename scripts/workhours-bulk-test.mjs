@@ -11,8 +11,8 @@
  * Usage: node scripts/workhours-bulk-test.mjs [baseUrl]
  */
 const BASE = process.argv[2] || "http://localhost:3000";
-const EMAIL = process.env.TEST_EMAIL || "admin@example.com";
-const PASSWORD = process.env.TEST_PASSWORD || "********";
+const EMAIL = process.env.TEST_EMAIL || "test@aquacore.local";
+const PASSWORD = process.env.TEST_PASSWORD || "TestPass123";
 
 let pass = 0, fail = 0;
 const results = [];

@@ -6,6 +6,7 @@
  */
 import { db } from "../src/lib/db";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 
 const CLUB_EMAIL = "club@rcs.dz";
 
@@ -38,10 +39,8 @@ async function main() {
     console.log("♻️  حذف البيانات التجريبية القديمة...");
     await db.club.delete({ where: { id: existing.id } });
   }
-  // حذف مستخدمي الحسابات الافتراضية القديمة (بدون نادي)
-  for (const email of ["admin@example.com", "coach@example.com", "guard@example.com"]) {
-    await db.user.deleteMany({ where: { email } });
-  }
+  // حذف مستخدمي الحسابات الافتراضية القديمة
+  await db.user.deleteMany({ where: { email: { in: ["demo-admin@aquacore.local", "demo-coach@aquacore.local", "demo-guard@aquacore.local"] } } });
 
   const now = new Date();
 
@@ -84,18 +83,23 @@ async function main() {
   });
 
   // ─── 3) المستخدمون ───
-  const adminHash = await bcrypt.hash("********", 10);
-  const coachHash = await bcrypt.hash("********", 10);
+  const adminPass = process.env.DEMO_ADMIN_PASSWORD || crypto.randomBytes(8).toString("hex");
+  const coachPass = process.env.DEMO_COACH_PASSWORD || crypto.randomBytes(8).toString("hex");
+  const adminHash = await bcrypt.hash(adminPass, 10);
+  const coachHash = await bcrypt.hash(coachPass, 10);
+  const adminEmail = process.env.DEMO_ADMIN_EMAIL || "demo-admin@aquacore.local";
+  const coachEmail = process.env.DEMO_COACH_EMAIL || "demo-coach@aquacore.local";
+  const guardEmail = process.env.DEMO_GUARD_EMAIL || "demo-guard@aquacore.local";
   const admin = await db.user.create({
-    data: { clubId: club.id, email: "admin@example.com", name: "المدير العام", passwordHash: adminHash, role: "admin", phone: "0550123456", active: true, pending: false },
+    data: { clubId: club.id, email: adminEmail, name: "المدير العام", passwordHash: adminHash, role: "admin", phone: "0550123456", active: true, pending: false },
   });
   const coach = await db.user.create({
-    data: { clubId: club.id, email: "coach@example.com", name: "المدرب يوسف", passwordHash: coachHash, role: "assistant", phone: "0661123456", active: true, pending: false },
+    data: { clubId: club.id, email: coachEmail, name: "المدرب يوسف", passwordHash: coachHash, role: "assistant", phone: "0661123456", active: true, pending: false },
   });
   const guard = await db.user.create({
-    data: { clubId: club.id, email: "guard@example.com", name: "الحارس كريم", passwordHash: coachHash, role: "lifeguard", phone: "0770123456", active: true, pending: false },
+    data: { clubId: club.id, email: guardEmail, name: "الحارس كريم", passwordHash: coachHash, role: "lifeguard", phone: "0770123456", active: true, pending: false },
   });
-  console.log("✓ المستخدمون: admin@example.com / coach@example.com / guard@example.com");
+  console.log(`✓ المستخدمون: ${adminEmail} / ${coachEmail} / ${guardEmail}`);
 
   // ─── 4) أنواع الاشتراك ───
   const types = [
@@ -347,18 +351,11 @@ async function main() {
       { clubId: club.id, userId: coach.id, type: "attendance_bulk", description: "تسجيل حضور جماعي للفترة المسائية", createdAt: daysAgo(2) },
     ],
   });
-  // 🔒 PIN عشوائي يُطبع مرة واحدة — لا أكواد دخول ثابتة في الكود
-  const crypto = (await import("crypto")).default ?? (await import("crypto"));
-  const cashierPin = String(1000 + (crypto.randomBytes(2).readUInt16BE(0) % 9000));
-  await db.cashierPin.create({ data: { clubId: club.id, pin: cashierPin, label: "كاشير رئيسي", role: "assistant" } });
-  console.log(`✓ إشعارات + أنشطة + PIN كاشير (${cashierPin})`);
+  await db.cashierPin.create({ data: { clubId: club.id, pin: "1234", label: "كاشير رئيسي", role: "assistant" } });
+  console.log("✓ إشعارات + أنشطة + PIN كاشير (1234)");
 
   console.log("\n════════════════════════════════════════");
   console.log("🎉 تمت التهيئة بنجاح!");
-  console.log("   المدير:      admin@example.com / ********");
-  console.log("   المدرب:      coach@example.com / ********");
-  console.log("   الحارس:      guard@example.com / ********");
-  console.log(`   PIN الكاشير: ${cashierPin}`);
   console.log("════════════════════════════════════════");
 }
 

@@ -1,45 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { OFFICIAL_CDD_TEMPLATE_HTML } from "@/lib/contract-variables";
 import { resolveTargetClubId } from "@/lib/tenant";
 import { CDD_TEMPLATE, ensureCddTemplate } from "@/lib/cdd-template";
 
 // ─── Default templates (seeded on first GET if empty) ───
 const DEFAULT_TEMPLATES = [
   {
-    name: "عقد حارس السباحة",
-    code: "guard",
-    description: "عقد عمل لحارس السباحة (Lifeguard / Maître-nageur)",
-    defaultDuration: 365,
-    content: `<div dir="rtl" style="font-family:'Cairo','Tahoma',Arial;font-size:12pt;line-height:1.8;padding:20px;">
-<h2 style="text-align:center;color:#0f766e;margin-bottom:20px;">عقد عمل — حارس سباحة</h2>
-
-<p>إنه في اليوم {{today}}، بين ممثلي {{club_name}} - {{club_branch}}، تم الاتفاق على ما يلي:</p>
-
-<h3 style="color:#0f766e;">المادة 1: الأطراف</h3>
-<p><strong>العمال:</strong> السيد/ة {{worker_name}}، المولود/ة بتاريخ {{birth_date}} بمكان {{birth_place}}، الساكن/ة في {{address}}، صاحب/ة بطاقة التعريف رقم {{national_id}}، الهاتف {{phone}}.</p>
-
-<h3 style="color:#0f766e;">المادة 2: المنصب</h3>
-<p>يعين العامل في منصب: <strong>{{position}}</strong>.</p>
-
-<h3 style="color:#0f766e;">المادة 3: المدة</h3>
-<p>تبدأ مدة هذا العقد في {{start_date}} وتنتهي في {{end_date}}.</p>
-
-<h3 style="color:#0f766e;">المادة 4: الأجر</h3>
-<p>يحدد أجر العامل بسعر {{hour_rate}} دج للساعة، مع جدول عمل: {{work_schedule}}.</p>
-
-<h3 style="color:#0f766e;">المادة 5: الالتزامات</h3>
-<p>يلتزم العامل بأداء مهامه بكل جدية وإتقان، والمحافظة على سلامة المنخرطين، ومراقبة المكاتب والمعدات.</p>
-
-<h3 style="color:#0f766e;">المادة 6: رقم العقد</h3>
-<p>رقم هذا العقد: <strong>{{contract_number}}</strong>.</p>
-
-<div style="margin-top:60px;display:flex;justify-content:space-between;">
-  <div style="text-align:center;"><p>إمضاء العامل</p><br/><br/>_____________</div>
-  <div style="text-align:center;"><p>رئيس الجمعية</p><br/><br/>_____________</div>
-  <div style="text-align:center;"><p>رئيس الفرع</p><br/><br/>_____________</div>
-</div>
-</div>`,
+    name: "عقد حارس السباحة (CDD)",
+    code: "guard-cdd",
+    description: "عقد عمل محدد المدة لحارس سباحة (منقذ مائي) — النموذج الإداري المعتمد",
+    defaultDuration: 92,
+    content: OFFICIAL_CDD_TEMPLATE_HTML,
   },
   {
     name: "عقد مدرب",

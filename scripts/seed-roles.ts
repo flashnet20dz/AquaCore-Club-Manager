@@ -2,41 +2,15 @@ import { db } from "../src/lib/db";
 import bcrypt from "bcryptjs";
 
 async function main() {
-  console.log("🌱 Seeding users with new roles...");
-
-  const users = [
-    { email: "admin@example.com", name: "المدير العام", password: "********", role: "admin", phone: "0550000000" },
-    { email: "assistant@example.com", name: "المساعد الإداري", password: "********", role: "assistant", phone: "0660000000" },
-    { email: "coach@example.com", name: "حارس السباحة الرئيسي", password: "********", role: "lifeguard", phone: "0770000000" },
-    { email: "observer@example.com", name: "المراقب", password: "********", role: "observer", phone: "0560000000" },
-  ];
-
-  for (const u of users) {
-    const existing = await db.user.findUnique({ where: { email: u.email } });
-    if (!existing) {
-      const hash = await bcrypt.hash(u.password, 10);
-      await db.user.create({
-        data: {
-          email: u.email,
-          name: u.name,
-          passwordHash: hash,
-          role: u.role,
-          phone: u.phone,
-        },
-      });
-      console.log(`  ✓ ${u.email} / ${u.password} (${u.role})`);
-    } else {
-      // Update role if exists
-      await db.user.update({
-        where: { email: u.email },
-        data: { role: u.role },
-      });
-      console.log(`  • ${u.email} (updated role to ${u.role})`);
-    }
+  if (process.env.SEED_ROLES !== "true") {
+    console.log("ℹ️ تم تعطيل إنشاء الحسابات الافتراضية لمنع الثغرات الأمنية.");
+    return;
   }
 
+  const users: any[] = [];
+
   // Seed some work hours for the lifeguard
-  const lifeguard = await db.user.findUnique({ where: { email: "coach@example.com" } });
+  const lifeguard = await db.user.findFirst({ where: { role: "lifeguard" } });
   if (lifeguard) {
     const existingWh = await db.workHours.count();
     if (existingWh === 0) {
@@ -92,11 +66,6 @@ async function main() {
   }
 
   console.log("\n✅ Seed complete!");
-  console.log("\n📋 Login credentials:");
-  console.log("  👑 admin@example.com / ******** (مدير)");
-  console.log("  💼 assistant@example.com / ******** (مساعد إداري)");
-  console.log("  🏊 coach@example.com / ******** (حارس سباحة)");
-  console.log("  👁️ observer@example.com / ******** (مراقب)");
 }
 
 main()

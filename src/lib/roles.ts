@@ -46,6 +46,11 @@ export function hasPermission(role: string | undefined, feature: string): boolea
     financialDashboard: ["admin", "accountant"],
     financialPayments: ["admin", "accountant"],
     financialReports: ["admin", "accountant", "assistant"],
+    // ★ نظام الوارد الإداري
+    incomingMail: ["admin", "assistant", "lifeguard", "observer", "accountant"],
+    incomingMailManage: ["admin", "assistant"],
+    // ★ وصولات استلام المستحقات المالية
+    wageReceipts: ["admin", "accountant", "assistant"],
   };
   return permissions[feature]?.includes(role) || false;
 }

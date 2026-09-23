@@ -60,7 +60,9 @@ export interface EnteteConfig {
   version?: number;       // ★ v2
 }
 
-export const DEFAULT_ENTETE: EnteteConfig = {
+const DEFAULT_CLUB_OFFICIAL_NAME = "الجمعية الرياضية الهاوية النادي الهاوي متعدد الرياضات - الرائد سعيدة - فرع السباحة";
+
+const DEFAULT_ENTETE: EnteteConfig = {
   elements: [
     {
       id: "logo-right-default",
@@ -78,7 +80,7 @@ export const DEFAULT_ENTETE: EnteteConfig = {
       type: "text",
       slot: "header-center",
       role: CLUB_FULL_NAME_ROLE,
-      content: "", // فارغ = يُولَّد آلياً من اسم النادي في الإعدادات
+      content: DEFAULT_CLUB_OFFICIAL_NAME,
       fontFamily: "Cairo",
       fontSize: 13,
       fontWeight: "bold",
@@ -100,7 +102,7 @@ export const DEFAULT_ENTETE: EnteteConfig = {
   showDivider: true,
   dividerColor: "#0f766e",
   dividerWidth: 2,
-  referenceNumberText: "الرقم: . . ./ن.ر.ه.ر.س",
+  referenceNumberText: "الرقم: . . ./ن.ر.ر.س",
   dateLocationText: "سعيدة في:",
   showReferenceRow: true,
   version: ENTETE_VERSION,
@@ -113,7 +115,7 @@ const EN_TETE_KEY = "enteteConfig";
  *   - سطر الاسم الرسمي الكامل الواحد (بلا تكرار كلمات)
  *   - الحفاظ على الشعارات المخزنة (قد تكون مخصصة برفع ملف) وعناصر التذييل
  */
-export function upgradeEnteteConfig(parsed: EnteteConfig): { config: EnteteConfig; changed: boolean } {
+function upgradeEnteteConfig(parsed: EnteteConfig): { config: EnteteConfig; changed: boolean } {
   if ((parsed as { version?: number })?.version === ENTETE_VERSION && Array.isArray(parsed.elements)) {
     return { config: parsed, changed: false };
   }

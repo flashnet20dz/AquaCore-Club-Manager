@@ -84,6 +84,8 @@ model Club {
   financialTransactions FinancialTransaction[]        // العمليات المالية (مداخيل + مصاريف)
   financialBalance      FinancialBalance?              // الرصيد المالي للحظي
   wagePayments          WagePayment[]                  // تسديدات أجور العمال
+  wageReceipts          WageReceipt[]                  // وصولات استلام المستحقات المالية
+  incomingMails         IncomingMail[]                 // سجل المراسلات والوثائق الواردة
 }
 
 // Club subscription (اشتراك النادي)
@@ -540,6 +542,8 @@ model Employee {
   address         String?
   phone           String?
   nationalId      String?
+  idIssueDate          DateTime? // تاريخ إصدار بطاقة التعريف الوطنية
+  idIssuePlace         String?   // مكان إصدار بطاقة التعريف الوطنية
   // ★ وصل الاستلام: تاريخ ومكان صدور بطاقة التعريف الوطنية (يُطبعان في الوصل آلياً)
   nationalIdIssueDate  DateTime?
   nationalIdIssuePlace String?
@@ -563,8 +567,8 @@ model Employee {
   updatedAt       DateTime @updatedAt
 
   contracts       EmploymentContract[]
-
   staffCompensations StaffCompensation[]
+  wageReceipts    WageReceipt[]
   @@unique([clubId, nationalId])
   @@index([clubId])
   @@index([clubId, position])
@@ -1363,3 +1367,102 @@ model FinancialBalance {
   lastTransactionDate DateTime?
   updatedAt       DateTime @updatedAt
 }
+
+// ═══════════════════════════════════════════════════════════
+// WAGE RECEIPTS (وصولات استلام المستحقات المالية للعمال) — per club
+// ═══════════════════════════════════════════════════════════
+model WageReceipt {
+  id                String   @id @default(cuid())
+  clubId            String
+  club              Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  // رقم الوصل الفريد متسلسل مع السنة (مثال: REC-2026-001 أو 001 / 2026)
+  receiptNumber     String
+  season            String   // الموسم الرياضي (مثال: 2025/2026)
+  date              DateTime @default(now()) // تاريخ التحرير
+
+  // بيانات العامل
+  employeeId        String?
+  employee          Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  userId            String?
+  workerName        String   // الاسم واللقب
+  workerPosition    String   // الصفة / الوظيفة
+  nationalId        String?  // رقم بطاقة التعريف الوطنية
+  idIssueDate       DateTime? // تاريخ إصدار بطاقة التعريف
+  idIssuePlace      String?  // مكان إصدار بطاقة التعريف
+
+  // تفاصيل الأجر المستحق
+  periodLabel       String   // الشهر والسنة (مثال: أوت 2026)
+  daysWorked        Int      @default(0) // عدد أيام العمل
+  workHours         Float    @default(0) // عدد ساعات العمل
+  hourRate          Int      @default(0) // سعر الساعة
+  baseWage          Int      @default(0) // الأجر الأساسي = الساعات * سعر الساعة
+  allowances        Int      @default(0) // التعويضات والمنح
+  deductions        Int      @default(0) // الخصومات
+  netAmount         Int      // صافي المستحقات = الأساسي + التعويضات - الخصومات
+  amountInWords     String   // المبلغ بالحروف باللغة العربية (دينار جزائري)
+
+  subject           String   // موضوع الدفع: مستحقات / أجر شهر: [...]
+  paymentMethod     String   @default("cash") // cash (نقدًا) | postal_check (صك بريدي) | bank_check (صك بنكي) | transfer (تحويل بريدي / بنكي)
+  paymentReference  String?  // رقم الصك / التحويل والمؤسسة المالية
+
+  status            String   @default("issued") // issued | paid | cancelled
+  wagePaymentId     String?  // ربط اختياري بسجل الدفع
+
+  createdById       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([clubId, receiptNumber])
+  @@index([clubId, date])
+  @@index([clubId, employeeId])
+  @@index([clubId, periodLabel])
+}
+
+// ═══════════════════════════════════════════════════════════
+// INCOMING CORRESPONDENCE (نظام الوارد الإداري) — per club
+// ═══════════════════════════════════════════════════════════
+model IncomingMail {
+  id              String   @id @default(cuid())
+  clubId          String
+  club            Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  // رقم الوارد متسلسل فريد غير قابل للتكرار: وارد رقم 001 / 2026
+  mailNumber      String
+  seq             Int      // 1, 2, 3...
+  year            Int      // 2026
+
+  receivedDate    DateTime @default(now()) // تاريخ الورود
+  letterNumber    String   // رقم المراسلة
+  letterDate      DateTime // تاريخ المراسلة
+
+  sender          String   // الجهة المرسلة (مديرية الشباب والرياضة، البلدية، الرابطة...)
+  senderType      String?  // تصنيف الجهة
+
+  subject         String   // موضوع المراسلة
+  documentType    String   // نوع الوثيقة: مراسلة, طلب, استدعاء, إعذار, تقرير, فاتورة, دعوة, قرار, ترخيص, وثيقة إدارية, أخرى
+  urgency         String   @default("normal") // normal (عادي), urgent (عاجل), top_urgent (عاجل جداً), confidential (سري)
+
+  assignedTo      String?  // الجهة / المسؤول المعني
+  deliveryMethod  String   @default("hand") // hand (باليد), registered_mail (بريد مسجل), mail (بريد عادي), email (بريد إلكتروني), fax (فاكس), other (أخرى)
+  notes           String?  // ملاحظات
+
+  attachmentUrl   String?  // ملف مرفق PDF أو صورة (base64 أو رابط)
+  attachmentName  String?  // اسم الملف المرفق
+
+  status          String   @default("new") // new (جديد), in_progress (قيد المعالجة), referred (محال إلى المسؤول), completed (تمت المعالجة), archived (مؤرشف)
+  referralDate    DateTime? // تاريخ الإحالة
+  processedDate   DateTime? // تاريخ المعالجة
+
+  createdById     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([clubId, mailNumber])
+  @@unique([clubId, year, seq])
+  @@index([clubId, receivedDate])
+  @@index([clubId, status])
+  @@index([clubId, sender])
+  @@index([clubId, documentType])
+}
+

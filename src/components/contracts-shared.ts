@@ -19,10 +19,10 @@ export function positionLabel(code: string): string {
 
 // ★ المرحلة 5 (§4): أنواع العقود القابلة للتوسعة
 export const CONTRACT_TYPES = [
+  { value: "FIXED_TERM", label: "محدد المدة (CDD)" },
   { value: "HOURLY", label: "بالساعة" },
   { value: "MONTHLY", label: "شهري" },
   { value: "TEMPORARY", label: "مؤقت" },
-  { value: "FIXED_TERM", label: "مدة محددة" },
   { value: "OTHER", label: "آخر" },
 ] as const;
 

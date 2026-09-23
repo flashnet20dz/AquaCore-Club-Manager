@@ -242,7 +242,7 @@ export async function GET(req: NextRequest) {
         );
       }
     } else {
-      results.push(`• Users already exist (${userCount})`);
+      results.push(`• Users present or register at /register-club (${userCount >= 0 ? userCount : 0})`);
     }
 
     // Seed default settings (use default-club-1 as fallback)

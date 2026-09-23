@@ -262,6 +262,19 @@ export const DEFAULT_PAGE_ITEMS: PageNavigationItem[] = [
 
   // ─── 4. management ───
   {
+    id: "incoming-mail",
+    label: "الوارد الإداري",
+    shortLabel: "الوارد",
+    description: "تسجيل ومتابعة المراسلات والوثائق الواردة للنادي",
+    icon: Inbox,
+    iconName: "Inbox",
+    group: "management",
+    permission: "incomingMail",
+    defaultOrder: 16,
+    defaultVisible: true,
+    canHide: true,
+  },
+  {
     id: "contracts",
     label: "عقود العمل",
     shortLabel: "العقود",
@@ -270,7 +283,7 @@ export const DEFAULT_PAGE_ITEMS: PageNavigationItem[] = [
     iconName: "FileText",
     group: "management",
     permission: "workHours",
-    defaultOrder: 16,
+    defaultOrder: 17,
     defaultVisible: true,
     canHide: true,
   },

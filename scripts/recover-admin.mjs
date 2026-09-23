@@ -1,17 +1,19 @@
 /**
  * recover-admin.mjs — استعادة الحد الأدنى بعد إعادة تهيئة بيئة العمل (الملف المحلي DB مفقود)
  * ─────────────────────────────────────────────────────────────────────────────
- * ينشئ: نادياً نشطاً (تجربة 15 يوم) + حساب المدير admin@example.com / ********
+ * ينشئ: نادياً نشطاً (تجربة 15 يوم) + حساب المدير الإداري
  * + الإعدادات الأساسية (اسم النادي، العملة دج، سعر الساعة 400).
  * لا يمس أي بيانات موجودة (idempotent — يتخطى الموجود).
  */
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
+import crypto from "crypto";
+
 const db = new PrismaClient();
 
-const CLUB_EMAIL = "admin@example.com";
-const ADMIN_PASSWORD = process.env.RECOVER_PASSWORD || "********";
+const CLUB_EMAIL = process.env.RECOVER_ADMIN_EMAIL || "admin@aquacore.local";
+const ADMIN_PASSWORD = process.env.RECOVER_PASSWORD || crypto.randomBytes(8).toString("hex");
 const TRIAL_DAYS = 15;
 
 async function main() {
