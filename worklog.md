@@ -1313,3 +1313,24 @@ Stage Summary:
 - ✅ صفر بيانات دخول ثابتة في المستودع المرفوع؛ كلمة السر الحقيقية موجودة فقط في .env المحلي (مستثنى) — يجب إضافتها كمتغيرات بيئة في Vercel عند الحاجة
 - ✅ إنتاج Vercel: سيحصل على ترحيلات الأعمدة تلقائياً؛ لتبديل حساب الإنتاج: ضع ADMIN_EMAIL/ADMIN_PASSWORD/SEED_DEFAULT_ADMIN=true في Vercel ثم سجّل الدخول مرة ثم احذف admin@rcs.dz من إدارة المستخدمين ثم أزل متغيرات كلمة السر
 - ⚠️ درس: skip-worktree على schema.prisma حماية مقصودة (استبدال جراحي sqlite محلياً vs postgresql في git) — لا تزلها إلا للدمج مع استعادتها فوراً
+
+---
+Task ID: 2
+Agent: Z.ai Code (main)
+Task: تشخيص وإصلاح فشل نشر Vercel (سلسلة فشل: 94e589c ← 0c465bc ← feab3fa)
+
+Work Log:
+- تتبع عبر GitHub Status API: آخر نشر ناجح 75703d1، وكل ما بعده فشل — بما أن الملفات المتغيرة بينهما سكربتات وsrc قليلة، عزلت السبب
+- شجرة عمل معزولة على feab3fa (git worktree /tmp/vbuild + node_modules) مع إعادة توليد عميل Prisma من مخطط البعيد نفسه
+- الخطأ الحقيقي الوحيد: src/lib/backup-restore.ts(126) — crypto.randomBytes على كائن WebCrypto العام (TS2339) يفشل next build (لا ignoreBuildErrors)
+- ملاحظة تشخيصية: أخطاء charges-panel/incoming-mail/wageReceipt الظاهرة أول مرة كانت من عميل Prisma قديم منسوخ — ليست أخطاء Vercel
+- الإصلاح: import crypto from "crypto" — تحقق مزدوج: tsc نظيف + next build كامل نجح في الشجرة المعزولة
+- دفع 088f084 + تحقق remote HEAD == local، ثم GitHub Status API: "success — Deployment has completed" ✓
+- مزامنة الشجرة المحلية مع 088f084 (الإجراء الجراحي: un-skip → reset → استبدال provider إلى sqlite → re-skip) — المخطط المحلي الآن يشمل WageReceipt/IncomingMail/idIssueDate
+- db push + generate + tsc نظيف محلياً
+- 🔧 حادثة بيئة: استعادة حالة قديمة فقدت متغيرات ADMIN_* من .env وبيانات قاعدة SQLite المحلية — استعدت .env (ADMIN_EMAIL/PASSWORD/SEED_DEFAULT_ADMIN) وensureDefaultAdmin أعاد إنشاء الحساب الموثوق تلقائياً عند أول محاولة دخول: login 200 / admin@rcs.dz مرفوض 401 / حساب واحد فقط في القاعدة
+
+Stage Summary:
+- ✅ Vercel ينشر بنجاح مجدداً (088f084) — سلسلة الفشل المنذ 94e589c انتهت
+- ✅ الدرس: عند تشخيص فشل Vercel استخدم شجرة عمل معزولة على التزام البعيد المحدد مع إعادة توليد Prisma Client من مخططه هو — عميل محلي قديم يعطي أخطاء وهمية
+- ✅ المحلي متزامن تماماً مع البعيد (نماذج جديدة + حقل idIssueDate) والبناء المحلي نظيف
