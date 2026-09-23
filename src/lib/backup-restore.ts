@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import type { SessionUser } from "@/lib/session";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { NextResponse } from "next/server";
