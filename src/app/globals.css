@@ -1012,3 +1012,50 @@ html {
   animation: shimmer-sweep 1.6s infinite;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   ★ Chrome / Safari Autofill Dark Override (Fixes light-blue box)
+   ═══════════════════════════════════════════════════════════════ */
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus, 
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px #111a24 inset !important;
+  -webkit-text-fill-color: #f8fafc !important;
+  caret-color: #38bdf8 !important;
+  transition: background-color 5000s ease-in-out 0s;
+  border-color: rgba(56, 189, 248, 0.4) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ★ Aquatic Aesthetics: Water Caustics, Float & Depth
+   ═══════════════════════════════════════════════════════════════ */
+@keyframes aquatic-caustic {
+  0% { transform: scale(1) translate(0, 0) rotate(0deg); opacity: 0.28; }
+  33% { transform: scale(1.08) translate(-15px, 20px) rotate(2deg); opacity: 0.42; }
+  66% { transform: scale(0.96) translate(18px, -12px) rotate(-1.5deg); opacity: 0.24; }
+  100% { transform: scale(1) translate(0, 0) rotate(0deg); opacity: 0.28; }
+}
+
+@keyframes aquatic-float {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-8px) rotate(1deg); }
+}
+
+@keyframes water-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(1.04); }
+}
+
+.animate-aquatic-caustic {
+  animation: aquatic-caustic 22s ease-in-out infinite;
+}
+
+.animate-aquatic-float {
+  animation: aquatic-float 7s ease-in-out infinite;
+}
+
+.animate-water-pulse {
+  animation: water-pulse 9s ease-in-out infinite;
+}
+
+

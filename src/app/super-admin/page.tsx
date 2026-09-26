@@ -12,7 +12,7 @@ import {
   Bell, ArrowUpRight, Mail, Phone, MapPin, Grid, List, Activity,
   Sliders, ChevronRight, Check, ShieldCheck, ArrowRight, Server,
   Sparkle, Layers, Cpu, Laptop, Download, FileSpreadsheet, Printer,
-  Copy, Send, Zap, Radio
+  Copy, Send, Zap, Radio, ChevronDown
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +24,12 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -32,6 +38,7 @@ import { toast } from "sonner";
 import { ActivationCodesPanel } from "@/components/activation-codes-panel";
 import { SuperAdminDashboard } from "@/components/super-admin-dashboard";
 import { SuperAdminControlCenter } from "@/components/super-admin-control-center";
+import { LoginCustomizerModal } from "@/components/login-customizer-modal";
 import { ErrorBoundary } from "@/components/error-boundary";
 
 // ═══════════════════════════════════════════════════════════════
@@ -147,8 +154,39 @@ function SuperAdminContent() {
   const [activeTab, setActiveTab] = useState("overview");
 
   // التحديث التلقائي الذكي (Smart Auto-Refresh / Polling)
-  const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(0); // 0 = off, 30s, 60s
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("superadmin_autorefresh");
+      return saved !== null ? Number(saved) : 30; // افتراضياً كل 30 ثانية
+    }
+    return 30;
+  });
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+  const [loginCustomizerOpen, setLoginCustomizerOpen] = useState(false);
+
+  const getIntervalLabel = (sec: number) => {
+    switch (sec) {
+      case 15: return "كل 15 ثانية";
+      case 30: return "كل 30 ثانية";
+      case 60: return "كل دقيقة";
+      case 120: return "كل دقيقتين";
+      case 300: return "كل 5 دقائق";
+      default: return "يدوي (معطل)";
+    }
+  };
+
+  const handleSetAutoRefresh = (interval: number) => {
+    setAutoRefreshInterval(interval);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("superadmin_autorefresh", String(interval));
+    }
+    if (interval > 0) {
+      toast.success(`تم ضبط التحديث التلقائي: ${getIntervalLabel(interval)}`);
+    } else {
+      toast.info("تم تعطيل التحديث التلقائي (يدوي)");
+    }
+  };
 
   // البحث والتصفية
   const [searchQuery, setSearchQuery] = useState("");
@@ -191,6 +229,13 @@ function SuperAdminContent() {
       if (!isSilent) setLoading(false);
     }
   }, []);
+
+  const handleManualRefresh = async () => {
+    setIsManualRefreshing(true);
+    await fetchClubs(false);
+    toast.success("✓ تم تحديث بيانات المنظومة بنجاح");
+    setIsManualRefreshing(false);
+  };
 
   // مؤقت التحديث التلقائي الذكي
   useEffect(() => {
@@ -541,27 +586,81 @@ function SuperAdminContent() {
             </div>
           </div>
 
-          {/* التحديث التلقائي الذكي ومؤشر الوقت */}
-          <div className="hidden lg:flex items-center gap-2 text-xs bg-slate-950/80 border border-slate-800 rounded-xl px-3 py-1.5">
-            <Radio className={cn("h-3.5 w-3.5", autoRefreshInterval > 0 ? "text-emerald-400 animate-pulse" : "text-slate-500")} />
-            <span className="text-[11px] text-slate-400">التحديث التلقائي:</span>
-            <select
-              value={autoRefreshInterval}
-              onChange={(e) => setAutoRefreshInterval(Number(e.target.value))}
-              className="bg-transparent text-slate-200 text-xs font-semibold focus:outline-none cursor-pointer"
+          {/* التحديث التلقائي الذكي ومؤشر الوقت وقائمة الخيارات */}
+          <div className="flex items-center gap-1.5 sm:gap-2 text-xs bg-slate-950/80 border border-slate-800 rounded-xl px-2.5 py-1.5 shadow-inner">
+            <Radio className={cn("h-3.5 w-3.5 shrink-0", autoRefreshInterval > 0 ? "text-emerald-400 animate-pulse" : "text-slate-500")} />
+            
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex items-center gap-1 text-[11px] font-semibold text-slate-200 hover:text-teal-400 transition-colors focus:outline-none cursor-pointer px-1 py-0.5 rounded-lg hover:bg-slate-800/60"
+                >
+                  <span className="text-slate-400 hidden sm:inline">التحديث:</span>
+                  <span>{getIntervalLabel(autoRefreshInterval)}</span>
+                  <ChevronDown className="h-3 w-3 text-slate-400" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-slate-900 border-slate-800 text-slate-200 text-xs w-48 shadow-2xl p-1 z-50">
+                <div className="px-2 py-1 text-[10px] text-slate-400 font-bold border-b border-slate-800/80 mb-1">
+                  معدل التحديث التلقائي
+                </div>
+                {[
+                  { sec: 0, label: "يدوي (معطل)" },
+                  { sec: 15, label: "كل 15 ثانية" },
+                  { sec: 30, label: "كل 30 ثانية" },
+                  { sec: 60, label: "كل دقيقة" },
+                  { sec: 120, label: "كل دقيقتين" },
+                  { sec: 300, label: "كل 5 دقائق" },
+                ].map((item) => (
+                  <DropdownMenuItem
+                    key={item.sec}
+                    onClick={() => handleSetAutoRefresh(item.sec)}
+                    className={cn(
+                      "flex items-center justify-between cursor-pointer rounded-lg px-2 py-1.5 text-xs transition-colors",
+                      autoRefreshInterval === item.sec
+                        ? "bg-teal-500/20 text-teal-300 font-bold"
+                        : "hover:bg-slate-800 text-slate-300"
+                    )}
+                  >
+                    <span>{item.label}</span>
+                    {autoRefreshInterval === item.sec && <Check className="h-3.5 w-3.5 text-teal-400" />}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <span className="text-slate-700 hidden sm:inline">|</span>
+
+            {/* زر التحديث اليدوي الفوري */}
+            <button
+              type="button"
+              onClick={handleManualRefresh}
+              disabled={isManualRefreshing}
+              title="تحديث البيانات يدويًا الآن"
+              className="p-1 rounded-lg text-slate-400 hover:text-teal-300 hover:bg-slate-800/60 transition-colors disabled:opacity-50"
             >
-              <option value={0} className="bg-slate-900">يدوي (معطل)</option>
-              <option value={30} className="bg-slate-900">كل 30 ثانية</option>
-              <option value={60} className="bg-slate-900">كل دقيقة</option>
-            </select>
-            <span className="text-slate-700">|</span>
-            <span className="text-[10px] text-slate-500 font-mono" dir="ltr">
+              <RefreshCw className={cn("h-3.5 w-3.5", isManualRefreshing && "animate-spin text-teal-400")} />
+            </button>
+
+            <span className="text-[10px] text-slate-500 font-mono hidden md:inline" dir="ltr">
               {lastUpdated.toLocaleTimeString("ar-DZ", { hour12: false })}
             </span>
           </div>
 
           {/* الأزرار السريعة والإجراءات */}
           <div className="flex items-center gap-2">
+            {/* زر تخصيص واجهة تسجيل الدخول */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setLoginCustomizerOpen(true)}
+              className="h-9 bg-gradient-to-r from-teal-500/10 to-sky-500/10 hover:from-teal-500/20 hover:to-sky-500/20 border-teal-500/40 text-teal-300 hover:text-teal-200 text-xs font-semibold gap-1.5 shadow-sm transition-all"
+            >
+              <Palette className="h-3.5 w-3.5 text-teal-400" />
+              <span className="hidden sm:inline">تخصيص واجهة الدخول</span>
+            </Button>
+
             {/* زر أكواد التفعيل */}
             <Button
               variant="outline"
@@ -1842,6 +1941,11 @@ function SuperAdminContent() {
           لوحة أكواد التفعيل الفورية
          ═══════════════════════════════════════════════════════════════ */}
       <ActivationCodesPanel open={codesPanelOpen} onClose={() => setCodesPanelOpen(false)} />
+
+      {/* ═══════════════════════════════════════════════════════════════
+          نافذة تخصيص واجهة تسجيل الدخول للمدير العام
+         ═══════════════════════════════════════════════════════════════ */}
+      <LoginCustomizerModal open={loginCustomizerOpen} onClose={() => setLoginCustomizerOpen(false)} />
 
       {/* ═══════════════════════════════════════════════════════════════
           ★ Modal حسابي — تعديل بيانات المدير العام (البريد متاح للتعديل)

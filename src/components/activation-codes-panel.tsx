@@ -249,7 +249,11 @@ export function ActivationCodesPanel({ open, onClose }: { open: boolean; onClose
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4"
-          onClick={onClose}
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !verifyOpen && !genOpen) {
+              onClose();
+            }
+          }}
         >
           <motion.div
             initial={{ scale: 0.97, y: 10 }}
@@ -460,7 +464,12 @@ export function ActivationCodesPanel({ open, onClose }: { open: boolean; onClose
 
           {/* Generate dialog */}
           <Dialog open={genOpen} onOpenChange={setGenOpen}>
-            <DialogContent className="max-w-lg" onClick={(e) => e.stopPropagation()}>
+            <DialogContent
+              className="max-w-lg"
+              onPointerDownOutside={(e) => e.preventDefault()}
+              onInteractOutside={(e) => e.preventDefault()}
+              onClick={(e) => e.stopPropagation()}
+            >
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
                   <Sparkles className="h-5 w-5 text-primary" /> توليد دفعة أكواد جديدة
@@ -575,7 +584,12 @@ export function ActivationCodesPanel({ open, onClose }: { open: boolean; onClose
 
           {/* ★ Modal التحقق من كود */}
           <Dialog open={verifyOpen} onOpenChange={setVerifyOpen}>
-            <DialogContent className="max-w-lg">
+            <DialogContent
+              className="max-w-lg"
+              onPointerDownOutside={(e) => e.preventDefault()}
+              onInteractOutside={(e) => e.preventDefault()}
+              onClick={(e) => e.stopPropagation()}
+            >
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
                   <ShieldCheck className="h-5 w-5 text-primary" /> التحقق من كود تفعيل
@@ -584,7 +598,7 @@ export function ActivationCodesPanel({ open, onClose }: { open: boolean; onClose
                   تحقق من صحة كود تفعيل ومعرفة حالته قبل إعطائه لنادٍ
                 </DialogDescription>
               </DialogHeader>
-              <div className="space-y-3">
+              <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
                 <div className="space-y-1.5">
                   <Label className="text-sm font-semibold">كود التفعيل</Label>
                   <Input
@@ -594,12 +608,27 @@ export function ActivationCodesPanel({ open, onClose }: { open: boolean; onClose
                     placeholder="AQCR-M1-XXXXXXXX-XXXX"
                     className="h-11 font-mono text-center text-sm tracking-wider"
                     dir="ltr"
-                    onKeyDown={(e) => { if (e.key === "Enter" && !verifying) handleVerify(); }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !verifying) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleVerify();
+                      }
+                    }}
                   />
                 </div>
-                <Button onClick={handleVerify} disabled={verifying || !verifyCode.trim()} className="w-full h-10">
+                <Button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleVerify();
+                  }}
+                  disabled={verifying || !verifyCode.trim()}
+                  className="w-full h-10 font-bold"
+                >
                   {verifying ? (
-                    <><Loader2 className="h-4 w-4 animate-spin" /> جاري التحقق...</>
+                    <><Loader2 className="h-4 w-4 animate-spin ml-1" /> جاري التحقق...</>
                   ) : (
                     <><ShieldCheck className="h-4 w-4 ml-1" /> تحقق الآن</>
                   )}
@@ -686,7 +715,17 @@ export function ActivationCodesPanel({ open, onClose }: { open: boolean; onClose
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setVerifyOpen(false)}>إغلاق</Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setVerifyOpen(false);
+                  }}
+                >
+                  إغلاق
+                </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
