@@ -1,0 +1,93 @@
+name: Build Windows Desktop App (Setup.exe & Portable)
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'electron/**'
+      - 'electron-builder.yml'
+      - '.github/workflows/build-desktop.yml'
+      - 'src/**'
+      - 'public/**'
+      - 'prisma/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Windows Desktop (Setup.exe)
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: |
+          npm install --legacy-peer-deps
+
+      - name: Prepare Desktop (Prisma SQLite & Local Client)
+        run: |
+          npm run desktop:prepare
+        env:
+          DATABASE_URL: "file:./dev.db"
+
+      - name: Build Next.js Standalone
+        run: |
+          npm run build
+        env:
+          DATABASE_URL: "file:./dev.db"
+          NEXT_TELEMETRY_DISABLED: "1"
+          NODE_ENV: "production"
+
+      - name: Compile Electron Scripts
+        run: |
+          npx tsc electron/main.ts --outDir electron --target es2020 --module commonjs --moduleResolution node --esModuleInterop --skipLibCheck --lib es2020
+          npx tsc electron/preload.ts --outDir electron --target es2020 --module commonjs --moduleResolution node --esModuleInterop --skipLibCheck --lib es2020
+
+      - name: Package Windows Desktop App (electron-builder)
+        run: |
+          npx electron-builder --win nsis portable
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Restore Web Prisma Schema
+        if: always()
+        run: |
+          npm run desktop:restore
+
+      - name: Prepare Output Artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path output
+          Get-ChildItem -Path dist\*.exe | ForEach-Object {
+            Copy-Item $_.FullName -Destination output\
+            Write-Host "✅ Prepared: $($_.Name)"
+          }
+          Get-ChildItem output\
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AquaCore-Windows-Desktop
+          path: output/*.exe
+          retention-days: 90
+
+      - name: Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
+        with:
+          tag_name: v1.0.8
+          name: AquaCore Club Manager v1.0.8
+          fail_on_unmatched_files: false
+          files: |
+            output/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
