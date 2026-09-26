@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { DEFAULT_LOGIN_CONFIG } from "@/app/api/super-admin/login-customizer/route";
+import { DEFAULT_LOGIN_CONFIG } from "@/lib/login-config";
 
 // ═════════════════════════════════════════════════════════════
 //  ★ مساعدات الأيقونات والتصميم المائي الديناميكي
