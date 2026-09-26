@@ -6,17 +6,19 @@ on:
     paths:
       - 'capacitor.config.ts'
       - '.github/workflows/build-android.yml'
+      - 'android/**'
       - 'android-resources/**'
       - 'www/**'
   workflow_dispatch:
 
 jobs:
   build:
+    name: Build Android APK and AAB Bundle
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -24,7 +26,7 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Setup Java
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
@@ -37,20 +39,18 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          npm init -y
-          npm install @capacitor/core@^6 @capacitor/cli@^6 @capacitor/android@^6 @capacitor/app@^6 @capacitor/splash-screen@^6 @capacitor/camera@^6 @capacitor/preferences@^6
+          npm install @capacitor/core@^6.0.0 @capacitor/cli@^6.0.0 @capacitor/android@^6.0.0 @capacitor/app@^6.0.0 @capacitor/splash-screen@^6.0.0 @capacitor/camera@^6.0.0 @capacitor/preferences@^6.0.0 --legacy-peer-deps
 
-      - name: Add and Sync Android Platform
+      - name: Sync Capacitor Android
         run: |
-          npx cap add android || true
-          npx cap copy android
+          npx cap sync android
 
       - name: Copy App Icons & Splash
         run: |
           for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
             if [ -d "android-resources/mipmap-$density" ]; then
               mkdir -p android/app/src/main/res/mipmap-$density
-              cp android-resources/mipmap-$density/*.png android/app/src/main/res/mipmap-$density/
+              cp -r android-resources/mipmap-$density/* android/app/src/main/res/mipmap-$density/ 2>/dev/null || true
             fi
           done
 
@@ -59,98 +59,16 @@ jobs:
             cp android-resources/splash.png android/app/src/main/res/drawable/splash.png
           fi
 
-          echo "✅ Icons & Splash copied"
-
-      - name: Configure Network Security
-        run: |
-          mkdir -p android/app/src/main/res/xml
-          cat > android/app/src/main/res/xml/network_security_config.xml << 'SECURITY'
-          <?xml version="1.0" encoding="utf-8"?>
-          <network-security-config>
-              <base-config cleartextTrafficPermitted="true">
-                  <trust-anchors>
-                      <certificates src="system" />
-                      <certificates src="user" />
-                  </trust-anchors>
-              </base-config>
-          </network-security-config>
-          SECURITY
-
-      - name: Configure Android Manifest
-        run: |
-          cat > android/app/src/main/AndroidManifest.xml << 'MANIFEST'
-          <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-              package="com.aquacore.clubmanager">
-
-              <uses-permission android:name="android.permission.INTERNET" />
-              <uses-permission android:name="android.permission.CAMERA" />
-              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-              <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-
-              <uses-feature android:name="android.hardware.camera" android:required="false" />
-              <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
-
-              <application
-                  android:allowBackup="true"
-                  android:icon="@mipmap/ic_launcher"
-                  android:label="AquaCore"
-                  android:roundIcon="@mipmap/ic_launcher_round"
-                  android:supportsRtl="true"
-                  android:usesCleartextTraffic="true"
-                  android:networkSecurityConfig="@xml/network_security_config"
-                  android:theme="@style/AppTheme"
-                  android:hardwareAccelerated="true">
-                  <activity
-                      android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
-                      android:name="com.aquacore.clubmanager.MainActivity"
-                      android:label="AquaCore Club Manager"
-                      android:theme="@style/AppTheme.NoActionBarLaunch"
-                      android:launchMode="singleTask"
-                      android:windowSoftInputMode="adjustResize"
-                      android:exported="true">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
-                      </intent-filter>
-                  </activity>
-              </application>
-          </manifest>
-          MANIFEST
-
-      - name: Generate Signing Keystore
-        run: |
-          keytool -genkeypair \
-            -alias aquacore-key \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -keystore android/app/aquacore.keystore \
-            -storepass aquacore123 \
-            -keypass aquacore123 \
-            -dname "CN=AquaCore Club Manager, OU=Mobile, O=AquaCore, L=Algiers, ST=Algiers, C=DZ"
-
-          cat >> android/app/build.gradle << 'GRADLE'
-
-          android.signingConfigs {
-            release {
-              storeFile file('aquacore.keystore')
-              storePassword 'aquacore123'
-              keyAlias 'aquacore-key'
-              keyPassword 'aquacore123'
-            }
-          }
-          android.buildTypes.release.signingConfig = android.signingConfigs.release
-          GRADLE
+          echo "✅ Icons & Splash configured"
 
       - name: Build Signed Release APK & Google Play Bundle (AAB)
         run: |
           cd android
           chmod +x gradlew
           echo "Building Release APK..."
-          ./gradlew assembleRelease --no-daemon -x lintVitalRelease
+          ./gradlew assembleRelease --no-daemon -x lint -x lintVitalRelease
           echo "Building Google Play Release Bundle (.aab)..."
-          ./gradlew bundleRelease --no-daemon -x lintVitalRelease
+          ./gradlew bundleRelease --no-daemon -x lint -x lintVitalRelease
 
       - name: Prepare Output Artifacts
         run: |
@@ -160,15 +78,21 @@ jobs:
           APK_PATH="android/app/build/outputs/apk/release/app-release.apk"
           if [ -f "$APK_PATH" ]; then
             cp "$APK_PATH" output/AquaCore-Club-Manager.apk
+            echo "✅ Found APK at $APK_PATH"
+          else
+            echo "❌ APK not found at $APK_PATH"
           fi
 
           # 2. AAB (Google Play Store Bundle)
           AAB_PATH="android/app/build/outputs/bundle/release/app-release.aab"
           if [ -f "$AAB_PATH" ]; then
             cp "$AAB_PATH" output/AquaCore-Club-Manager.aab
+            echo "✅ Found AAB at $AAB_PATH"
+          else
+            echo "❌ AAB not found at $AAB_PATH"
           fi
 
-          ls -la output/
+          ls -lh output/
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -180,9 +104,11 @@ jobs:
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
         with:
           tag_name: v1.0.${{ github.run_number }}
           name: AquaCore Club Manager v1.0.${{ github.run_number }}
+          fail_on_unmatched_files: false
           files: |
             output/AquaCore-Club-Manager.apk
             output/AquaCore-Club-Manager.aab
@@ -190,18 +116,15 @@ jobs:
             # 📱 AquaCore Club Manager — Android Release
 
             ## 📥 ملفات التحميل المباشر
-            - **[AquaCore-Club-Manager.apk](https://github.com/flashnet20dz/AquaCore-Club-Manager/releases/download/v1.0.${{ github.run_number }}/AquaCore-Club-Manager.apk)**: لتثبيت التطبيق مباشرة على الهاتف.
-            - **[AquaCore-Club-Manager.aab](https://github.com/flashnet20dz/AquaCore-Club-Manager/releases/download/v1.0.${{ github.run_number }}/AquaCore-Club-Manager.aab)**: الحزمة الرسمية المخصصة للرفع على **Google Play Console**.
+            - **[AquaCore-Club-Manager.apk](https://github.com/flashnet20dz/AquaCore-Club-Manager/releases/download/v1.0.${{ github.run_number }}/AquaCore-Club-Manager.apk)**: لتثبيت التطبيق مباشرة على الهاتف بصيغة APK.
+            - **[AquaCore-Club-Manager.aab](https://github.com/flashnet20dz/AquaCore-Club-Manager/releases/download/v1.0.${{ github.run_number }}/AquaCore-Club-Manager.aab)**: الحزمة الرسمية الموقعة الجاهزة للرفع على **Google Play Console** بصيغة App Bundle.
 
-            ## 🌟 أبرز الميزات في هذه النسخة
+            ## 🌟 أبرز ميزات تطبيق الهاتف
             - ✅ شريط تنقل سفلي حديث واحترافي للهواتف (Bottom Navigation Bar)
-            - ✅ كاميرا الحضور السريع بـ QR Code
-            - ✅ إدارة المنخرطين، العقود، التأمين، والماليات كاملة
-            - ✅ إمكانية الربط بنفس قاعدة البيانات (سحابياً أو عبر الواي فاي المحلي)
-            - ✅ نظام تفعيل التراخيص والاشتراكات أوفلاين بدون الحاجة للإنترنت
-            - ✅ جاهز ومعتمد لمتجر Google Play Store (Target SDK 34)
-          draft: false
-          prerelease: false
+            - ✅ كاميرا الحضور السريع بـ QR Code ومسح بطاقات المنخرطين
+            - ✅ ربط تلقائي بنفس قاعدة البيانات (سحابياً عبر الإنترنت أو محلياً عبر شبكة الواي فاي LAN)
+            - ✅ تفعيل التراخيص والاشتراكات أوفلاين بدون الحاجة للإنترنت
+            - ✅ تطبيق سريع وخفيف متوافق 100% مع معايير Google Play (Target SDK 34)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

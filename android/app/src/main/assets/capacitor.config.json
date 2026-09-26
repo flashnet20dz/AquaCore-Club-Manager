@@ -1,0 +1,40 @@
+{
+	"appId": "com.aquacore.clubmanager",
+	"appName": "AquaCore Club Manager",
+	"webDir": "www",
+	"server": {
+		"androidScheme": "https",
+		"url": "https://aladine-pool-manager.vercel.app",
+		"cleartext": true
+	},
+	"android": {
+		"allowMixedContent": true,
+		"webContentsDebuggingEnabled": false,
+		"backgroundColor": "#ffffff"
+	},
+	"plugins": {
+		"SplashScreen": {
+			"launchShowDuration": 1500,
+			"launchAutoHide": true,
+			"backgroundColor": "#0f766e",
+			"androidSplashResourceName": "splash",
+			"androidScaleType": "CENTER_CROP",
+			"showSpinner": false,
+			"spinnerColor": "#ffffff",
+			"splashFullScreen": true,
+			"splashImmersive": true
+		},
+		"Camera": {
+			"permissions": [
+				"camera"
+			]
+		},
+		"Preferences": {
+			"group": "AquaCoreCache"
+		},
+		"App": {
+			"backgroundColor": "#ffffff"
+		}
+	},
+	"cordova": {}
+}

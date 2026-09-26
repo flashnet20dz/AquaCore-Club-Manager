@@ -16,8 +16,21 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (file('aquacore.keystore').exists()) {
+                storeFile file('aquacore.keystore')
+                storePassword 'aquacore123'
+                keyAlias 'aquacore-key'
+                keyPassword 'aquacore123'
+            }
+        }
+    }
     buildTypes {
         release {
+            if (file('aquacore.keystore').exists()) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
