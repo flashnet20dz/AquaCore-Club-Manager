@@ -56,18 +56,42 @@ export async function POST(req: NextRequest) {
 
     // ════ الخطوة 2: البحث في DB ومنع إعادة الاستخدام ════
     const codeHash = crypto.createHash("sha256").update(code.toUpperCase().replace(/\s+/g, "")).digest("hex");
-    const existingCode = await db.activationCode.findUnique({
+    let existingCode = await db.activationCode.findUnique({
       where: { codeHash },
       include: { club: { select: { id: true, name: true } } },
     });
 
     if (!existingCode) {
-      // الكود توقيعه صحيح لكنه غير مسجّل في DB
-      // (هذا يحدث فقط إذا وُلّد بسكربت خارجي أو قُدّم مزيّف نادر)
-      return NextResponse.json({
-        error: "هذا الكود غير مسجّل في النظام. تواصل مع الإدارة.",
-        verified: true, // التوقيع صحيح لكن DB لا يعرفه
-      }, { status: 404 });
+      // ★ إذا لم يكن الكود مسجلاً مسبقاً في قاعدة البيانات المحلية (مثل تثبيت بدون إنترنت)،
+      // وتوقيع الـ HMAC المشفر سليم 100%:
+      // هذا كود صادر ومعتمد من الإدارة ويحق للنادي استخدامه. ننشئه محلياً ونفعله فوراً!
+      let defaultBatch = await db.codeBatch.findFirst({
+        where: { name: "OFFLINE_BATCH" },
+      });
+      if (!defaultBatch) {
+        const maxBatch = await db.codeBatch.aggregate({ _max: { batchNo: true } });
+        defaultBatch = await db.codeBatch.create({
+          data: {
+            batchNo: (maxBatch._max.batchNo || 0) + 1,
+            name: "OFFLINE_BATCH",
+            plan: verification.plan,
+            count: 1,
+            notes: "دفعة تلقائية لأكواد التفعيل بدون إنترنت",
+          },
+        });
+      }
+
+      existingCode = await db.activationCode.create({
+        data: {
+          code: code.toUpperCase().replace(/\s+/g, ""),
+          codeHash,
+          batchId: defaultBatch.id,
+          plan: verification.plan,
+          durationDays: verification.durationDays || planDef.durationDays,
+          status: "unused",
+        },
+        include: { club: { select: { id: true, name: true } } },
+      });
     }
 
     if (existingCode.status === "revoked") {
@@ -220,6 +244,27 @@ export async function POST(req: NextRequest) {
           description: `تم تفعيل اشتراك ${planDef.label} (${verification.durationDays} يوم) بكود ${code.substring(0, 14)}... — ينتهي في ${formatDate(newEndDate)}`,
         },
       });
+
+      // 5f. تسجيل في صندوق المزامنة Outbox لنقل التفعيل للسحابة عند توفر الإنترنت
+      try {
+        if ('syncOutbox' in tx) {
+          await (tx as any).syncOutbox.create({
+            data: {
+              modelName: "activationCode",
+              recordId: existingCode.id,
+              operation: "activate",
+              payload: JSON.stringify({
+                code: code.toUpperCase().replace(/\s+/g, ""),
+                clubId: currentUser.clubId,
+                plan: verification.plan,
+                activatedAt: now.toISOString(),
+                expiresAt: newEndDate.toISOString(),
+                hardwareFingerprint,
+              }),
+            },
+          }).catch(() => {});
+        }
+      } catch { /* outbox is optional */ }
     });
 
     const daysRemaining = Math.ceil((newEndDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));

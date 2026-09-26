@@ -1,20 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
-  Sparkles, Lock, Clock, AlertTriangle, CheckCircle2, KeyRound,
-  Loader2, ShieldCheck, X, Clipboard,
+  Lock, Clock, AlertTriangle, KeyRound, Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { toast } from "sonner";
-import { generateHardwareFingerprint } from "@/lib/activation-codes";
-import { formatDate } from "@/lib/date-utils";
+import { SubscriptionModal, type SubscriptionStatusData } from "@/components/subscription-modal";
+import { getOfflineLicense, isOfflineLicenseActive } from "@/lib/offline-license";
 
-interface SubscriptionStatus {
+export interface SubscriptionStatus extends SubscriptionStatusData {
   state: "pending" | "trial" | "active" | "grace" | "locked" | "suspended";
   label: string;
   color: string;
@@ -25,283 +20,33 @@ interface SubscriptionStatus {
   plan?: string;
 }
 
-interface ActivationModalProps {
+export interface ActivationModalProps {
   open: boolean;
   onClose: () => void;
   onActivated?: () => void;
 }
 
 /**
- * نافذة تفعيل كود الاشتراك — احترافية ومتكاملة.
- * تعمل حتى لو كان الإنترنت متقطعاً (التحقق المحلي يحدث أولاً).
+ * نافذة تفعيل كود الاشتراك — احترافية ومدمجة مع مركز ترخيص المنظومة.
  */
 export function ActivationModal({ open, onClose, onActivated }: ActivationModalProps) {
-  const [code, setCode] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [step, setStep] = useState<"input" | "verifying" | "success" | "error">("input");
-  const [error, setError] = useState("");
-  const [result, setResult] = useState<any>(null);
-
-  // تنسيق الكود أثناء الكتابة (تلقائي بأقسام)
-  // ★ الصيغة الصحيحة: AQCR-XX-XXXXXXXX-XXXX (PREFIX-PLAN-PAYLOAD-SIG)
-  // الأقسام: 4 + 2 + 8 + 4 = 18 حرفاً + 3 شرطات = 21 حرفاً
-  const formatCode = (raw: string) => {
-    const clean = raw.toUpperCase().replace(/[^A-Z0-9]/g, "");
-    if (clean.length === 0) return "";
-    // أقسام: 4 (prefix) + 2 (plan) + 8 (payload) + 4 (sig)
-    const parts: string[] = [];
-    if (clean.length > 0) parts.push(clean.substring(0, 4));
-    if (clean.length > 4) parts.push(clean.substring(4, 6));
-    if (clean.length > 6) parts.push(clean.substring(6, 14));
-    if (clean.length > 14) parts.push(clean.substring(14, 18));
-    return parts.join("-"); // AQCR-M1-XXXXXXXX-XXXX
-  };
-
-  const handleActivate = async () => {
-    setLoading(true);
-    setStep("verifying");
-    setError("");
-    try {
-      const hardwareFingerprint = generateHardwareFingerprint();
-      const res = await fetch("/api/clubs/activate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, hardwareFingerprint }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "فشل التفعيل");
-        setStep("error");
-        toast.error(data.error || "فشل التفعيل");
-        return;
-      }
-      setResult(data.activated || data);
-      setStep("success");
-      toast.success(data.message || "تم التفعيل بنجاح!");
-      onActivated?.();
-    } catch (e) {
-      setError("تعذر الاتصال بالخادم. تحقق من الإنترنت.");
-      setStep("error");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleClose = () => {
-    setCode("");
-    setStep("input");
-    setError("");
-    setResult(null);
-    onClose();
-  };
-
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-sm"
-          onClick={handleClose}
-        >
-          <motion.div
-            initial={{ scale: 0.95, y: 20 }}
-            animate={{ scale: 1, y: 0 }}
-            exit={{ scale: 0.95, y: 20 }}
-            onClick={(e) => e.stopPropagation()}
-            // ★ max-h-[90vh] + overflow-y-auto يضمن ظهور كل المحتوى + الأزرار
-            // حتى على الشاشات الصغيرة (mobile)
-            className="relative w-full max-w-md max-h-[90vh] overflow-y-auto bg-gradient-to-br from-slate-900 via-teal-950 to-slate-900 rounded-3xl border border-white/10 shadow-2xl"
-          >
-            {/* Header gradient bar */}
-            <div className="h-1 bg-gradient-to-l from-teal-400 via-sky-400 to-indigo-400" />
-
-            {/* Close button — absolute positioned, always visible */}
-            <button
-              onClick={handleClose}
-              className="absolute top-3 left-3 z-10 p-2 rounded-lg text-white/40 hover:text-white/80 hover:bg-white/5 transition"
-              aria-label="إغلاق"
-            >
-              <X className="h-5 w-5" />
-            </button>
-
-            {/* Content — p-5 on mobile, p-8 on desktop */}
-            <div className="p-5 sm:p-8">
-              {/* Icon */}
-              <div className="flex justify-center mb-4 sm:mb-6">
-                <div className="h-16 w-16 sm:h-20 sm:w-20 rounded-2xl bg-gradient-to-br from-teal-500/20 to-sky-500/20 border border-white/10 flex items-center justify-center">
-                  {step === "success" ? (
-                    <CheckCircle2 className="h-8 w-8 sm:h-10 sm:w-10 text-emerald-400" />
-                  ) : step === "error" ? (
-                    <AlertTriangle className="h-8 w-8 sm:h-10 sm:w-10 text-rose-400" />
-                  ) : (
-                    <KeyRound className="h-8 w-8 sm:h-10 sm:w-10 text-teal-400" />
-                  )}
-                </div>
-              </div>
-
-              {step === "input" && (
-                <>
-                  <h2 className="text-xl sm:text-2xl font-extrabold text-white text-center mb-2">
-                    تفعيل الاشتراك
-                  </h2>
-                  <p className="text-xs sm:text-sm text-white/60 text-center mb-4 sm:mb-6 px-2">
-                    أدخل كود التفعيل الذي حصلت عليه لإتمام اشتراكك
-                  </p>
-
-                  <div className="space-y-3 sm:space-y-4">
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <Label className="text-[10px] sm:text-xs font-semibold text-white/60 uppercase tracking-wider">
-                          كود التفعيل
-                        </Label>
-                        {/* ★ عدّاد الأحرف + مؤشر اكتمال الكود */}
-                        <span className={`text-[10px] font-mono ${code.replace(/[^A-Z0-9]/g, "").length === 18 ? "text-emerald-400" : "text-white/40"}`}>
-                          {code.replace(/[^A-Z0-9]/g, "").length}/18
-                        </span>
-                      </div>
-                      <div className="relative">
-                        <Input
-                          type="text"
-                          value={code}
-                          onChange={(e) => setCode(formatCode(e.target.value))}
-                          placeholder="AQCR-M1-XXXXXXXX-XXXX"
-                          // ★ خانة أكبر + حدّ أخضر عند اكتمال الكود
-                          className={`h-14 sm:h-16 text-center text-base sm:text-lg font-mono font-bold tracking-wider bg-white/[0.06] border-2 text-white placeholder:text-white/20 rounded-xl focus:bg-white/[0.1] transition-colors ${
-                            code.replace(/[^A-Z0-9]/g, "").length === 18
-                              ? "border-emerald-400/60 focus:border-emerald-400 shadow-lg shadow-emerald-500/10"
-                              : "border-white/[0.12] focus:border-teal-400/40"
-                          }`}
-                          dir="ltr"
-                          autoFocus
-                          maxLength={21}
-                          autoComplete="off"
-                          spellCheck={false}
-                        />
-                        {/* ★ زر لصق من الحافظة */}
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            try {
-                              const text = await navigator.clipboard.readText();
-                              if (text) {
-                                setCode(formatCode(text));
-                                toast.success("تم لصق الكود من الحافظة");
-                              }
-                            } catch {
-                              toast.error("تعذر الوصول للحافظة — الصق يدوياً (Ctrl+V)");
-                            }
-                          }}
-                          className="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-lg text-white/40 hover:text-white/80 hover:bg-white/5 transition"
-                          title="لصق من الحافظة"
-                          aria-label="لصق من الحافظة"
-                        >
-                          <Clipboard className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="bg-white/[0.03] rounded-xl p-2.5 flex items-start gap-2 text-[11px] sm:text-xs text-white/50">
-                      <ShieldCheck className="h-4 w-4 mt-0.5 text-teal-400/70 shrink-0" />
-                      <span>
-                        الكود موقّع رقمياً ويُتحقَّق منه محلياً. يُستخدم لمرة واحدة على نادٍ واحد.
-                      </span>
-                    </div>
-
-                    {/* ★ Buttons row — تفعل الآن + إلغاء جنب بعض */}
-                    <div className="flex gap-2">
-                      <Button
-                        onClick={handleActivate}
-                        disabled={code.length < 21 || loading}
-                        className="flex-1 h-11 sm:h-12 text-sm sm:text-base font-bold rounded-xl bg-gradient-to-l from-teal-500 to-sky-500 hover:from-teal-400 hover:to-sky-400 border-0 text-white shadow-lg shadow-teal-500/20 disabled:opacity-50"
-                      >
-                        {loading ? (
-                          <><Loader2 className="h-4 w-4 sm:h-5 sm:w-5 animate-spin" /> جاري التحقق...</>
-                        ) : (
-                          <><KeyRound className="h-4 w-4 sm:h-5 sm:w-5 ml-1" /> تفعيل الآن</>
-                        )}
-                      </Button>
-                      <button
-                        type="button"
-                        onClick={handleClose}
-                        className="h-11 sm:h-12 px-5 rounded-xl border border-white/20 bg-white/10 text-white font-medium hover:bg-white/20 active:scale-95 transition-all text-sm sm:text-base"
-                      >
-                        إلغاء
-                      </button>
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {step === "verifying" && (
-                <div className="text-center py-6 sm:py-8">
-                  <Loader2 className="h-10 w-10 sm:h-12 sm:w-12 animate-spin text-teal-400 mx-auto mb-4" />
-                  <p className="text-white/80 font-medium text-sm sm:text-base">جاري التحقق من الكود...</p>
-                  <p className="text-xs text-white/40 mt-2">توقيع رقمي + قاعدة البيانات</p>
-                </div>
-              )}
-
-              {step === "success" && result && (
-                <div className="text-center">
-                  <h2 className="text-xl sm:text-2xl font-extrabold text-white mb-2">تم التفعيل بنجاح! 🎉</h2>
-                  <p className="text-xs sm:text-sm text-white/60 mb-4 sm:mb-6">{result.planLabel || "اشتراك"} — {result.durationDays} يوم</p>
-                  <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 sm:p-4 space-y-2 text-right">
-                    <div className="flex justify-between text-xs sm:text-sm">
-                      <span className="text-white/60">تاريخ البداية:</span>
-                      <span className="text-white font-medium font-mono-data">{formatDate(result.startDate)}</span>
-                    </div>
-                    <div className="flex justify-between text-xs sm:text-sm">
-                      <span className="text-white/60">تاريخ النهاية:</span>
-                      <span className="text-emerald-400 font-bold font-mono-data">{formatDate(result.endDate)}</span>
-                    </div>
-                    <div className="flex justify-between text-xs sm:text-sm">
-                      <span className="text-white/60">الأيام المتبقية:</span>
-                      <span className="text-white font-medium">{result.daysRemaining} يوم</span>
-                    </div>
-                  </div>
-                  <Button
-                    onClick={handleClose}
-                    className="w-full h-11 sm:h-12 mt-4 sm:mt-6 rounded-xl bg-gradient-to-l from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 border-0 text-white font-bold"
-                  >
-                    <Sparkles className="h-4 w-4 sm:h-5 sm:w-5 ml-1" /> متابعة
-                  </Button>
-                </div>
-              )}
-
-              {step === "error" && (
-                <div className="text-center">
-                  <h2 className="text-xl sm:text-2xl font-extrabold text-white mb-2">فشل التفعيل</h2>
-                  <p className="text-xs sm:text-sm text-rose-400 mb-4 sm:mb-6 px-2">{error}</p>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setStep("input")}
-                      className="flex-1 h-11 sm:h-12 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold transition-all text-sm sm:text-base"
-                    >
-                      المحاولة مرة أخرى
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleClose}
-                      className="h-11 sm:h-12 px-5 rounded-xl border border-white/20 bg-white/10 text-white font-medium hover:bg-white/20 transition-all text-sm sm:text-base"
-                    >
-                      إغلاق
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+    <SubscriptionModal
+      open={open}
+      onClose={onClose}
+      status={{
+        state: "locked",
+        daysRemaining: 0,
+      }}
+      initialMode="activate"
+      onActivated={onActivated}
+    />
   );
 }
 
 /**
  * بوابة الاشتراك — تُظهر شاشة قفل كاملة إذا كان الاشتراك منتهياً.
- * تُستخدم في layout النادي لمنع الوصول للمحتوى.
+ * تُستخدم في layout النادي لمنع الوصول للمحتوى إلا بعد التفعيل.
  */
 export function SubscriptionGate({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<SubscriptionStatus | null>(null);
@@ -314,12 +59,33 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
       if (res.ok) {
         const data = await res.json();
         setStatus(data);
+        setLoading(false);
+        return;
       }
     } catch {
-      // في حالة فشل الشبكة، اسمح بالوصول (النظام أوفلاين-أولاً)
-    } finally {
-      setLoading(false);
+      // في حالة فشل الشبكة أو السيرفر
     }
+
+    // 🔒 التحقق من وجود رخصة أوفلاين محلية (تفعيل بدون إنترنت)
+    const offlineLic = getOfflineLicense();
+    if (offlineLic && isOfflineLicenseActive(offlineLic)) {
+      const now = new Date();
+      const end = new Date(offlineLic.expiresAt);
+      const days = Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      setStatus({
+        state: "active",
+        label: `اشتراك محلي (${offlineLic.planLabel})`,
+        color: "bg-emerald-500/15 text-emerald-700 border-emerald-500/30",
+        hasAccess: true,
+        message: `الاشتراك مفعّل محلياً (بدون إنترنت) — صالح لـ ${days} يوماً.`,
+        daysRemaining: days,
+        endDate: offlineLic.expiresAt,
+        plan: offlineLic.plan,
+        hardwareFingerprint: offlineLic.hardwareFingerprint,
+      });
+    }
+
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -332,62 +98,67 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
   if (loading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-teal-400" />
+        <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
       </div>
     );
   }
 
-  // Superadmin يتجاوز البوابة (له وصول كامل)
-  // ملاحظة: هذه البوابة تُعرض فقط في صفحات النادي، ليس super-admin
+  // Superadmin أو نادٍ باشتراك سارٍ يتجاوز شاشة القفل
   if (!status || status.hasAccess) {
     return (
       <>
         {children}
-        {/* بادج الحالة في الأعلى لو كان في تجربة أو سماح */}
+        {/* شريط التنبيه في الأعلى لو كان في تجربة أو سماح */}
         {(status?.state === "trial" || status?.state === "grace") && (
           <SubscriptionBanner status={status} onActivate={() => setShowActivation(true)} />
         )}
-        <ActivationModal
+        <SubscriptionModal
           open={showActivation}
           onClose={() => setShowActivation(false)}
+          status={status}
+          initialMode={status?.hasAccess ? "details" : "activate"}
           onActivated={fetchStatus}
         />
       </>
     );
   }
 
-  // الحالة مقفلة → اعرض شاشة القفل
+  // الحالة مقفلة → اعرض شاشة القفل الاحترافية
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-950 via-rose-950/30 to-slate-950">
+    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="relative w-full max-w-md bg-white/[0.07] backdrop-blur-2xl rounded-3xl border border-white/10 shadow-2xl overflow-hidden"
       >
-        <div className="h-1 bg-gradient-to-l from-rose-400 via-orange-400 to-amber-400" />
-        <div className="p-8 text-center">
-          <div className="inline-flex h-20 w-20 items-center justify-center rounded-2xl bg-rose-500/15 border border-rose-500/20 mb-4">
+        <div className="h-1.5 bg-gradient-to-l from-rose-500 via-orange-500 to-amber-500" />
+        <div className="p-8 text-center space-y-4">
+          <div className="inline-flex h-20 w-20 items-center justify-center rounded-2xl bg-rose-500/15 border border-rose-500/25 shadow-lg shadow-rose-500/10">
             <Lock className="h-10 w-10 text-rose-400" />
           </div>
-          <h1 className="text-2xl font-extrabold text-white mb-2">{status.label}</h1>
-          <p className="text-sm text-white/60 mb-6">{status.message}</p>
+          <div>
+            <h1 className="text-2xl font-black text-white mb-1.5">{status.label || "انتهت فترة الاشتراك"}</h1>
+            <p className="text-xs sm:text-sm text-white/60 leading-relaxed">{status.message}</p>
+          </div>
 
           {status.daysRemaining !== undefined && status.daysRemaining < 0 && (
-            <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-3 mb-4 text-sm">
-              <span className="text-rose-400 font-bold">انتهى منذ {-status.daysRemaining} يوم</span>
+            <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-3 text-xs">
+              <span className="text-rose-400 font-bold">انتهت الصلاحية منذ {-status.daysRemaining} يوم</span>
             </div>
           )}
 
           <Button
             onClick={() => setShowActivation(true)}
-            className="w-full h-12 text-base font-bold rounded-xl bg-gradient-to-l from-teal-500 to-sky-500 hover:from-teal-400 hover:to-sky-400 border-0 text-white shadow-lg shadow-teal-500/20"
+            className="w-full h-12 text-sm sm:text-base font-bold rounded-xl bg-gradient-to-l from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 border-0 text-white shadow-lg shadow-teal-500/25 cursor-pointer"
           >
-            <KeyRound className="h-5 w-5 ml-1" /> تفعيل كود اشتراك
+            <KeyRound className="h-5 w-5 ml-1.5" /> تفعيل كود ترخيص المنظومة
           </Button>
 
-          <ActivationModal
+          <SubscriptionModal
             open={showActivation}
             onClose={() => setShowActivation(false)}
+            status={status}
+            initialMode="activate"
             onActivated={fetchStatus}
           />
         </div>
@@ -397,7 +168,7 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * شريط تنبيه علوي للحالات غير الحرجة (تجربة/سماح).
+ * شريط تنبيه علوي للحالات المؤقتة (تجربة / سماح).
  */
 function SubscriptionBanner({ status, onActivate }: { status: SubscriptionStatus; onActivate: () => void }) {
   const isTrial = status.state === "trial";
@@ -405,17 +176,21 @@ function SubscriptionBanner({ status, onActivate }: { status: SubscriptionStatus
     <motion.div
       initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
-      className={`sticky top-0 z-40 ${isTrial ? "bg-sky-500/10 border-sky-500/20" : "bg-orange-500/10 border-orange-500/20"} border-b backdrop-blur-md`}
+      className={`sticky top-0 z-40 ${
+        isTrial
+          ? "bg-sky-500/15 border-sky-500/30 text-sky-900 dark:text-sky-200"
+          : "bg-amber-500/15 border-amber-500/30 text-amber-900 dark:text-amber-200"
+      } border-b backdrop-blur-md px-4 py-2`}
     >
-      <div className="max-w-7xl mx-auto px-4 py-2 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-sm">
-          {isTrial ? <Clock className="h-4 w-4 text-sky-400" /> : <AlertTriangle className="h-4 w-4 text-orange-400" />}
-          <span className="text-white/90">{status.message}</span>
+      <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 text-xs sm:text-sm">
+        <div className="flex items-center gap-2">
+          {isTrial ? <Clock className="h-4 w-4 text-sky-500 shrink-0" /> : <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />}
+          <span className="font-medium">{status.message}</span>
         </div>
         <Button
           size="sm"
           onClick={onActivate}
-          className="h-8 px-3 text-xs rounded-lg bg-gradient-to-l from-teal-500 to-sky-500 hover:from-teal-400 hover:to-sky-400 border-0 text-white"
+          className="h-7 px-3 text-xs font-bold rounded-lg bg-gradient-to-l from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 border-0 text-white cursor-pointer"
         >
           <KeyRound className="h-3 w-3 ml-1" /> فعّل الآن
         </Button>

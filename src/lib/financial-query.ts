@@ -23,6 +23,8 @@ export type FinancialPeriod =
   | "week"
   | "month"
   | "lastMonth"
+  | "90d"
+  | "quarter"
   | "year"
   | "all"
   | "custom";

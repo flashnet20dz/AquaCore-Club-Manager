@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Users, Plus, Building2, Wallet, FileText, CreditCard,
-  Settings, QrCode, Calendar, TrendingUp, ArrowRight, CornerDownLeft, X, Landmark,
+  Settings, QrCode, Calendar, TrendingUp, ArrowRight, CornerDownLeft, X, Landmark, Layers,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -101,6 +101,14 @@ export function CommandPalette({
       icon: Landmark,
       action: () => { onNavigate("financial-hub"); onOpenChange(false); },
       keywords: ["finance", "مالية", "تقارير", "دفعات", "صندوق", "أعباء", "تسديدات"],
+    },
+    {
+      id: "enterprise-hub",
+      label: "مركز الميزات المتقدمة Enterprise",
+      description: "الفواتير والكوبونات، الفعاليات، برامج الولاء، إدارة العلاقات، والدعم الفني",
+      icon: Layers,
+      action: () => { onNavigate("enterprise-hub"); onOpenChange(false); },
+      keywords: ["enterprise", "متقدمة", "فواتير", "كوبونات", "فعاليات", "ولاء", "crm", "دعم"],
     },
     {
       id: "settings",

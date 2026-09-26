@@ -2,7 +2,7 @@ import {
   Activity, Users, QrCode, Clock, Waves, RefreshCcw, CalendarOff,
   ListPlus, ShieldCheck, Building2, Crown, TrendingUp, Sparkles,
   Inbox, Download, Landmark, Banknote, FileText, UserCog, Database,
-  Settings as SettingsIcon, LucideIcon
+  Settings as SettingsIcon, LucideIcon, Layers
 } from "lucide-react";
 
 export type PageGroupId = "core" | "sports" | "finance" | "management" | "system";
@@ -301,6 +301,19 @@ export const DEFAULT_PAGE_ITEMS: PageNavigationItem[] = [
     canHide: true,
   },
   {
+    id: "enterprise-hub",
+    label: "خدمات وفعاليات النادي المتقدمة (Enterprise)",
+    shortLabel: "خدمات النادي المتقدمة",
+    description: "فواتير وكوبونات النادي، تنظيم البطولات والفعاليات، برامج ولاء السباحين، وإدارة رضا المشتركين",
+    icon: Layers,
+    iconName: "Layers",
+    group: "management",
+    adminOnly: true,
+    defaultOrder: 18,
+    defaultVisible: true,
+    canHide: true,
+  },
+  {
     id: "users",
     label: "إدارة المستخدمين",
     shortLabel: "المستخدمون",
@@ -309,7 +322,7 @@ export const DEFAULT_PAGE_ITEMS: PageNavigationItem[] = [
     iconName: "UserCog",
     group: "management",
     adminOnly: true,
-    defaultOrder: 18,
+    defaultOrder: 19,
     defaultVisible: true,
     canHide: true,
   },

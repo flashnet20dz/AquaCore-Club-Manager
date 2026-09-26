@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Android (APK & Google Play Bundle)
 
 on:
   push:
@@ -35,19 +35,18 @@ jobs:
         with:
           packages: 'platform-tools build-tools;34.0.0 platforms;android-34'
 
-      - name: Install Capacitor
+      - name: Install Dependencies
         run: |
           npm init -y
           npm install @capacitor/core@^6 @capacitor/cli@^6 @capacitor/android@^6 @capacitor/app@^6 @capacitor/splash-screen@^6 @capacitor/camera@^6 @capacitor/preferences@^6
 
-      - name: Add Android Platform
+      - name: Add and Sync Android Platform
         run: |
           npx cap add android || true
           npx cap copy android
 
-      - name: Copy App Icons
+      - name: Copy App Icons & Splash
         run: |
-          # انسخ أيقونات mipmap لمجلدات Android
           for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
             if [ -d "android-resources/mipmap-$density" ]; then
               mkdir -p android/app/src/main/res/mipmap-$density
@@ -55,14 +54,27 @@ jobs:
             fi
           done
 
-          # انسخ splash screen
           if [ -f "android-resources/splash.png" ]; then
             mkdir -p android/app/src/main/res/drawable
             cp android-resources/splash.png android/app/src/main/res/drawable/splash.png
           fi
 
-          echo "✅ Icons copied"
-          ls -la android/app/src/main/res/mipmap-xxxhdpi/ 2>/dev/null || echo "No xxxhdpi"
+          echo "✅ Icons & Splash copied"
+
+      - name: Configure Network Security
+        run: |
+          mkdir -p android/app/src/main/res/xml
+          cat > android/app/src/main/res/xml/network_security_config.xml << 'SECURITY'
+          <?xml version="1.0" encoding="utf-8"?>
+          <network-security-config>
+              <base-config cleartextTrafficPermitted="true">
+                  <trust-anchors>
+                      <certificates src="system" />
+                      <certificates src="user" />
+                  </trust-anchors>
+              </base-config>
+          </network-security-config>
+          SECURITY
 
       - name: Configure Android Manifest
         run: |
@@ -70,17 +82,23 @@ jobs:
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android"
               package="com.aquacore.clubmanager">
+
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.CAMERA" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+              <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
+              <uses-feature android:name="android.hardware.camera" android:required="false" />
+              <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
               <application
                   android:allowBackup="true"
                   android:icon="@mipmap/ic_launcher"
                   android:label="AquaCore"
                   android:roundIcon="@mipmap/ic_launcher_round"
                   android:supportsRtl="true"
-                  android:usesCleartextTraffic="false"
+                  android:usesCleartextTraffic="true"
+                  android:networkSecurityConfig="@xml/network_security_config"
                   android:theme="@style/AppTheme"
                   android:hardwareAccelerated="true">
                   <activity
@@ -102,7 +120,6 @@ jobs:
 
       - name: Generate Signing Keystore
         run: |
-          # أنشئ keystore في مجلد android/app/
           keytool -genkeypair \
             -alias aquacore-key \
             -keyalg RSA \
@@ -113,7 +130,6 @@ jobs:
             -keypass aquacore123 \
             -dname "CN=AquaCore Club Manager, OU=Mobile, O=AquaCore, L=Algiers, ST=Algiers, C=DZ"
 
-          # اضبط gradle للتوقيع — storeFile نسبة لمجلد app/
           cat >> android/app/build.gradle << 'GRADLE'
 
           android.signingConfigs {
@@ -127,57 +143,63 @@ jobs:
           android.buildTypes.release.signingConfig = android.signingConfigs.release
           GRADLE
 
-      - name: Build Release APK (Signed)
+      - name: Build Signed Release APK & Google Play Bundle (AAB)
         run: |
           cd android
           chmod +x gradlew
+          echo "Building Release APK..."
           ./gradlew assembleRelease --no-daemon -x lintVitalRelease
+          echo "Building Google Play Release Bundle (.aab)..."
+          ./gradlew bundleRelease --no-daemon -x lintVitalRelease
 
-      - name: Rename and Verify APK
+      - name: Prepare Output Artifacts
         run: |
           mkdir -p output
-          APK_PATH="android/app/build/outputs/apk/release/app-release.apk"
-          if [ ! -f "$APK_PATH" ]; then
-            echo "Release APK not found, falling back to debug..."
-            APK_PATH="android/app/build/outputs/apk/debug/app-debug.apk"
-            cd android && ./gradlew assembleDebug --no-daemon -x lintVitalRelease && cd ..
-          fi
-          cp "$APK_PATH" output/AquaCore-Club-Manager.apk
-          ls -la output/
-          echo "APK size: $(du -h output/AquaCore-Club-Manager.apk | cut -f1)"
 
-      - name: Upload APK Artifact
+          # 1. APK (Direct Install)
+          APK_PATH="android/app/build/outputs/apk/release/app-release.apk"
+          if [ -f "$APK_PATH" ]; then
+            cp "$APK_PATH" output/AquaCore-Club-Manager.apk
+          fi
+
+          # 2. AAB (Google Play Store Bundle)
+          AAB_PATH="android/app/build/outputs/bundle/release/app-release.aab"
+          if [ -f "$AAB_PATH" ]; then
+            cp "$AAB_PATH" output/AquaCore-Club-Manager.aab
+          fi
+
+          ls -la output/
+
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: AquaCore-APK
-          path: output/*.apk
+          name: AquaCore-Android-Packages
+          path: output/*
           retention-days: 90
           compression-level: 0
 
-      - name: Create Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
           name: AquaCore Club Manager v1.0.${{ github.run_number }}
-          files: output/AquaCore-Club-Manager.apk
+          files: |
+            output/AquaCore-Club-Manager.apk
+            output/AquaCore-Club-Manager.aab
           body: |
-            # 📱 AquaCore Club Manager — Android APK
+            # 📱 AquaCore Club Manager — Android Release
 
-            ## تحميل مباشر
-            **[AquaCore-Club-Manager.apk](https://github.com/flashnet20dz/AquaCore-Club-Manager/releases/download/v1.0.${{ github.run_number }}/AquaCore-Club-Manager.apk)**
+            ## 📥 ملفات التحميل المباشر
+            - **[AquaCore-Club-Manager.apk](https://github.com/flashnet20dz/AquaCore-Club-Manager/releases/download/v1.0.${{ github.run_number }}/AquaCore-Club-Manager.apk)**: لتثبيت التطبيق مباشرة على الهاتف.
+            - **[AquaCore-Club-Manager.aab](https://github.com/flashnet20dz/AquaCore-Club-Manager/releases/download/v1.0.${{ github.run_number }}/AquaCore-Club-Manager.aab)**: الحزمة الرسمية المخصصة للرفع على **Google Play Console**.
 
-            ## الميزات
-            - ✅ لوحة تحكم + إحصائيات
-            - ✅ المنخرطون + صور بالكاميرا
-            - ✅ الحضور بكود QR
-            - ✅ التجديدات + ساعات العمل
-            - ✅ Offline caching
-            - ✅ Release موقّع
-
-            ## التثبيت
-            1. حمّل ملف APK
-            2. فعّل "تثبيت من مصادر غير معروفة" في إعدادات Android
-            3. افتح ملف APK وثبّته
+            ## 🌟 أبرز الميزات في هذه النسخة
+            - ✅ شريط تنقل سفلي حديث واحترافي للهواتف (Bottom Navigation Bar)
+            - ✅ كاميرا الحضور السريع بـ QR Code
+            - ✅ إدارة المنخرطين، العقود، التأمين، والماليات كاملة
+            - ✅ إمكانية الربط بنفس قاعدة البيانات (سحابياً أو عبر الواي فاي المحلي)
+            - ✅ نظام تفعيل التراخيص والاشتراكات أوفلاين بدون الحاجة للإنترنت
+            - ✅ جاهز ومعتمد لمتجر Google Play Store (Target SDK 34)
           draft: false
           prerelease: false
         env:
@@ -185,13 +207,7 @@ jobs:
 
       - name: Summary
         run: |
-          FILESIZE=$(stat -c%s "output/AquaCore-Club-Manager.apk" 2>/dev/null || stat -f%z "output/AquaCore-Club-Manager.apk")
-          echo "## 📱 AquaCore APK Build Complete" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Direct Download:** [AquaCore-Club-Manager.apk](https://github.com/flashnet20dz/AquaCore-Club-Manager/releases/download/v1.0.${{ github.run_number }}/AquaCore-Club-Manager.apk)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Releases Page:** https://github.com/flashnet20dz/AquaCore-Club-Manager/releases" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Size:** $((FILESIZE / 1024 / 1024)) MB" >> $GITHUB_STEP_SUMMARY
-          echo "**Build:** #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Type:** Release (Signed)" >> $GITHUB_STEP_SUMMARY
+          echo "## 📱 AquaCore Android Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "- **Direct APK:** output/AquaCore-Club-Manager.apk" >> $GITHUB_STEP_SUMMARY
+          echo "- **Google Play Bundle:** output/AquaCore-Club-Manager.aab" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target SDK:** 34 (Google Play Ready)" >> $GITHUB_STEP_SUMMARY

@@ -80,6 +80,58 @@ function formatDate(d: string | Date | undefined): string {
   return `${y}/${m}/${day}`;
 }
 
+const SUPERADMIN_NAV_TABS = [
+  {
+    id: "overview",
+    shortLabel: "القيادة",
+    mediumLabel: "لوحة القيادة",
+    fullLabel: "لوحة القيادة والمؤشرات",
+    icon: LayoutDashboard,
+  },
+  {
+    id: "clubs",
+    shortLabel: "النوادي",
+    mediumLabel: "النوادي والاشتراكات",
+    fullLabel: "النوادي والاشتراكات",
+    icon: Building,
+  },
+  {
+    id: "services",
+    shortLabel: "الخدمات",
+    mediumLabel: "الخدمات والتراخيص",
+    fullLabel: "الخدمات والتراخيص والتفعيلات",
+    icon: Cpu,
+  },
+  {
+    id: "designs",
+    shortLabel: "التصاميم",
+    mediumLabel: "التصاميم والقوالب",
+    fullLabel: "التصاميم والواجهات والقوالب",
+    icon: Palette,
+  },
+  {
+    id: "permissions",
+    shortLabel: "الصلاحيات",
+    mediumLabel: "الصفحات والصلاحيات",
+    fullLabel: "الصفحات والصلاحيات",
+    icon: Lock,
+  },
+  {
+    id: "audit",
+    shortLabel: "الرقابة",
+    mediumLabel: "سجل الرقابة",
+    fullLabel: "سجل الرقابة والتنبيهات",
+    icon: FileText,
+  },
+  {
+    id: "settings",
+    shortLabel: "النظام",
+    mediumLabel: "حسابي والنظام",
+    fullLabel: "حسابي وإعدادات النظام",
+    icon: Settings,
+  },
+] as const;
+
 export default function SuperAdminPage() {
   return (
     <ErrorBoundary fallbackTitle="حدث خطأ في لوحة تحكم المدير العام">
@@ -592,70 +644,60 @@ function SuperAdminContent() {
          ═══════════════════════════════════════════════════════════════ */}
       <main className="max-w-[1600px] mx-auto px-4 lg:px-8 py-6 space-y-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          {/* شريط التبويبات الرئيسي المتطور */}
-          <div className="overflow-x-auto pb-1 scrollbar-none print:hidden">
-            <TabsList className="bg-slate-900/90 border border-slate-800 p-1.5 rounded-2xl inline-flex gap-1.5 shadow-lg w-max min-w-full sm:min-w-0 sm:w-auto">
-              <TabsTrigger
-                value="overview"
-                className="data-[state=active]:bg-gradient-to-l data-[state=active]:from-teal-600 data-[state=active]:to-sky-600 data-[state=active]:text-white data-[state=active]:shadow-md rounded-xl px-4 py-2.5 text-xs font-semibold gap-2 text-slate-400 transition-all"
-              >
-                <LayoutDashboard className="h-4 w-4" />
-                <span>لوحة القيادة والمؤشرات</span>
-              </TabsTrigger>
+          {/* شريط التبويبات الرئيسي المتطور — متجاوب 100% مع كافة الشاشات */}
+          <div className="w-full print:hidden space-y-2">
+            {/* مؤشر توضيحي ذكي للشاشات الصغيرة */}
+            <div className="flex md:hidden items-center justify-between px-3 py-1.5 bg-slate-900/60 border border-slate-800/60 rounded-xl text-xs">
+              <span className="text-slate-400 font-medium">القسم المعروض:</span>
+              <span className="text-teal-400 font-bold flex items-center gap-1.5">
+                {(() => {
+                  const current = SUPERADMIN_NAV_TABS.find((t) => t.id === activeTab);
+                  if (!current) return activeTab;
+                  const Icon = current.icon;
+                  return (
+                    <>
+                      <Icon className="h-3.5 w-3.5" />
+                      <span>{current.fullLabel}</span>
+                    </>
+                  );
+                })()}
+              </span>
+            </div>
 
-              <TabsTrigger
-                value="clubs"
-                className="data-[state=active]:bg-gradient-to-l data-[state=active]:from-teal-600 data-[state=active]:to-sky-600 data-[state=active]:text-white data-[state=active]:shadow-md rounded-xl px-4 py-2.5 text-xs font-semibold gap-2 text-slate-400 transition-all relative"
-              >
-                <Building className="h-4 w-4" />
-                <span>النوادي والاشتراكات</span>
-                <Badge className="bg-slate-800 text-slate-300 border-slate-700 text-[10px] px-1.5 py-0 h-4">
-                  {clubs.length}
-                </Badge>
-                {stats.pending > 0 && (
-                  <span className="h-2 w-2 rounded-full bg-amber-400 animate-ping absolute -top-0.5 -right-0.5" />
-                )}
-              </TabsTrigger>
+            <TabsList className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-1.5 p-1.5 bg-slate-900/95 backdrop-blur-xl border border-slate-800/90 rounded-2xl shadow-xl w-full h-auto">
+              {SUPERADMIN_NAV_TABS.map((tab) => {
+                const IconComponent = tab.icon;
+                const isClubs = tab.id === "clubs";
 
-              <TabsTrigger
-                value="services"
-                className="data-[state=active]:bg-gradient-to-l data-[state=active]:from-teal-600 data-[state=active]:to-sky-600 data-[state=active]:text-white data-[state=active]:shadow-md rounded-xl px-4 py-2.5 text-xs font-semibold gap-2 text-slate-400 transition-all"
-              >
-                <Cpu className="h-4 w-4" />
-                <span>الخدمات والتفعيلات</span>
-              </TabsTrigger>
+                return (
+                  <TabsTrigger
+                    key={tab.id}
+                    value={tab.id}
+                    className="relative data-[state=active]:bg-gradient-to-l data-[state=active]:from-teal-600 data-[state=active]:to-sky-600 data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-teal-500/20 data-[state=active]:border-teal-400/40 rounded-xl px-2 sm:px-2.5 py-2.5 text-xs font-medium sm:font-semibold text-slate-400 hover:text-slate-100 hover:bg-slate-800/70 border border-transparent transition-all flex items-center justify-center gap-1.5 sm:gap-2 w-full h-11 sm:h-12 select-none group cursor-pointer"
+                    title={tab.fullLabel}
+                  >
+                    <IconComponent className="h-4 w-4 shrink-0 transition-transform group-hover:scale-110" />
 
-              <TabsTrigger
-                value="designs"
-                className="data-[state=active]:bg-gradient-to-l data-[state=active]:from-teal-600 data-[state=active]:to-sky-600 data-[state=active]:text-white data-[state=active]:shadow-md rounded-xl px-4 py-2.5 text-xs font-semibold gap-2 text-slate-400 transition-all"
-              >
-                <Palette className="h-4 w-4" />
-                <span>التصاميم والواجهات والقوالب</span>
-              </TabsTrigger>
+                    <span className="truncate">
+                      <span className="sm:hidden">{tab.shortLabel}</span>
+                      <span className="hidden sm:inline 2xl:hidden">{tab.mediumLabel}</span>
+                      <span className="hidden 2xl:inline">{tab.fullLabel}</span>
+                    </span>
 
-              <TabsTrigger
-                value="permissions"
-                className="data-[state=active]:bg-gradient-to-l data-[state=active]:from-teal-600 data-[state=active]:to-sky-600 data-[state=active]:text-white data-[state=active]:shadow-md rounded-xl px-4 py-2.5 text-xs font-semibold gap-2 text-slate-400 transition-all"
-              >
-                <Lock className="h-4 w-4" />
-                <span>الصفحات والصلاحيات</span>
-              </TabsTrigger>
+                    {/* شارة عدد النوادي */}
+                    {isClubs && (
+                      <Badge className="bg-slate-800/90 group-data-[state=active]:bg-white/20 group-data-[state=active]:text-white text-slate-300 border-slate-700/80 text-[10px] px-1.5 py-0 h-4 shrink-0 font-mono transition-colors">
+                        {clubs.length}
+                      </Badge>
+                    )}
 
-              <TabsTrigger
-                value="audit"
-                className="data-[state=active]:bg-gradient-to-l data-[state=active]:from-teal-600 data-[state=active]:to-sky-600 data-[state=active]:text-white data-[state=active]:shadow-md rounded-xl px-4 py-2.5 text-xs font-semibold gap-2 text-slate-400 transition-all"
-              >
-                <FileText className="h-4 w-4" />
-                <span>سجل الرقابة والتنبيهات</span>
-              </TabsTrigger>
-
-              <TabsTrigger
-                value="settings"
-                className="data-[state=active]:bg-gradient-to-l data-[state=active]:from-teal-600 data-[state=active]:to-sky-600 data-[state=active]:text-white data-[state=active]:shadow-md rounded-xl px-4 py-2.5 text-xs font-semibold gap-2 text-slate-400 transition-all"
-              >
-                <Settings className="h-4 w-4" />
-                <span>حسابي وإعدادات النظام</span>
-              </TabsTrigger>
+                    {/* تنبيه طلبات النوادي المعلقة */}
+                    {isClubs && stats.pending > 0 && (
+                      <span className="h-2 w-2 rounded-full bg-amber-400 animate-ping absolute -top-0.5 -right-0.5" />
+                    )}
+                  </TabsTrigger>
+                );
+              })}
             </TabsList>
           </div>
 
@@ -1652,6 +1694,8 @@ function SuperAdminContent() {
               </div>
             </div>
           </TabsContent>
+
+
         </Tabs>
       </main>
 

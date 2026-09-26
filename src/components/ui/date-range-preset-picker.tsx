@@ -1,8 +1,14 @@
 "use client";
 
-import React, { useState } from "react";
-import { Calendar as CalendarIcon, ChevronDown, Check } from "lucide-react";
+import React from "react";
+import { Calendar as CalendarIcon, ChevronDown, Check, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 
 export type PresetRange = "today" | "7d" | "30d" | "90d" | "year";
 
@@ -25,61 +31,70 @@ export function DateRangePresetPicker({
   onChangePreset,
   className,
 }: DateRangePresetPickerProps) {
-  const [isOpen, setIsOpen] = useState(false);
   const selected = PRESETS.find((p) => p.id === activePreset) || PRESETS[2];
 
   return (
-    <div className={cn("relative inline-block text-right select-none", className)}>
-      {/* Trigger Button */}
-      <button
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="inline-flex items-center gap-2 h-[34px] px-3 rounded-near-sm bg-[#111118] border border-[#3a3a48] text-xs font-medium text-[#f1f5f9] hover:border-[#3b82f6] elevation-1 motion-fast"
-      >
-        <CalendarIcon className="h-3.5 w-3.5 text-[#3b82f6]" />
-        <span>النطاق: <strong className="text-[#60a5fa]">{selected.label}</strong></span>
-        <ChevronDown className={cn("h-3 w-3 text-[#7a7d8a] transition-transform duration-150", isOpen && "rotate-180")} />
-      </button>
-
-      {/* Preset Dropdown */}
-      {isOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-30"
-            onClick={() => setIsOpen(false)}
-          />
-          <div className="absolute left-0 mt-1.5 w-44 rounded-near-md border border-[#3a3a48] bg-[#111118]/95 p-1.5 elevation-3 backdrop-blur-md z-40">
-            <div className="text-[10px] uppercase font-semibold text-[#7a7d8a] px-2 py-1 tracking-wider border-b border-[#1f1f28] mb-1">
-              نطاق التحليلات
+    <div className={cn("inline-block select-none", className)}>
+      <DropdownMenu dir="rtl">
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={`تحديد نطاق التاريخ: ${selected.label}`}
+            className="group inline-flex items-center gap-2 h-9 px-3 rounded-xl bg-black/40 hover:bg-black/60 text-white border border-white/20 hover:border-sky-400/60 text-xs font-medium shadow-sm backdrop-blur-md transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/50 active:scale-[0.98]"
+          >
+            <div className="flex items-center justify-center w-5 h-5 rounded-lg bg-sky-500/20 text-sky-300 shrink-0">
+              <CalendarIcon className="h-3.5 w-3.5" />
             </div>
+            <span className="flex items-center gap-1.5 whitespace-nowrap">
+              <span className="text-white/80 font-normal text-[11px] sm:text-xs">النطاق:</span>
+              <strong className="text-sky-300 font-bold text-xs">{selected.label}</strong>
+            </span>
+            <ChevronDown className="h-3.5 w-3.5 text-white/70 transition-transform duration-200 group-data-[state=open]:rotate-180 shrink-0 mr-0.5" />
+          </button>
+        </DropdownMenuTrigger>
+
+        <DropdownMenuContent
+          align="end"
+          side="bottom"
+          sideOffset={8}
+          className="w-56 p-1.5 rounded-2xl border border-slate-700/80 bg-slate-950/95 backdrop-blur-2xl shadow-2xl shadow-black/70 text-right z-[9999]"
+        >
+          <div className="flex items-center gap-2 px-2.5 py-1.5 text-[10px] uppercase font-bold text-slate-400 tracking-wider border-b border-slate-800/80 mb-1">
+            <Clock className="w-3.5 h-3.5 text-sky-400" />
+            <span>نطاق التحليلات الزمنية</span>
+          </div>
+
+          <div className="space-y-0.5">
             {PRESETS.map((preset) => {
               const isActive = preset.id === activePreset;
               return (
-                <button
+                <DropdownMenuItem
                   key={preset.id}
-                  type="button"
-                  onClick={() => {
-                    onChangePreset(preset.id);
-                    setIsOpen(false);
-                  }}
+                  onClick={() => onChangePreset(preset.id)}
                   className={cn(
-                    "flex w-full items-center justify-between px-2.5 py-1.5 rounded-near-xs text-xs font-medium text-right motion-fast",
+                    "flex items-center justify-between px-3 py-2 rounded-xl text-xs cursor-pointer transition-all duration-150 outline-none select-none my-0.5",
                     isActive
-                      ? "bg-[#3b82f6]/20 text-[#60a5fa] font-semibold"
-                      : "text-[#cbd5e1] hover:bg-[#1f1f28] hover:text-[#ffffff]"
+                      ? "bg-gradient-to-r from-sky-500/25 to-teal-500/25 text-sky-200 font-bold border border-sky-500/40 shadow-sm"
+                      : "text-slate-300 hover:bg-slate-800/80 hover:text-white"
                   )}
                 >
-                  <div className="flex flex-col items-start">
-                    <span>{preset.label}</span>
-                    <span className="text-[10px] text-[#7a7d8a] font-normal">{preset.sub}</span>
+                  <div className="flex flex-col items-start gap-0.5">
+                    <span className="font-bold text-xs leading-none">{preset.label}</span>
+                    <span className={cn("text-[10px] leading-tight", isActive ? "text-sky-300/80" : "text-slate-400")}>
+                      {preset.sub}
+                    </span>
                   </div>
-                  {isActive && <Check className="h-3.5 w-3.5 text-[#3b82f6]" />}
-                </button>
+                  {isActive && (
+                    <div className="flex items-center justify-center w-5 h-5 rounded-full bg-sky-500/30 text-sky-300 shrink-0">
+                      <Check className="h-3 w-3 stroke-[2.5]" />
+                    </div>
+                  )}
+                </DropdownMenuItem>
               );
             })}
           </div>
-        </>
-      )}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }

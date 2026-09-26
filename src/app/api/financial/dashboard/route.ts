@@ -58,6 +58,9 @@ export async function GET(req: NextRequest) {
     } else if (periodParam === "lastmonth") {
       periodStart = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
       periodEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+    } else if (periodParam === "quarter" || periodParam === "90d") {
+      periodStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 89, 0, 0, 0, 0);
+      periodEnd = endOfToday;
     } else if (periodParam === "year") {
       periodStart = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
       periodEnd = endOfToday;
