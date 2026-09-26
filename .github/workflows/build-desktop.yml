@@ -41,7 +41,7 @@ jobs:
 
       - name: Build Next.js Standalone
         run: |
-          npm run build
+          npx next build
         env:
           DATABASE_URL: "file:./dev.db"
           NEXT_TELEMETRY_DISABLED: "1"
