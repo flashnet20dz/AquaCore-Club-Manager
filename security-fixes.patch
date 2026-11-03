@@ -1,0 +1,311 @@
+diff --git a/.env.example b/.env.example
+index b30477a..589f3f9 100644
+--- a/.env.example
++++ b/.env.example
+@@ -16,6 +16,20 @@ NEXTAUTH_SECRET="your-secret-key-here-at-least-32-chars"
+ # NEXTAUTH_URL="http://localhost:3000"
+ 
+ # ═══ Cloudinary (رفع الصور) ═══
+-CLOUDINARY_CLOUD_NAME=g70oqded
+-CLOUDINARY_API_KEY=912562685711264
+-CLOUDINARY_API_SECRET=<your-api-secret-here>
++# ⚠️ كان هنا مفتاح حقيقي مسرّب في المستودع — قم بتدويره من لوحة Cloudinary فوراً
++CLOUDINARY_CLOUD_NAME=your-cloud-name
++CLOUDINARY_API_KEY=your-api-key
++CLOUDINARY_API_SECRET=your-api-secret
++
++# ═══ الأمان ═══
++# سر حماية نقاط cron — تُرسل في ترويسة x-cron-secret من خدمة الجدولة
++# ولّده بـ: openssl rand -hex 32
++CRON_SECRET=
++
++# إنشاء حساب مدير أولي على قاعدة بيانات فارغة فقط.
++# اتركه فارغاً في الإنتاج؛ عند الإعداد الأول اضبطه =true وستُطبع
++# كلمة سر عشوائية قوية في سجل الخادم مرة واحدة.
++SEED_DEFAULT_ADMIN=
++
++# سر توقيع أكواد التفعيل — خادمي فقط، لا يُضبط في العميل إطلاقاً
++ACTIVATION_HMAC_SECRET=
+diff --git a/src/app/api/cron/notifications/route.ts b/src/app/api/cron/notifications/route.ts
+index 802c2d5..6979bcb 100644
+--- a/src/app/api/cron/notifications/route.ts
++++ b/src/app/api/cron/notifications/route.ts
+@@ -1,16 +1,44 @@
+-import { NextResponse } from "next/server";
++import { NextRequest, NextResponse } from "next/server";
++import crypto from "crypto";
+ import { db } from "@/lib/db";
+ import { computeSubscriberFields } from "@/lib/rcs";
+ import { getCurrentUser } from "@/lib/session";
+ 
++// 🔒 مقارنة آمنة زمنياً للأسرار (تمنع timing attacks)
++function timingSafeEqualStr(a: string, b: string): boolean {
++  const ab = Buffer.from(a, "utf8");
++  const bb = Buffer.from(b, "utf8");
++  if (ab.length !== bb.length) return false;
++  return crypto.timingSafeEqual(ab, bb);
++}
++
+ // This endpoint can be called by a cron job (e.g., Vercel Cron) to generate notifications
+ // GET /api/cron/notifications — generates renewal + absence reminders
+-export async function GET() {
++export async function GET(req: NextRequest) {
+   try {
+     const currentUser = await getCurrentUser();
+ 
+-    // Determine club filter: cron calls (no user) and superadmin process all clubs;
+-    // regular users only process their own club.
++    // 🔒 حماية Cron: الزائر المجهول مرفوض دائماً — إلا إذا أحضر سرّ CRON_SECRET
++    // صحيحاً في ترويسة x-cron-secret (تُضبط في إعدادات جدولة Vercel Cron).
++    // سابقاً: أي شخص على الإنترنت كان يستطيع استدعاء هذه النقطة مجاناً
++    // ليفرض فحص كل المشتركين في كل النوادي وإنشاء إشعارات جماعية (DoS/سبام).
++    const cronSecret = process.env.CRON_SECRET;
++    const providedSecret = req.headers.get("x-cron-secret") || "";
++    const isTrustedCron = Boolean(cronSecret) && timingSafeEqualStr(cronSecret, providedSecret);
++
++    if (!currentUser && !isTrustedCron) {
++      return NextResponse.json(
++        { error: "غير مصرح — هذه النقطة مخصصة لمهام مجدولة موثوقة فقط" },
++        { status: 401 }
++      );
++    }
++    // المستخدم المُسجّل (للتشغيل اليدوي) يجب أن يكون admin أو superadmin
++    if (currentUser && currentUser.role !== "admin" && currentUser.role !== "superadmin") {
++      return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
++    }
++
++    // Determine club filter: trusted cron calls (no user) and superadmin process all
++    // clubs; regular users only process their own club.
+     const clubFilter = !currentUser || currentUser.role === "superadmin"
+       ? {}
+       : { clubId: currentUser.clubId! };
+diff --git a/src/app/api/sync/push/route.ts b/src/app/api/sync/push/route.ts
+index 470cb15..0776311 100644
+--- a/src/app/api/sync/push/route.ts
++++ b/src/app/api/sync/push/route.ts
+@@ -1,10 +1,16 @@
+ import { NextRequest, NextResponse } from "next/server";
+ import { db } from "@/lib/db";
+ 
++// 🔒 القائمة البيضاء الوحيدة للنماذج القابلة للمزامنة — كلها تحمل clubId.
++// أي نموذج آخر (users, clubs, settings...) يُرفض فوراً — الكود القديم كان
++// يقبل أي نموذج عبر (db as any)[modelName] فيسمح بكتابة أي جدول في النظام.
++const SYNC_MODELS = new Set(["payment", "renewal", "attendance", "subscriber"]);
++
+ // موديلات "معاملات" — append-only، لا يوجد تعارض ممكن، فقط "أضِف إذا غير موجود"
+ const APPEND_ONLY_MODELS = new Set(["payment", "renewal", "attendance"]);
+ 
+ // موديلات "وصفية" — تُحل بالتعارض عبر updatedAt (آخر تعديل يفوز)
++// وتدعم الحذف الناعم (deletedAt موجود على subscriber فقط)
+ const METADATA_MODELS = new Set(["subscriber"]);
+ 
+ interface SyncChange {
+@@ -41,24 +47,61 @@ export async function POST(req: NextRequest) {
+     for (const change of changes) {
+       try {
+         const { modelName, recordId, operation, payload } = change;
+-        const model = (db as any)[modelName];
+-        if (!model) {
++
++        // 1) 🔒 نموذج مسموح فقط — ما عداها يُرفض صراحةً (وليس تجاهلاً صامتاً)
++        if (!SYNC_MODELS.has(modelName)) {
++          skipped++;
++          errors.push(`${modelName}/${recordId}: نموذج غير مسموح بمزامنته`);
++          continue;
++        }
++
++        // 2) 🔒 عملية صالحة فقط
++        if (operation !== "create" && operation !== "update" && operation !== "delete") {
+           skipped++;
++          errors.push(`${modelName}/${recordId}: عملية غير معروفة`);
+           continue;
+         }
+ 
+-        // عزل صارم بين النوادي: أي سجل لا ينتمي لهذا النادي يُرفض
+-        if (payload?.clubId && payload.clubId !== club.id) {
++        // 3) 🔒 فحص الشكل
++        if (!recordId || typeof recordId !== "string" || !payload || typeof payload !== "object") {
+           skipped++;
+           continue;
+         }
+-        if ("clubId" in payload) payload.clubId = club.id;
++
++        const model = (db as any)[modelName];
++
++        // 4) 🔒 عزل صارم بين النوادي: السجل إما داخل هذا النادي أو غير موجود أصلاً.
++        // الكود القديم كان يحدّث بأي id مجرد — فيسمح بمس سجلات نوادٍ أخرى.
++        const owned = await model.findFirst({
++          where: { id: recordId, clubId: club.id },
++          select: { id: true },
++        });
++
++        if (!owned && operation !== "create") {
++          skipped++;
++          errors.push(`${modelName}/${recordId}: السجل غير موجود في ناديك`);
++          continue;
++        }
++        if (owned && operation === "create") {
++          skipped++; // موجود بالفعل — سلوك idempotent
++          continue;
++        }
++
++        // 5) 🔒 فرض النادي دائماً — مهما أرسل العميل في الـ payload
++        const data = { ...payload, clubId: club.id };
+ 
+         if (operation === "delete") {
++          // الحذف الناعم مدعوم على subscriber فقط (النماذج الأخرى لا تملك deletedAt —
++          // الكود القديم كان يحاول الحذف على الجميع ويفشل بصمت مع عدّه "مُطبّقاً"!)
++          if (!METADATA_MODELS.has(modelName)) {
++            skipped++;
++            errors.push(`${modelName}/${recordId}: الحذف غير مدعوم على هذا النموذج`);
++            continue;
++          }
+           await model.update({
+             where: { id: recordId },
+             data: { deletedAt: new Date() },
+-          }).catch(() => {});
++          });
+           applied++;
+           continue;
+         }
+@@ -66,25 +109,28 @@ export async function POST(req: NextRequest) {
+         if (APPEND_ONLY_MODELS.has(modelName)) {
+           await model.upsert({
+             where: { id: recordId },
+-            create: payload,
++            create: data,
+             update: {},
+           });
+           applied++;
+         } else if (METADATA_MODELS.has(modelName)) {
+-          const existing = await model.findUnique({ where: { id: recordId } });
++          const existing = await model.findFirst({
++            where: { id: recordId, clubId: club.id },
++            select: { updatedAt: true },
++          });
+           if (!existing || new Date(payload.updatedAt) > new Date(existing.updatedAt)) {
+             await model.upsert({
+               where: { id: recordId },
+-              create: payload,
+-              update: payload,
++              create: data,
++              update: data,
+             });
+             applied++;
+           } else {
+             skipped++;
+           }
+         } else {
+-          await model.upsert({ where: { id: recordId }, create: payload, update: payload });
+-          applied++;
++          skipped++;
++          errors.push(`${modelName}: نموذج مُدرج في القائمة البيضاء دون تصنيف`);
+         }
+       } catch (err: any) {
+         errors.push(`${change.modelName}/${change.recordId}: ${err?.message || "خطأ غير معروف"}`);
+diff --git a/src/app/api/users/route.ts b/src/app/api/users/route.ts
+index 50455d1..6e84e2e 100644
+--- a/src/app/api/users/route.ts
++++ b/src/app/api/users/route.ts
+@@ -56,26 +56,52 @@ export async function POST(req: NextRequest) {
+       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
+     }
+ 
+-    const { name, email, password, role, phone } = await req.json();
++    const { name, email, password, role, phone, clubId: requestedClubId } = await req.json();
++
++    // 🔒 قائمة أدوار مسموحة — مطابقة لـ users/[id]/route.ts.
++    // سابقاً كان الدور يُمرّر خاماً من الجسم، فاستطاع admin إنشاء superadmin.
++    const VALID_ROLES = ["admin", "accountant", "assistant", "lifeguard", "observer"];
++    if (!VALID_ROLES.includes(role)) {
++      return NextResponse.json({ error: "دور غير صالح" }, { status: 400 });
++    }
++
++    // 🔒 تحقق من صحة المدخلات
++    if (
++      !name || !email ||
++      typeof password !== "string" || password.length < 8 ||
++      typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
++    ) {
++      return NextResponse.json(
++        { error: "الاسم والبريد صالحان مطلوبان، وكلمة السر 8 محارف على الأقل" },
++        { status: 400 }
++      );
++    }
++
++    const normalizedEmail = email.toLowerCase().trim();
+ 
+     // Check if email already exists
+-    const existing = await db.user.findUnique({ where: { email } });
++    const existing = await db.user.findUnique({ where: { email: normalizedEmail } });
+     if (existing) {
+       return NextResponse.json({ error: "البريد الإلكتروني مستخدم بالفعل" }, { status: 400 });
+     }
+ 
++    // 🔒 النادي: admin مقيّد بناديه دائماً؛ superadmin فقط قد يحدد نادياً صراحةً
++    const targetClubId = currentUser.role === "superadmin"
++      ? (requestedClubId || currentUser.clubId)
++      : currentUser.clubId;
++
+     const bcrypt = await import("bcryptjs");
+     const passwordHash = await bcrypt.hash(password, 10);
+ 
+     const user = await db.user.create({
+       data: {
+-        email,
++        email: normalizedEmail,
+         name,
+         passwordHash,
+         role,
+         phone: phone || null,
+         pending: false,
+-        clubId: currentUser.clubId,
++        clubId: targetClubId,
+       },
+       select: { id: true, email: true, name: true, role: true, phone: true, active: true, pending: true, createdAt: true },
+     });
+diff --git a/src/lib/session.ts b/src/lib/session.ts
+index 863a4f6..f8cdd99 100644
+--- a/src/lib/session.ts
++++ b/src/lib/session.ts
+@@ -1,4 +1,5 @@
+ import bcrypt from "bcryptjs";
++import crypto from "crypto";
+ import { db } from "@/lib/db";
+ import { cookies } from "next/headers";
+ import type { Role, SessionUser } from "@/lib/roles";
+@@ -25,7 +26,21 @@ export async function ensureDefaultAdmin(): Promise<void> {
+   try {
+     const count = await db.user.count();
+     if (count > 0) return;
+-    const passwordHash = await bcrypt.hash("admin123", 10);
++
++    // 🔒 الحساب الافتراضي لم يعد يُنشأ تلقائياً بكلمة سر معروفة — كانت "admin123"
++    // تتيح لأول زائر على قاعدة بيانات فارغة الاستيلاء على النظام كاملاً.
++    // الآن: يتطلب تفعيلاً صريحاً بمتغير البيئة SEED_DEFAULT_ADMIN=true،
++    // وتُولَّد كلمة سر عشوائية قوية تُطبع مرة واحدة في سجل الخادم.
++    if (process.env.SEED_DEFAULT_ADMIN !== "true") {
++      console.warn(
++        "⚠️ قاعدة البيانات فارغة ولا يوجد مستخدمون. " +
++          "لإنشاء حساب مدير أولي: اضبط SEED_DEFAULT_ADMIN=true ثم أعد المحاولة."
++      );
++      return;
++    }
++
++    const password = crypto.randomBytes(16).toString("base64url"); // ~22 محرفاً عشوائياً
++    const passwordHash = await bcrypt.hash(password, 10);
+     await db.user.create({
+       data: {
+         email: "admin@rcs.dz",
+@@ -37,7 +52,10 @@ export async function ensureDefaultAdmin(): Promise<void> {
+         pending: false,
+       },
+     });
+-    console.log("✓ Default admin created (admin@rcs.dz / admin123)");
++    console.log(
++      "✓ Default admin created: admin@rcs.dz / " + password +
++        " — غيّر كلمة السر فوراً بعد أول دخول!"
++    );
+   } catch (e) {
+     console.error("ensureDefaultAdmin error:", e);
+   }
