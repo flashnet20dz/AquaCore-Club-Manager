@@ -1363,3 +1363,9 @@ Stage Summary:
 - curl: login 200 + `.db` 200 (application/x-sqlite3، ~1MB، توقيع SQLite format 3) + JSON 200 + استعادة نفس الملف 200.
 - متصفح فعلي: صفحة `#backup` مصادقة وتعمل، زر «تنزيل النسخة الاحتياطية الشاملة الآن (.db)» ← `GET /api/backup?format=sqlite` ← **200**.
 - ملاحظة: OOM في بيئة الـ sandbox (4GB) يقتل dev server عند تجميعات متكررة — قيد بيئة التطوير فقط، ليس عيباً في الكود.
+
+### ملحق — تفعيل نشر Vercel بـ API Token (fe5c893)
+- المستخدم زوّد Vercel API token (حساب flashnet20dz) — تم تشخيص النشر عبر API مباشرة:
+- **جذر فشل النشرين السابقين:** `charges-panel.tsx` (من موجة الدمج) يستخدم `p.userId`/`p.subscriberId` بينما الواجهة المحلية تعرّف `user`/`subscriber` فقط ← "Failed to type check" ← ERROR.
+- الإصلاح: `p.user?.id` و `p.subscriber?.id` (3 مواضع) + فحص tsc كامل (0 أخطاء قبل الدفع — لتفادي كشف أخطاء Vercel واحداً تلو الآخر).
+- النشر `dpl_93Nq81Ra...` → **READY** + alias على aladine-pool-manager.vercel.app + دخان إنتاج: / 200، /login 200، /api/backup 403 (الحارس يعمل).
