@@ -673,7 +673,7 @@ function TemplatesTab() {
 // ═══════════════════════════════════════════════════════════════
 //  المكون الرئيسي
 // ═══════════════════════════════════════════════════════════════
-export function SuperAdminDashboard() {
+export function SuperAdminDashboard({ initialTab = "all-clubs" }: { initialTab?: string } = {}) {
   return (
     <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
       <div className="p-4 border-b bg-gradient-to-l from-teal-500/10 to-sky-500/10">
@@ -684,7 +684,7 @@ export function SuperAdminDashboard() {
         <p className="text-xs text-muted-foreground mt-1">إدارة الواجهات والإعدادات لجميع النوادي</p>
       </div>
 
-      <Tabs defaultValue="all-clubs" className="w-full p-4">
+      <Tabs defaultValue={initialTab} className="w-full p-4">
         <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 mb-4">
           <TabsTrigger value="all-clubs">الواجهات العامة</TabsTrigger>
           <TabsTrigger value="club-specific">واجهات نادٍ</TabsTrigger>

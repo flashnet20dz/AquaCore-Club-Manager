@@ -33,8 +33,8 @@ interface ExecutiveDashboardProps {
   onNavigateTab: (tab: string) => void;
   onQuickTx: () => void;
   onRefreshFinancial: () => void;
-  finPeriod: "today" | "week" | "month";
-  onFinPeriodChange: (p: "today" | "week" | "month") => void;
+  finPeriod: "today" | "week" | "month" | "90d" | "year";
+  onFinPeriodChange: (p: "today" | "week" | "month" | "90d" | "year") => void;
 }
 
 export function ExecutiveDashboard({
@@ -156,10 +156,18 @@ export function ExecutiveDashboard({
 
           <div className="flex flex-wrap items-center gap-2.5">
             <DateRangePresetPicker
-              activePreset={finPeriod === "today" ? "today" : finPeriod === "week" ? "7d" : "30d"}
+              activePreset={
+                finPeriod === "today" ? "today"
+                : finPeriod === "week" ? "7d"
+                : finPeriod === "90d" ? "90d"
+                : finPeriod === "year" ? "year"
+                : "30d"
+              }
               onChangePreset={(p) => {
                 if (p === "today") onFinPeriodChange("today");
                 else if (p === "7d") onFinPeriodChange("week");
+                else if (p === "90d") onFinPeriodChange("90d");
+                else if (p === "year") onFinPeriodChange("year");
                 else onFinPeriodChange("month");
               }}
             />

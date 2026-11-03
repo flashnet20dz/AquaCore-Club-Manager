@@ -55,7 +55,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
@@ -305,6 +305,7 @@ function createElement(type: ElementType): CardElement {
 
 const alphaHex = (opacity: number) => Math.round(Math.max(0, Math.min(100, opacity)) * 2.55).toString(16).padStart(2, "0");
 const cmToPx = (cm: number) => cm * 37.8; // 1cm ≈ 37.8px @ 96dpi
+const ZOOM_PRESETS = [0.35, 0.5, 0.75, 1, 1.25, 1.5, 2, 2.5];
 
 // ════════════════════════════ MAIN COMPONENT ════════════════════════════
 
@@ -406,6 +407,80 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
     const match = CARD_SIZE_PRESETS.find((p) => p.width === design.config.width && p.height === design.config.height);
     return match ? match.value : "custom";
   }, [design.config.width, design.config.height]);
+
+  // ── Canvas Size & Responsive Zoom Math ──
+  const canvasContainerRef = useRef<HTMLDivElement | null>(null);
+  const [containerSize, setContainerSize] = useState({ width: 900, height: 600 });
+
+  useEffect(() => {
+    const el = canvasContainerRef.current;
+    if (!el) return;
+    const updateSize = () => {
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      if (w > 0 && h > 0) {
+        setContainerSize({ width: w, height: h });
+      }
+    };
+    updateSize();
+    const ro = new ResizeObserver(updateSize);
+    ro.observe(el);
+    window.addEventListener("resize", updateSize);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", updateSize);
+    };
+  }, [leftSidebarOpen, rightSidebarOpen]);
+
+  const naturalW = cmToPx(design.config.width);
+  const naturalH = cmToPx(design.config.height);
+
+  const computeFitScale = useCallback(() => {
+    const availW = Math.max(260, containerSize.width - (containerSize.width < 640 ? 40 : 96));
+    const availH = Math.max(240, containerSize.height - 130);
+
+    if (viewMode === "both") {
+      if (containerSize.width >= 960) {
+        const targetW = naturalW * 2 + 40;
+        const scaleW = availW / targetW;
+        const scaleH = availH / naturalH;
+        return Math.min(1.15, Math.max(0.35, Math.round(Math.min(scaleW, scaleH) * 100) / 100));
+      } else {
+        const targetH = naturalH * 2 + 60;
+        const scaleW = availW / naturalW;
+        const scaleH = availH / targetH;
+        return Math.min(1.0, Math.max(0.35, Math.round(Math.min(scaleW, scaleH) * 100) / 100));
+      }
+    } else {
+      const scaleW = availW / naturalW;
+      const scaleH = availH / naturalH;
+      return Math.min(1.2, Math.max(0.4, Math.round(Math.min(scaleW, scaleH) * 100) / 100));
+    }
+  }, [containerSize, viewMode, naturalW, naturalH]);
+
+  const fitScale = computeFitScale();
+  const currentScale = zoom === "fit" ? fitScale : (typeof zoom === "number" ? zoom : 1);
+
+  const handleZoomIn = useCallback(() => {
+    const next = ZOOM_PRESETS.find((p) => p > currentScale + 0.04) ?? 2.5;
+    setZoom(next);
+  }, [currentScale]);
+
+  const handleZoomOut = useCallback(() => {
+    const prev = [...ZOOM_PRESETS].reverse().find((p) => p < currentScale - 0.04) ?? 0.35;
+    setZoom(prev);
+  }, [currentScale]);
+
+  const handleCanvasWheel = (e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      if (e.deltaY < 0) {
+        handleZoomIn();
+      } else {
+        handleZoomOut();
+      }
+    }
+  };
 
   // ── Persistence (debounced localStorage) ──
   useEffect(() => {
@@ -1115,11 +1190,23 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
         setSelectedId(pasted.id);
         toast.success("تم اللصق");
       }
+      if ((e.ctrlKey || e.metaKey) && (e.key === "=" || e.key === "+")) {
+        e.preventDefault();
+        handleZoomIn();
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === "-" || e.key === "_")) {
+        e.preventDefault();
+        handleZoomOut();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "0") {
+        e.preventDefault();
+        setZoom((z) => (z === 1 ? "fit" : 1));
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
      
-  }, [selectedId, elements, activeSide]);
+  }, [selectedId, elements, activeSide, handleZoomIn, handleZoomOut]);
 
   // ── Render helpers ──
   const renderCanvas = (side: "front" | "back") => {
@@ -1127,7 +1214,9 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
     const config = design.config;
     const naturalW = cmToPx(config.width);
     const naturalH = cmToPx(config.height);
-    const scale = zoom === "fit" ? Math.min(1, (cardRef.current?.parentElement?.clientWidth ?? naturalW) / naturalW) : zoom / 100;
+    const scale = currentScale;
+    const scaledW = Math.round(naturalW * scale);
+    const scaledH = Math.round(naturalH * scale);
     const gradientDir = config.gradientDirection === "horizontal" ? "to right" : config.gradientDirection === "vertical" ? "to bottom" : "to bottom right";
     const bgStyle: React.CSSProperties = config.bgImage
       ? { backgroundColor: config.bgColor, backgroundImage: `url(${config.bgImage})`, backgroundSize: "cover", backgroundPosition: "center" }
@@ -1136,27 +1225,87 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
         : { backgroundColor: config.bgColor };
 
     return (
-      <div className="flex flex-col items-center gap-2">
-        {viewMode === "both" && (
-          <Badge variant="outline" className="text-[10px] bg-white/70 backdrop-blur">
-            {side === "front" ? "الواجهة الأمامية" : "الواجهة الخلفية"}
-          </Badge>
-        )}
+      <div
+        className="flex flex-col items-center gap-3 transition-all duration-200"
+        style={{
+          width: `${Math.max(280, scaledW)}px`,
+        }}
+      >
+        {/* Card Pedestal Header */}
+        <div className="flex items-center justify-between w-full px-1 py-0.5">
+          <button
+            type="button"
+            onClick={() => setActiveSide(side)}
+            className={cn(
+              "flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold transition-all shadow-xs cursor-pointer",
+              side === activeSide
+                ? "bg-gradient-to-r from-teal-600 to-sky-600 text-white shadow-teal-500/25 ring-2 ring-teal-500/30"
+                : "bg-white/85 dark:bg-slate-800/85 text-muted-foreground hover:text-foreground border border-slate-200/80 dark:border-slate-700/80 hover:bg-white"
+            )}
+          >
+            <span className={cn("h-2 w-2 rounded-full", side === activeSide ? "bg-emerald-300 animate-pulse" : "bg-slate-400")} />
+            <span>{side === "front" ? "الوجه الأمامي (Recto)" : "الوجه الخلفي (Verso)"}</span>
+          </button>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-mono text-muted-foreground bg-white/70 dark:bg-slate-800/70 px-2 py-0.5 rounded-md border border-slate-200/60 dark:border-slate-700/60 shadow-2xs">
+              {config.width} × {config.height} سم
+            </span>
+            {side === activeSide && (
+              <span className="text-[10px] font-semibold text-teal-700 dark:text-teal-300 bg-teal-500/10 px-2 py-0.5 rounded-full border border-teal-500/20 hidden sm:inline">
+                نشط للتعديل
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Scaled Physical Card Outer Box */}
         <div
-          className="relative shadow-2xl rounded-xl overflow-hidden"
-          data-card={side}
-          onClick={(e) => { if (e.target === e.currentTarget) setSelectedId(null); }}
+          className="relative transition-all duration-200"
           style={{
-            width: `${naturalW}px`, height: `${naturalH}px`,
-            transform: `scale(${scale})`, transformOrigin: "top center",
-            ...bgStyle,
-            opacity: config.bgOpacity / 100,
-            border: `${config.borderWidth}px ${config.borderStyle} ${config.borderColor}`,
-            borderRadius: `${config.borderRadius}px`,
-            direction: "rtl",
+            width: `${scaledW}px`,
+            height: `${scaledH}px`,
           }}
-          ref={side === activeSide ? cardRef : undefined}
         >
+          {/* Realistic Physical PVC Card Container */}
+          <div
+            className="absolute top-0 left-0 transition-transform duration-200"
+            style={{
+              width: `${naturalW}px`,
+              height: `${naturalH}px`,
+              transform: `scale(${scale})`,
+              transformOrigin: "top left",
+            }}
+          >
+          {/* Ambient & Contact Shadow Floor */}
+          <div
+            className="absolute inset-0 pointer-events-none transition-shadow duration-300"
+            style={{
+              borderRadius: `${config.borderRadius}px`,
+              boxShadow: side === activeSide
+                ? "0 28px 56px -12px rgba(15, 23, 42, 0.32), 0 12px 24px -6px rgba(15, 23, 42, 0.16), 0 0 0 1px rgba(0, 0, 0, 0.08)"
+                : "0 18px 38px -10px rgba(15, 23, 42, 0.22), 0 6px 16px -4px rgba(15, 23, 42, 0.1), 0 0 0 1px rgba(0, 0, 0, 0.06)",
+            }}
+          />
+
+          {/* Card Body */}
+          <div
+            className="relative w-full h-full overflow-hidden transition-all"
+            data-card={side}
+            onClick={(e) => {
+              if (side !== activeSide) setActiveSide(side);
+              if (e.target === e.currentTarget) setSelectedId(null);
+            }}
+            style={{
+              width: `${naturalW}px`, height: `${naturalH}px`,
+              ...bgStyle,
+              opacity: config.bgOpacity / 100,
+              border: `${config.borderWidth}px ${config.borderStyle} ${config.borderColor}`,
+              borderRadius: `${config.borderRadius}px`,
+              direction: "rtl",
+              boxShadow: "inset 0 1px 1.5px rgba(255, 255, 255, 0.55), inset 0 -1px 2px rgba(0, 0, 0, 0.12)",
+            }}
+            ref={side === activeSide ? cardRef : undefined}
+          >
           {/* Background image overlay */}
           {config.bgImage && (
             <div className="absolute inset-0 pointer-events-none"
@@ -1292,10 +1441,20 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
               </div>
             );
           })}
+          {/* PVC Specular Gloss Sheen Overlay */}
+          <div
+            className="absolute inset-0 pointer-events-none z-[9990]"
+            style={{
+              background: "linear-gradient(130deg, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0.05) 30%, rgba(255,255,255,0) 55%, rgba(255,255,255,0.03) 78%, transparent 100%)",
+              borderRadius: `${config.borderRadius}px`,
+            }}
+          />
         </div>
       </div>
-    );
-  };
+    </div>
+  </div>
+);
+};
 
   // ─────────────────────────── RENDER ───────────────────────────
 
@@ -1311,128 +1470,194 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
           darkMode && "dark bg-gradient-to-br dark:from-slate-950 dark:via-slate-900 dark:to-blue-950",
         )}
       >
-        {/* ════════════ 1. TOP TOOLBAR (floating glassmorphism) ════════════ */}
+        {/* ════════════ 1. TOP TOOLBAR (executive glassmorphism) ════════════ */}
         <motion.div
-          initial={{ y: -20, opacity: 0 }}
+          initial={{ y: -15, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ duration: 0.3 }}
-          className="m-3 mb-2 rounded-2xl bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border border-white/40 dark:border-white/10 shadow-xl"
+          className="m-2.5 mb-1.5 rounded-2xl bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800 shadow-sm"
         >
-          <div className="flex items-center gap-2 px-3 py-2 flex-wrap">
-            {/* Logo */}
-            <div className="flex items-center gap-2 px-2">
-              <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-teal-500 via-sky-500 to-blue-600 flex items-center justify-center shadow-lg">
-                <Droplets className="h-4 w-4 text-white" />
+          <div className="flex items-center justify-between gap-2 px-3 py-1.5 flex-wrap">
+            {/* Left / Start Group: Brand, Back, History, View Switcher */}
+            <div className="flex items-center gap-1.5">
+              {/* Logo & Brand */}
+              <div className="flex items-center gap-2 pl-2">
+                <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-teal-500 via-sky-500 to-blue-600 flex items-center justify-center shadow-md shadow-teal-500/20">
+                  <CreditCard className="h-4 w-4 text-white" />
+                </div>
+                <div className="hidden sm:block leading-tight">
+                  <div className="text-xs font-black tracking-tight bg-gradient-to-l from-teal-700 to-sky-700 dark:from-teal-400 dark:to-sky-400 bg-clip-text text-transparent">
+                    AquaCore Studio
+                  </div>
+                  <div className="text-[9px] text-muted-foreground font-medium">مصمم بطاقات العضوية</div>
+                </div>
               </div>
-              <div className="hidden sm:block leading-tight">
-                <div className="text-sm font-bold bg-gradient-to-l from-teal-600 to-sky-600 bg-clip-text text-transparent">AquaCore</div>
-                <div className="text-[9px] text-muted-foreground">مصمم البطاقات الاحترافي</div>
+
+              {onBack && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onBack}
+                  className="h-8 px-2.5 text-xs text-muted-foreground hover:text-foreground hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  رجوع
+                </Button>
+              )}
+
+              <Separator orientation="vertical" className="h-5 mx-0.5 hidden sm:block" />
+
+              {/* Undo / Redo */}
+              <div className="flex items-center bg-slate-100/80 dark:bg-slate-800/80 rounded-lg p-0.5 border border-slate-200/60 dark:border-slate-700/60">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="sm" onClick={undo} disabled={historyIndex <= 0} className="h-7 w-7 p-0">
+                      <Undo2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">تراجع (Ctrl+Z)</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="sm" onClick={redo} disabled={historyIndex >= history.length - 1} className="h-7 w-7 p-0">
+                      <Redo2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">إعادة (Ctrl+Y)</TooltipContent>
+                </Tooltip>
+              </div>
+
+              <Separator orientation="vertical" className="h-5 mx-0.5 hidden sm:block" />
+
+              {/* Front / Back / Both view toggle */}
+              <div className="flex items-center bg-slate-100/80 dark:bg-slate-800/80 rounded-lg p-0.5 border border-slate-200/60 dark:border-slate-700/60">
+                {(["front","back","both"] as const).map((v) => (
+                  <button
+                    key={v}
+                    onClick={() => { setViewMode(v); if (v !== "both") setActiveSide(v); }}
+                    className={cn(
+                      "px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer",
+                      viewMode === v
+                        ? "bg-white dark:bg-slate-700 text-teal-700 dark:text-teal-300 shadow-xs"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {v === "front" ? "أمامي" : v === "back" ? "خلفي" : "الوجهان معاً"}
+                  </button>
+                ))}
               </div>
             </div>
 
-            {onBack && (
-              <Button variant="ghost" size="sm" onClick={onBack} className="h-8 text-xs">
-                رجوع
-              </Button>
-            )}
+            {/* Center / Action Group: Print & Export */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {/* PRIMARY STAR: Instant Direct Print */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    onClick={handlePrintDirect}
+                    disabled={generating}
+                    className="h-8 px-3.5 bg-gradient-to-r from-teal-600 via-emerald-600 to-teal-700 hover:from-teal-500 hover:to-emerald-600 text-white font-bold shadow-md shadow-teal-600/25 gap-1.5 transition-all hover:scale-[1.02] cursor-pointer"
+                  >
+                    {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5" />}
+                    <span className="text-xs">طباعة مباشرة</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">طباعة مباشرة للمحددين (Recto/Verso — 8/A4)</TooltipContent>
+              </Tooltip>
 
-            <Separator orientation="vertical" className="h-6 mx-1 hidden sm:block" />
+              {/* Export Suite: Segmented Glass Bar */}
+              <div className="flex items-center bg-slate-100/80 dark:bg-slate-800/80 rounded-lg p-0.5 border border-slate-200/60 dark:border-slate-700/60">
+                {/* PDF */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={handlePrintPDF}
+                      disabled={generating}
+                      className="h-7 px-2 text-xs font-semibold gap-1 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                    >
+                      <FileText className="h-3.5 w-3.5 text-rose-500" />
+                      <span>PDF</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">حفظ كـ PDF جاهز للطباعة</TooltipContent>
+                </Tooltip>
 
-            {/* Undo / Redo */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="sm" onClick={undo} disabled={historyIndex <= 0} className="h-8 w-8 p-0">
-                  <Undo2 className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">تراجع (Ctrl+Z)</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="sm" onClick={redo} disabled={historyIndex >= history.length - 1} className="h-8 w-8 p-0">
-                  <Redo2 className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">إعادة (Ctrl+Y)</TooltipContent>
-            </Tooltip>
+                {/* Word */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleExportWord}
+                      disabled={generating}
+                      className="h-7 px-2 text-xs font-semibold gap-1 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40"
+                    >
+                      <FileText className="h-3.5 w-3.5 text-blue-500" />
+                      <span>Word</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">تصدير مستند Word قابل للتعديل</TooltipContent>
+                </Tooltip>
 
-            <Separator orientation="vertical" className="h-6 mx-1 hidden sm:block" />
+                {/* PNG */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleExportPNG}
+                      disabled={generating}
+                      className="h-7 px-2 text-xs font-semibold gap-1 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                    >
+                      <ImageIcon className="h-3.5 w-3.5 text-emerald-500" />
+                      <span>PNG</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">تصدير صورة عالية الدقة للبطاقة المعروضة</TooltipContent>
+                </Tooltip>
 
-            {/* Front / Back / Both toggle */}
-            <div className="flex items-center bg-muted/50 rounded-lg p-0.5">
-              {(["front","back","both"] as const).map((v) => (
-                <button key={v} onClick={() => { setViewMode(v); if (v !== "both") setActiveSide(v); }}
-                  className={cn("px-2 sm:px-3 py-1 rounded-md text-[11px] font-semibold transition",
-                    viewMode === v ? "bg-gradient-to-l from-teal-500 to-sky-500 text-white shadow" : "hover:bg-accent")}>
-                  {v === "front" ? "أمامي" : v === "back" ? "خلفي" : "الاثنين"}
-                </button>
-              ))}
-            </div>
+                {/* A4 */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleExportA4}
+                      disabled={generating}
+                      className="h-7 px-2 text-xs font-semibold gap-1 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/40"
+                    >
+                      <Grid3x3 className="h-3.5 w-3.5 text-purple-500" />
+                      <span>8/A4</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">تصدير 8 بطاقات مرتبة في صفحة A4</TooltipContent>
+                </Tooltip>
+              </div>
 
-            <Separator orientation="vertical" className="h-6 mx-1 hidden sm:block" />
-
-            {/* Templates */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="sm" onClick={() => setShowSaveTemplate(true)} className="h-8 px-2">
-                  <Save className="h-4 w-4" /> <span className="hidden md:inline mr-1 text-xs">حفظ قالب</span>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">حفظ كقالب</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="sm" onClick={() => { fetchTemplates(); setShowLoadTemplate(true); }} className="h-8 w-8 p-0">
-                  <FolderOpen className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">تحميل قالب</TooltipContent>
-            </Tooltip>
-
-            <input ref={fileTemplateRef} type="file" accept=".json" onChange={handleImportJSON} className="hidden" />
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="sm" onClick={() => fileTemplateRef.current?.click()} className="h-8 w-8 p-0 hidden sm:flex">
-                  <Upload className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">استيراد JSON</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="sm" onClick={handleExportJSON} className="h-8 w-8 p-0 hidden sm:flex">
-                  <Download className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">تصدير JSON</TooltipContent>
-            </Tooltip>
-
-            <Separator orientation="vertical" className="h-6 mx-1 hidden sm:block" />
-
-            {/* ═══ 4 أزرار طباعة احترافية ═══ */}
-            <div className="flex items-center gap-1">
-              {/* ★ زر قائمة انتظار الطباعة */}
+              {/* Print Queue */}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     size="sm"
                     variant="ghost"
                     onClick={() => setShowPrintQueue(true)}
-                    className="h-8 gap-1 relative"
+                    className="h-8 px-2 gap-1.5 relative border border-slate-200/60 dark:border-slate-700/60 bg-white/60 dark:bg-slate-800/60"
                   >
-                    <ListChecks className="h-4 w-4 text-violet-600" />
+                    <ListChecks className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
+                    <span className="text-xs hidden lg:inline font-medium">الانتظار</span>
                     {printQueue.length > 0 && (
-                      <span className="absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-violet-600 text-white text-[9px] font-bold">
+                      <span className="flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-violet-600 text-white text-[9px] font-bold">
                         {printQueue.length}
                       </span>
                     )}
-                    <span className="text-xs hidden lg:inline">قائمة الانتظار</span>
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">قائمة انتظار الطباعة ({printQueue.length} بطاقة)</TooltipContent>
               </Tooltip>
 
-              {/* ★ زر إضافة المحددين لقائمة الانتظار */}
+              {/* Add to Queue */}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -1440,192 +1665,135 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
                     variant="ghost"
                     onClick={addToPrintQueue}
                     disabled={selectedSubIds.length === 0}
-                    className="h-8 gap-1"
+                    className="h-8 px-2 gap-1 border border-slate-200/60 dark:border-slate-700/60 bg-white/60 dark:bg-slate-800/60"
                   >
-                    <Plus className="h-4 w-4 text-violet-600" />
-                    <span className="text-xs hidden lg:inline">حفظ المحددين</span>
+                    <Plus className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
+                    <span className="text-xs hidden lg:inline font-medium">حفظ المحددين</span>
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">إضافة المحددين ({selectedSubIds.length}) لقائمة الانتظار</TooltipContent>
               </Tooltip>
 
-              <Separator orientation="vertical" className="h-6 mx-1" />
-
-              {/* ★ زر إعدادات الطباعة */}
+              {/* Print Settings */}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     size="sm"
                     variant="ghost"
                     onClick={() => setShowPrintSettings(true)}
-                    className="h-8 w-8 p-0"
+                    className="h-8 w-8 p-0 border border-slate-200/60 dark:border-slate-700/60 bg-white/60 dark:bg-slate-800/60"
                   >
-                    <Settings2 className="h-4 w-4 text-teal-600" />
+                    <Settings2 className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom">إعدادات الطباعة (الورق، الهوامش، القلب)</TooltipContent>
-              </Tooltip>
-
-              {/* 1) طباعة مباشرة */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="sm"
-                    onClick={handlePrintDirect}
-                    disabled={generating}
-                    className="h-8 bg-teal-700 hover:bg-teal-800 text-white gap-1"
-                  >
-                    {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
-                    <span className="text-xs">طباعة</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">طباعة مباشرة (Recto/Verso — 8/A4)</TooltipContent>
-              </Tooltip>
-
-              {/* 2) PDF */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handlePrintPDF}
-                    disabled={generating}
-                    className="h-8 gap-1 border-red-300 text-red-700 hover:bg-red-50"
-                  >
-                    {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-                    <span className="text-xs">PDF</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">حفظ كـ PDF (Recto/Verso)</TooltipContent>
-              </Tooltip>
-
-              {/* 3) Word */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleExportWord}
-                    disabled={generating}
-                    className="h-8 gap-1 border-blue-300 text-blue-700 hover:bg-blue-50"
-                  >
-                    {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-                    <span className="text-xs">Word</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">تصدير Word قابل للتحرير</TooltipContent>
-              </Tooltip>
-
-              {/* 4) PNG */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleExportPNG}
-                    disabled={generating}
-                    className="h-8 gap-1 border-green-300 text-green-700 hover:bg-green-50"
-                  >
-                    {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4" />}
-                    <span className="text-xs">PNG</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">تصدير صورة PNG عالية الدقة (البطاقة المعروضة)</TooltipContent>
-              </Tooltip>
-
-              {/* 5) A4 (8 بطاقات) */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleExportA4}
-                    disabled={generating}
-                    className="h-8 gap-1 border-purple-300 text-purple-700 hover:bg-purple-50"
-                  >
-                    {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Grid3x3 className="h-4 w-4" />}
-                    <span className="text-xs">A4</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">تصدير 8 بطاقات في صفحة A4 (WYSIWYG)</TooltipContent>
+                <TooltipContent side="bottom">إعدادات الطباعة المتقدمة</TooltipContent>
               </Tooltip>
             </div>
 
-            {/* 🔑 رفع صورة/شعار للبطاقة */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="sm" onClick={() => fileImageRef.current?.click()} className="h-8 w-8 p-0">
-                  <ImageIcon className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">رفع صورة/شعار (PNG, JPG)</TooltipContent>
-            </Tooltip>
-            <input ref={fileImageRef} type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml" onChange={(e) => handleImageUpload(e, "element")} className="hidden" />
+            {/* Right / End Group: Templates & Tools */}
+            <div className="flex items-center gap-1">
+              {/* Template dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-8 px-2.5 text-xs gap-1 border border-slate-200/60 dark:border-slate-700/60 bg-white/60 dark:bg-slate-800/60">
+                    <FolderOpen className="h-3.5 w-3.5 text-amber-500" />
+                    <span className="hidden sm:inline font-medium">القوالب</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onClick={() => setShowSaveTemplate(true)} className="text-xs cursor-pointer">
+                    <Save className="h-3.5 w-3.5 ml-2 text-teal-600" /> حفظ كقالب جديد
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { fetchTemplates(); setShowLoadTemplate(true); }} className="text-xs cursor-pointer">
+                    <FolderOpen className="h-3.5 w-3.5 ml-2 text-amber-500" /> فتح قالب محفوظ
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => fileTemplateRef.current?.click()} className="text-xs cursor-pointer">
+                    <Upload className="h-3.5 w-3.5 ml-2 text-blue-500" /> استيراد قالب (JSON)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleExportJSON} className="text-xs cursor-pointer">
+                    <Download className="h-3.5 w-3.5 ml-2 text-indigo-500" /> تصدير قالب (JSON)
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
-            {/* 🔑 رفع خلفية للبطاقة */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="sm" onClick={() => fileBgRef.current?.click()} className="h-8 w-8 p-0">
-                  <Palette className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">رفع صورة خلفية</TooltipContent>
-            </Tooltip>
-            <input ref={fileBgRef} type="file" accept="image/png,image/jpeg,image/jpg,image/webp" onChange={(e) => handleImageUpload(e, "bg")} className="hidden" />
+              <input ref={fileTemplateRef} type="file" accept=".json" onChange={handleImportJSON} className="hidden" />
 
-            {/* Preview */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="sm" onClick={() => setPreviewOpen(true)} className="h-8 w-8 p-0">
-                  <Eye className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">معاينة</TooltipContent>
-            </Tooltip>
+              {/* Upload Image Element */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" onClick={() => fileImageRef.current?.click()} className="h-8 w-8 p-0">
+                    <ImageIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">إدراج صورة أو شعار (PNG, JPG)</TooltipContent>
+              </Tooltip>
+              <input ref={fileImageRef} type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml" onChange={(e) => handleImageUpload(e, "element")} className="hidden" />
 
-            {/* Settings */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="sm" onClick={() => setShowSettings(true)} className="h-8 w-8 p-0">
-                  <Settings2 className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">إعدادات البطاقة</TooltipContent>
-            </Tooltip>
+              {/* Upload Background */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" onClick={() => fileBgRef.current?.click()} className="h-8 w-8 p-0">
+                    <Palette className="h-3.5 w-3.5 text-muted-foreground" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">تغيير خلفية البطاقة</TooltipContent>
+              </Tooltip>
+              <input ref={fileBgRef} type="file" accept="image/png,image/jpeg,image/jpg,image/webp" onChange={(e) => handleImageUpload(e, "bg")} className="hidden" />
 
-            {/* Dark mode */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="sm" onClick={() => setDarkMode((d) => !d)} className="h-8 w-8 p-0">
-                  {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">الوضع الليلي</TooltipContent>
-            </Tooltip>
+              {/* Preview */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" onClick={() => setPreviewOpen(true)} className="h-8 w-8 p-0">
+                    <Eye className="h-3.5 w-3.5 text-muted-foreground" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">معاينة</TooltipContent>
+              </Tooltip>
 
-            <div className="flex-1" />
+              {/* Card Global Settings Dialog */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" onClick={() => setShowSettings(true)} className="h-8 w-8 p-0">
+                    <Settings2 className="h-3.5 w-3.5 text-muted-foreground" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">أبعاد البطاقة والخيارات العامة</TooltipContent>
+              </Tooltip>
 
-            {/* Sidebar toggles (desktop/tablet) */}
-            {!isMobile && (
-              <>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="sm" onClick={() => setLeftSidebarOpen((o) => !o)} className="h-8 w-8 p-0">
-                      {leftSidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">الشريط الجانبي الأيسر</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="sm" onClick={() => setRightSidebarOpen((o) => !o)} className="h-8 w-8 p-0">
-                      {rightSidebarOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">الشريط الجانبي الأيمن</TooltipContent>
-                </Tooltip>
-              </>
-            )}
+              {/* Dark mode */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" onClick={() => setDarkMode((d) => !d)} className="h-8 w-8 p-0">
+                    {darkMode ? <Sun className="h-3.5 w-3.5 text-amber-400" /> : <Moon className="h-3.5 w-3.5 text-muted-foreground" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">الوضع الليلي</TooltipContent>
+              </Tooltip>
+
+              {/* Sidebar toggles */}
+              {!isMobile && (
+                <>
+                  <Separator orientation="vertical" className="h-5 mx-0.5" />
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="sm" onClick={() => setLeftSidebarOpen((o) => !o)} className="h-8 w-8 p-0">
+                        {leftSidebarOpen ? <PanelLeftClose className="h-3.5 w-3.5" /> : <PanelLeftOpen className="h-3.5 w-3.5" />}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">قائمة المنخرطين</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="sm" onClick={() => setRightSidebarOpen((o) => !o)} className="h-8 w-8 p-0">
+                        {rightSidebarOpen ? <PanelRightClose className="h-3.5 w-3.5" /> : <PanelRightOpen className="h-3.5 w-3.5" />}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">لوحة الخصائص والطبقات</TooltipContent>
+                  </Tooltip>
+                </>
+              )}
+            </div>
           </div>
         </motion.div>
 
@@ -1659,108 +1827,193 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
           )}
 
           {/* ───── 3. CENTER WORKSPACE ───── */}
-          <main className="flex-1 flex flex-col rounded-2xl bg-slate-200/60 dark:bg-slate-950/40 backdrop-blur-sm border border-white/30 dark:border-white/5 shadow-inner overflow-hidden">
+          <main className="flex-1 flex flex-col rounded-2xl bg-slate-100/90 dark:bg-slate-950/80 backdrop-blur-md border border-slate-200/80 dark:border-slate-800 shadow-inner overflow-hidden relative">
             {/* Canvas toolbar */}
-            <div className="flex items-center gap-1 px-3 py-2 border-b border-white/20 dark:border-white/5 bg-white/40 dark:bg-slate-900/40 backdrop-blur flex-wrap">
-              <Badge variant="outline" className="text-[10px] bg-white/60 dark:bg-slate-900/60">
-                <CreditCard className="h-3 w-3 ml-1" /> {design.config.width}×{design.config.height}سم
-              </Badge>
-              <Badge variant="outline" className="text-[10px] bg-white/60 dark:bg-slate-900/60">
-                {currentPreset}
-              </Badge>
+            <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 backdrop-blur flex-wrap">
+              <div className="flex items-center gap-1.5">
+                <Badge variant="outline" className="text-[10px] font-mono bg-white/90 dark:bg-slate-800/90 border-slate-200 dark:border-slate-700 shadow-2xs">
+                  <CreditCard className="h-3 w-3 ml-1 text-teal-600" /> {design.config.width} × {design.config.height} سم
+                </Badge>
+                <Badge variant="outline" className="text-[10px] bg-white/90 dark:bg-slate-800/90 border-slate-200 dark:border-slate-700">
+                  {currentPreset}
+                </Badge>
+              </div>
 
-              <div className="flex-1" />
-
-              {/* Grid + Snap + Guides */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant={showGrid ? "default" : "ghost"} size="sm" onClick={() => setShowGrid((g) => !g)} className="h-8 w-8 p-0">
-                    <Grid3x3 className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">شبكة</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant={snapToGrid ? "default" : "ghost"} size="sm" onClick={() => setSnapToGrid((s) => !s)} className="h-8 w-8 p-0">
-                    <Magnet className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">محاذاة للشبكة</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant={smartGuides ? "default" : "ghost"} size="sm" onClick={() => setSmartGuides((g) => !g)} className="h-8 w-8 p-0">
-                    <Wand2 className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">أدلة ذكية</TooltipContent>
-              </Tooltip>
-
-              <Separator orientation="vertical" className="h-6 mx-1" />
+              {/* Center Studio Toggles: Grid + Snap + Guides */}
+              <div className="flex items-center gap-1 bg-slate-100/80 dark:bg-slate-800/80 rounded-lg p-0.5 border border-slate-200/60 dark:border-slate-700/60">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowGrid((g) => !g)}
+                      className={cn("h-7 w-7 p-0 transition-all", showGrid && "bg-white dark:bg-slate-700 text-teal-600 shadow-xs")}
+                    >
+                      <Grid3x3 className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">إظهار شبكة التصميم</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSnapToGrid((s) => !s)}
+                      className={cn("h-7 w-7 p-0 transition-all", snapToGrid && "bg-white dark:bg-slate-700 text-teal-600 shadow-xs")}
+                    >
+                      <Magnet className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">محاذاة تلقائية للشبكة</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSmartGuides((g) => !g)}
+                      className={cn("h-7 w-7 p-0 transition-all", smartGuides && "bg-white dark:bg-slate-700 text-teal-600 shadow-xs")}
+                    >
+                      <Wand2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">أدلة المحاذاة الذكية</TooltipContent>
+                </Tooltip>
+              </div>
 
               {/* Zoom controls */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="sm" onClick={() => setZoom((z) => z === "fit" ? 0.5 : z === 0.5 ? 0.75 : Math.max(0.25, (typeof z === "number" ? z : 1) - 0.25))} className="h-8 w-8 p-0">
-                    <ZoomOut className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">تصغير</TooltipContent>
-              </Tooltip>
-              <button
-                onClick={() => setZoom("fit")}
-                className="px-2 h-8 rounded-md text-[11px] font-semibold bg-muted/50 hover:bg-accent min-w-[60px]"
-              >
-                {zoom === "fit" ? "ملاءمة" : `${Math.round((zoom as number) * 100)}%`}
-              </button>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="sm" onClick={() => setZoom((z) => {
-                    const cur = z === "fit" ? 1 : z;
-                    return Math.min(3, cur + 0.25);
-                  })} className="h-8 w-8 p-0">
-                    <ZoomIn className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">تكبير</TooltipContent>
-              </Tooltip>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-8 px-2">
-                    <Maximize className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-36">
-                  <DropdownMenuItem onClick={() => setZoom("fit")} className="text-xs cursor-pointer">ملاءمة</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setZoom(1)} className="text-xs cursor-pointer">100%</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setZoom(1.5)} className="text-xs cursor-pointer">150%</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setZoom(2)} className="text-xs cursor-pointer">200%</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <div className="flex items-center gap-1 bg-slate-100/80 dark:bg-slate-800/80 rounded-lg p-0.5 border border-slate-200/60 dark:border-slate-700/60 shadow-2xs">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleZoomOut}
+                      className="h-7 w-7 p-0 cursor-pointer hover:bg-white dark:hover:bg-slate-700 transition"
+                    >
+                      <ZoomOut className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">تصغير (Ctrl -)</TooltipContent>
+                </Tooltip>
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => setZoom((z) => (z === 1 ? "fit" : 1))}
+                      className="px-2 h-7 rounded text-[11px] font-mono font-semibold hover:bg-white dark:hover:bg-slate-700 transition cursor-pointer min-w-[54px] text-center text-slate-700 dark:text-slate-200"
+                    >
+                      {zoom === "fit" ? "ملاءمة" : `${Math.round(currentScale * 100)}%`}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    {zoom === "fit" ? "التبديل إلى 100% (الحجم الفعلي)" : "التبديل إلى ملاءمة الشاشة"}
+                  </TooltipContent>
+                </Tooltip>
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleZoomIn}
+                      className="h-7 w-7 p-0 cursor-pointer hover:bg-white dark:hover:bg-slate-700 transition"
+                    >
+                      <ZoomIn className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">تكبير (Ctrl +)</TooltipContent>
+                </Tooltip>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0 cursor-pointer hover:bg-white dark:hover:bg-slate-700 transition"
+                    >
+                      <Maximize className="h-3.5 w-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-44 shadow-lg border border-slate-200/80 dark:border-slate-800">
+                    <DropdownMenuItem
+                      onClick={() => setZoom("fit")}
+                      className={cn(
+                        "text-xs cursor-pointer flex items-center justify-between",
+                        zoom === "fit" && "font-bold text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-950/40"
+                      )}
+                    >
+                      <span>ملاءمة العرض</span>
+                      {zoom === "fit" && <Check className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    {[0.5, 0.75, 1, 1.25, 1.5, 2].map((lvl) => (
+                      <DropdownMenuItem
+                        key={lvl}
+                        onClick={() => setZoom(lvl)}
+                        className={cn(
+                          "text-xs cursor-pointer flex items-center justify-between",
+                          zoom === lvl && "font-bold text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-950/40"
+                        )}
+                      >
+                        <span>{lvl === 1 ? "100% (الحجم الفعلي)" : `${Math.round(lvl * 100)}%`}</span>
+                        {zoom === lvl && <Check className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
 
-            {/* Canvas area */}
-            <ScrollArea className="flex-1">
-              <div className="min-h-full flex flex-col items-center justify-start p-6 sm:p-10 gap-6">
-                {viewMode === "both" ? (
-                  <div className="flex flex-col lg:flex-row gap-8 items-center">
-                    {renderCanvas("front")}
-                    {renderCanvas("back")}
-                  </div>
-                ) : (
-                  renderCanvas(viewMode)
-                )}
-                <p className="text-xs text-muted-foreground text-center mt-4">
-                  اسحب العناصر لتحريكها • نقر مزدوج لإعادة التسمية • Ctrl+Z تراجع • Ctrl+D تكرار • Delete حذف
-                </p>
-              </div>
-            </ScrollArea>
+            {/* Canvas area with professional studio drafting background */}
+            <div
+              ref={canvasContainerRef}
+              onWheel={handleCanvasWheel}
+              className="flex-1 min-h-0 relative overflow-hidden flex flex-col"
+            >
+              <ScrollArea className="flex-1 w-full h-full">
+                <div
+                  className="min-h-full flex flex-col items-center justify-start p-8 sm:p-12 gap-8 relative"
+                  style={{
+                    backgroundImage: darkMode
+                      ? "radial-gradient(rgba(255, 255, 255, 0.08) 1.5px, transparent 1.5px)"
+                      : "radial-gradient(rgba(100, 116, 139, 0.22) 1.5px, transparent 1.5px)",
+                    backgroundSize: "24px 24px",
+                  }}
+                >
+                  {viewMode === "both" ? (
+                    <div className="flex flex-col xl:flex-row gap-10 items-center justify-center">
+                      {renderCanvas("front")}
+                      {renderCanvas("back")}
+                    </div>
+                  ) : (
+                    renderCanvas(viewMode)
+                  )}
 
-            {/* Add elements bar */}
-            <div className="border-t border-white/20 dark:border-white/5 bg-white/40 dark:bg-slate-900/40 backdrop-blur px-3 py-2">
+                  {/* Studio Keyboard Shortcut Guide Footer */}
+                  <div className="flex items-center gap-3 px-3 py-1 rounded-full bg-white/70 dark:bg-slate-900/70 border border-slate-200/60 dark:border-slate-800 text-[10px] text-muted-foreground shadow-xs mt-2 backdrop-blur-sm">
+                    <span>اسحب لتحريك العناصر</span>
+                    <span>•</span>
+                    <span>نقر مزدوج للتسمية</span>
+                    <span>•</span>
+                    <span className="font-mono">Ctrl+Z تراجع</span>
+                    <span>•</span>
+                    <span className="font-mono">Ctrl+D تكرار</span>
+                    <span>•</span>
+                    <span className="font-mono">Delete حذف</span>
+                  </div>
+                </div>
+                <ScrollBar orientation="horizontal" />
+              </ScrollArea>
+            </div>
+
+            {/* Creative Floating Element Dock */}
+            <div className="border-t border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md px-3 py-2">
               <ScrollArea className="w-full whitespace-nowrap">
-                <div className="flex gap-1.5 pb-1">
+                <div className="flex items-center gap-1.5 pb-0.5">
+                  <span className="text-[10px] font-bold text-muted-foreground px-1 pl-2">إضافة عنصر:</span>
                   {ELEMENT_LIBRARY.map((el) => {
                     const Icon = el.icon;
                     return (
@@ -1768,21 +2021,21 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
                         key={el.type}
                         onClick={() => addElement(el.type)}
                         title={el.label}
-                        className="flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-lg bg-white/60 dark:bg-slate-800/60 border border-white/40 dark:border-white/5 hover:border-teal-400/60 hover:bg-teal-50/60 dark:hover:bg-teal-900/20 transition shrink-0"
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100/80 dark:bg-slate-800/80 border border-slate-200/60 dark:border-slate-700/60 hover:border-teal-500/50 hover:bg-teal-50/80 dark:hover:bg-teal-950/40 text-slate-700 dark:text-slate-200 hover:text-teal-700 dark:hover:text-teal-300 transition-all shrink-0 cursor-pointer shadow-2xs group"
                       >
-                        <Icon className="h-4 w-4 text-teal-600 dark:text-teal-400" />
-                        <span className="text-[9px] text-muted-foreground">{el.label}</span>
+                        <Icon className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400 group-hover:scale-110 transition-transform" />
+                        <span className="text-[10px] font-semibold">{el.label}</span>
                       </button>
                     );
                   })}
                   <input ref={fileImageRef} type="file" accept="image/png,image/jpeg,image/jpg" onChange={(e) => handleImageUpload(e, "element")} className="hidden" />
                   <button
                     onClick={() => fileImageRef.current?.click()}
-                    title="رفع صورة"
-                    className="flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-lg bg-white/60 dark:bg-slate-800/60 border border-white/40 dark:border-white/5 hover:border-teal-400/60 hover:bg-teal-50/60 dark:hover:bg-teal-900/20 transition shrink-0"
+                    title="رفع صورة مخصصة"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800/60 hover:bg-teal-100 dark:hover:bg-teal-900/60 text-teal-700 dark:text-teal-300 transition-all shrink-0 cursor-pointer shadow-2xs group"
                   >
-                    <Upload className="h-4 w-4 text-teal-600 dark:text-teal-400" />
-                    <span className="text-[9px] text-muted-foreground">رفع صورة</span>
+                    <Upload className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400 group-hover:scale-110 transition-transform" />
+                    <span className="text-[10px] font-bold">رفع صورة</span>
                   </button>
                 </div>
               </ScrollArea>
@@ -1794,7 +2047,7 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
             <motion.aside
               initial={{ x: 20, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
-              className="w-72 shrink-0 rounded-2xl bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border border-white/40 dark:border-white/10 shadow-lg overflow-hidden"
+              className="w-84 xl:w-92 shrink-0 rounded-2xl bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800 shadow-md overflow-hidden"
             >
               <RightSidebar
                 design={design}
@@ -2398,77 +2651,101 @@ function RightSidebar({
 }) {
   const elements = activeSide === "front" ? design.front : design.back;
   return (
-    <ScrollArea className="h-full">
-      <div className="p-3 space-y-2">
+    <ScrollArea dir="rtl" className="h-full">
+      <div className="p-3.5 space-y-2.5">
         {/* Selected element header */}
         {selected ? (
-          <div className="flex items-center gap-2 p-2 rounded-lg bg-teal-500/10 border border-teal-500/20">
-            <Palette className="h-4 w-4 text-teal-600 shrink-0" />
-            <span className="font-bold text-xs flex-1 truncate">{selected.name}</span>
-            <Badge variant="outline" className="text-[8px] h-4 px-1 shrink-0">{selected.type}</Badge>
+          <div className="flex items-center gap-2 p-2.5 rounded-xl bg-gradient-to-r from-teal-500/10 to-sky-500/10 border border-teal-500/30 shadow-2xs">
+            <div className="p-1.5 rounded-lg bg-teal-500/20 text-teal-700 dark:text-teal-300 shrink-0">
+              <Palette className="h-4 w-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <span className="font-bold text-xs truncate block text-slate-800 dark:text-slate-100">{selected.name}</span>
+              <span className="text-[10px] text-muted-foreground font-mono">عنصر محدد</span>
+            </div>
+            <Badge variant="outline" className="text-[9px] h-5 px-1.5 shrink-0 bg-white/70 dark:bg-slate-800/70 border-teal-500/30 text-teal-700 dark:text-teal-300">
+              {selected.type}
+            </Badge>
           </div>
         ) : (
-          <div className="p-3 text-center text-xs text-muted-foreground rounded-lg bg-muted/30 border border-dashed">
-            <Layers className="h-6 w-6 mx-auto mb-1 opacity-30" />
-            <p>اختر عنصراً لعرض خصائصه</p>
+          <div className="p-3.5 text-center text-xs text-muted-foreground rounded-xl bg-slate-50/60 dark:bg-slate-800/40 border border-dashed border-slate-200 dark:border-slate-700">
+            <Layers className="h-5 w-5 mx-auto mb-1 text-muted-foreground/40" />
+            <p className="font-medium text-[11px]">اختر عنصراً من البطاقة لتعديل خصائصه</p>
           </div>
         )}
 
         {/* Card Settings panel */}
-        <CollapsiblePanel title="إعدادات البطاقة" icon={CreditCard} defaultOpen>
-          <div className="space-y-2">
+        <CollapsiblePanel title="إعدادات البطاقة العامة" icon={CreditCard} defaultOpen>
+          <div className="space-y-3">
             <div>
-              <Label className="text-[10px] mb-1 block">حجم البطاقة</Label>
+              <Label className="text-[11px] font-semibold mb-1 block text-slate-700 dark:text-slate-300">مقاس البطاقة</Label>
               <Select value={currentPreset} onValueChange={applyCardSizePreset}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-8.5 text-xs bg-white dark:bg-slate-800"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {CARD_SIZE_PRESETS.map((p) => <SelectItem key={p.value} value={p.value} className="text-xs">{p.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-1.5">
+            <div className="grid grid-cols-2 gap-2">
               <div>
-                <Label className="text-[10px]">عرض (سم)</Label>
+                <Label className="text-[10px] text-muted-foreground">العرض (سم)</Label>
                 <Input type="number" step="0.5" value={design.config.width}
-                  onChange={(e) => updateConfig({ width: parseFloat(e.target.value) || 10 })} className="h-8 text-xs" />
+                  onChange={(e) => updateConfig({ width: parseFloat(e.target.value) || 10 })} className="h-8 text-xs bg-white dark:bg-slate-800 font-mono" />
               </div>
               <div>
-                <Label className="text-[10px]">ارتفاع (سم)</Label>
+                <Label className="text-[10px] text-muted-foreground">الارتفاع (سم)</Label>
                 <Input type="number" step="0.5" value={design.config.height}
-                  onChange={(e) => updateConfig({ height: parseFloat(e.target.value) || 7 })} className="h-8 text-xs" />
+                  onChange={(e) => updateConfig({ height: parseFloat(e.target.value) || 7 })} className="h-8 text-xs bg-white dark:bg-slate-800 font-mono" />
               </div>
             </div>
             <div>
-              <Label className="text-[10px]">لون الخلفية</Label>
-              <Input type="color" value={design.config.bgColor}
-                onChange={(e) => updateConfig({ bgColor: e.target.value })} className="h-8 w-full" />
+              <Label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1 block">لون الخلفية</Label>
+              <div className="flex items-center gap-2">
+                <Input type="color" value={design.config.bgColor}
+                  onChange={(e) => updateConfig({ bgColor: e.target.value })} className="h-8 w-12 p-0.5 rounded cursor-pointer shrink-0" />
+                <Input type="text" value={design.config.bgColor}
+                  onChange={(e) => updateConfig({ bgColor: e.target.value })} className="h-8 text-xs font-mono bg-white dark:bg-slate-800 uppercase flex-1" />
+              </div>
             </div>
-            <label className="flex items-center justify-between text-[11px] font-medium">
-              <span>خلفية متدرجة</span>
-              <Switch checked={design.config.gradientEnabled || false}
-                onCheckedChange={(v) => updateConfig({ gradientEnabled: v })} />
-            </label>
+            <div className="pt-1">
+              <label className="flex items-center justify-between text-[11px] font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
+                <span>تفعيل التدرج اللوني (Gradient)</span>
+                <Switch checked={design.config.gradientEnabled || false}
+                  onCheckedChange={(v) => updateConfig({ gradientEnabled: v })} />
+              </label>
+            </div>
             {design.config.gradientEnabled && (
-              <div className="grid grid-cols-2 gap-1.5 pl-2 border-r-2 border-teal-500/30">
-                <div>
-                  <Label className="text-[9px]">بداية</Label>
-                  <Input type="color" value={design.config.gradientStart || "#0f766e"}
-                    onChange={(e) => updateConfig({ gradientStart: e.target.value })} className="h-8" />
+              <div className="space-y-2 p-2 rounded-lg bg-slate-100/70 dark:bg-slate-800/60 border border-teal-500/20">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-[10px] text-muted-foreground">بداية التدرج</Label>
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <Input type="color" value={design.config.gradientStart || "#0f766e"}
+                        onChange={(e) => updateConfig({ gradientStart: e.target.value })} className="h-7 w-8 p-0.5 rounded" />
+                      <span className="text-[9px] font-mono text-muted-foreground">{design.config.gradientStart || "#0f766e"}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-[10px] text-muted-foreground">نهاية التدرج</Label>
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <Input type="color" value={design.config.gradientEnd || "#0369a1"}
+                        onChange={(e) => updateConfig({ gradientEnd: e.target.value })} className="h-7 w-8 p-0.5 rounded" />
+                      <span className="text-[9px] font-mono text-muted-foreground">{design.config.gradientEnd || "#0369a1"}</span>
+                    </div>
+                  </div>
                 </div>
                 <div>
-                  <Label className="text-[9px]">نهاية</Label>
-                  <Input type="color" value={design.config.gradientEnd || "#0369a1"}
-                    onChange={(e) => updateConfig({ gradientEnd: e.target.value })} className="h-8" />
+                  <Label className="text-[10px] text-muted-foreground mb-1 block">اتجاه التدرج</Label>
+                  <Select value={design.config.gradientDirection || "diagonal"}
+                    onValueChange={(v) => updateConfig({ gradientDirection: v as any })}>
+                    <SelectTrigger className="h-7.5 text-xs bg-white dark:bg-slate-800"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="horizontal" className="text-xs">أفقي (من اليمين لليسار)</SelectItem>
+                      <SelectItem value="vertical" className="text-xs">عمودي (من الأعلى للأسفل)</SelectItem>
+                      <SelectItem value="diagonal" className="text-xs">قطري (مائل 45°)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-                <Select value={design.config.gradientDirection || "diagonal"}
-                  onValueChange={(v) => updateConfig({ gradientDirection: v as any })}>
-                  <SelectTrigger className="h-7 text-[10px] col-span-2"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="horizontal" className="text-xs">أفقي</SelectItem>
-                    <SelectItem value="vertical" className="text-xs">عمودي</SelectItem>
-                    <SelectItem value="diagonal" className="text-xs">قطري</SelectItem>
-                  </SelectContent>
-                </Select>
               </div>
             )}
           </div>
@@ -2537,39 +2814,45 @@ function PropertiesContent({
       </CollapsiblePanel>
 
       {/* Position & Size */}
-      <CollapsiblePanel title="الموضع والحجم" icon={Square} defaultOpen>
-        <div className="space-y-2">
-          <div className="grid grid-cols-2 gap-1.5">
+      <CollapsiblePanel title="الموضع والأبعاد" icon={Square} defaultOpen>
+        <div className="space-y-2.5">
+          <div className="grid grid-cols-2 gap-2">
             <div>
-              <Label className="text-[10px]">X (سم)</Label>
+              <Label className="text-[10px] text-muted-foreground">الموضع الأفقي X (سم)</Label>
               <Input type="number" step="0.1" value={Math.round(selected.x * 10) / 10}
-                onChange={(e) => updateEl(selected.id, { x: parseFloat(e.target.value) || 0 })} className="h-8 text-xs" />
+                onChange={(e) => updateEl(selected.id, { x: parseFloat(e.target.value) || 0 })} className="h-8 text-xs font-mono bg-white dark:bg-slate-800" />
             </div>
             <div>
-              <Label className="text-[10px]">Y (سم)</Label>
+              <Label className="text-[10px] text-muted-foreground">الموضع الرأسي Y (سم)</Label>
               <Input type="number" step="0.1" value={Math.round(selected.y * 10) / 10}
-                onChange={(e) => updateEl(selected.id, { y: parseFloat(e.target.value) || 0 })} className="h-8 text-xs" />
+                onChange={(e) => updateEl(selected.id, { y: parseFloat(e.target.value) || 0 })} className="h-8 text-xs font-mono bg-white dark:bg-slate-800" />
             </div>
             <div>
-              <Label className="text-[10px]">عرض</Label>
+              <Label className="text-[10px] text-muted-foreground">العرض (سم)</Label>
               <Input type="number" step="0.5" value={selected.width}
-                onChange={(e) => updateEl(selected.id, { width: parseFloat(e.target.value) || 1 })} className="h-8 text-xs" />
+                onChange={(e) => updateEl(selected.id, { width: parseFloat(e.target.value) || 1 })} className="h-8 text-xs font-mono bg-white dark:bg-slate-800" />
             </div>
             <div>
-              <Label className="text-[10px]">ارتفاع</Label>
+              <Label className="text-[10px] text-muted-foreground">الارتفاع (سم)</Label>
               <Input type="number" step="0.5" value={selected.height}
-                onChange={(e) => updateEl(selected.id, { height: parseFloat(e.target.value) || 1 })} className="h-8 text-xs" />
+                onChange={(e) => updateEl(selected.id, { height: parseFloat(e.target.value) || 1 })} className="h-8 text-xs font-mono bg-white dark:bg-slate-800" />
             </div>
           </div>
-          <div>
-            <Label className="text-[10px]">دوران: {selected.rotation}°</Label>
+          <div className="space-y-1">
+            <div className="flex justify-between items-center">
+              <Label className="text-[10px] text-muted-foreground">زاوية الدوران</Label>
+              <span className="text-[10px] font-mono text-teal-600 dark:text-teal-400 font-bold">{selected.rotation}°</span>
+            </div>
             <input type="range" min="0" max="360" value={selected.rotation}
-              onChange={(e) => updateEl(selected.id, { rotation: parseInt(e.target.value) })} className="w-full" />
+              onChange={(e) => updateEl(selected.id, { rotation: parseInt(e.target.value) })} className="w-full accent-teal-600" />
           </div>
-          <div>
-            <Label className="text-[10px]">الشفافية: {selected.opacity}%</Label>
+          <div className="space-y-1">
+            <div className="flex justify-between items-center">
+              <Label className="text-[10px] text-muted-foreground">درجة الشفافية</Label>
+              <span className="text-[10px] font-mono text-teal-600 dark:text-teal-400 font-bold">{selected.opacity}%</span>
+            </div>
             <input type="range" min="0" max="100" value={selected.opacity}
-              onChange={(e) => updateEl(selected.id, { opacity: parseInt(e.target.value) })} className="w-full" />
+              onChange={(e) => updateEl(selected.id, { opacity: parseInt(e.target.value) })} className="w-full accent-teal-600" />
           </div>
         </div>
       </CollapsiblePanel>
@@ -2577,49 +2860,56 @@ function PropertiesContent({
       {/* Typography panel */}
       {showText && (
         <CollapsiblePanel title="النص والخط" icon={Type} defaultOpen>
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             {isEditableText(selected.type) && (
               <div>
-                <Label className="text-[10px]">المحتوى</Label>
+                <Label className="text-[10px] text-muted-foreground">نص العنصر</Label>
                 <textarea value={selected.text || ""} onChange={(e) => updateEl(selected.id, { text: e.target.value })}
-                  rows={2} className="w-full text-xs p-2 rounded border bg-background" />
+                  rows={2} className="w-full text-xs p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-hidden focus:ring-1 focus:ring-teal-500" />
               </div>
             )}
             <div>
-              <Label className="text-[10px]">الخط</Label>
+              <Label className="text-[10px] text-muted-foreground">نوع الخط</Label>
               <select value={selected.fontFamily} onChange={(e) => updateEl(selected.id, { fontFamily: e.target.value })}
-                className="w-full h-8 text-xs rounded border bg-card">
+                className="w-full h-8 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2">
                 {FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
               </select>
             </div>
-            <div>
-              <Label className="text-[10px]">الحجم: {selected.fontSize}px</Label>
-              <input type="range" min="6" max="32" value={selected.fontSize}
-                onChange={(e) => updateEl(selected.id, { fontSize: parseInt(e.target.value) })} className="w-full" />
+            <div className="space-y-1">
+              <div className="flex justify-between items-center">
+                <Label className="text-[10px] text-muted-foreground">حجم الخط</Label>
+                <span className="text-[10px] font-mono text-teal-600 dark:text-teal-400 font-bold">{selected.fontSize}px</span>
+              </div>
+              <input type="range" min="6" max="36" value={selected.fontSize}
+                onChange={(e) => updateEl(selected.id, { fontSize: parseInt(e.target.value) })} className="w-full accent-teal-600" />
             </div>
-            <div className="flex gap-1">
-              <Button size="sm" variant={selected.fontWeight === "bold" ? "default" : "outline"} className="h-8 flex-1 text-xs"
+            <div className="flex gap-1 bg-slate-100/80 dark:bg-slate-800/80 p-0.5 rounded-lg border border-slate-200/60 dark:border-slate-700/60">
+              <Button size="sm" variant={selected.fontWeight === "bold" ? "default" : "ghost"} className="h-7 flex-1 text-xs"
                 onClick={() => updateEl(selected.id, { fontWeight: selected.fontWeight === "bold" ? "normal" : "bold" })}>
-                <Bold className="h-3 w-3" />
+                <Bold className="h-3.5 w-3.5" />
               </Button>
-              <Button size="sm" variant={selected.textAlign === "right" ? "default" : "outline"} className="h-8 flex-1 text-xs"
-                onClick={() => updateEl(selected.id, { textAlign: "right" })}><AlignRight className="h-3 w-3" /></Button>
-              <Button size="sm" variant={selected.textAlign === "center" ? "default" : "outline"} className="h-8 flex-1 text-xs"
-                onClick={() => updateEl(selected.id, { textAlign: "center" })}><AlignCenter className="h-3 w-3" /></Button>
-              <Button size="sm" variant={selected.textAlign === "left" ? "default" : "outline"} className="h-8 flex-1 text-xs"
-                onClick={() => updateEl(selected.id, { textAlign: "left" })}><AlignLeft className="h-3 w-3" /></Button>
+              <Button size="sm" variant={selected.textAlign === "right" ? "default" : "ghost"} className="h-7 flex-1 text-xs"
+                onClick={() => updateEl(selected.id, { textAlign: "right" })}><AlignRight className="h-3.5 w-3.5" /></Button>
+              <Button size="sm" variant={selected.textAlign === "center" ? "default" : "ghost"} className="h-7 flex-1 text-xs"
+                onClick={() => updateEl(selected.id, { textAlign: "center" })}><AlignCenter className="h-3.5 w-3.5" /></Button>
+              <Button size="sm" variant={selected.textAlign === "left" ? "default" : "ghost"} className="h-7 flex-1 text-xs"
+                onClick={() => updateEl(selected.id, { textAlign: "left" })}><AlignLeft className="h-3.5 w-3.5" /></Button>
             </div>
             <div>
-              <Label className="text-[10px]">اللون</Label>
-              <div className="flex flex-wrap gap-1 mt-1">
+              <Label className="text-[10px] text-muted-foreground mb-1 block">لون النص</Label>
+              <div className="flex flex-wrap gap-1.5 mb-1.5">
                 {PRESET_COLORS.map((c) => (
                   <button key={c} onClick={() => updateEl(selected.id, { color: c })}
-                    className={cn("h-5 w-5 rounded border-2", selected.color === c ? "border-teal-500" : "border-border")}
+                    className={cn("h-5 w-5 rounded-md border-2 transition-transform hover:scale-110", selected.color === c ? "border-teal-500 scale-110 ring-1 ring-teal-500/40" : "border-slate-300 dark:border-slate-600")}
                     style={{ backgroundColor: c }} />
                 ))}
               </div>
-              <Input type="color" value={selected.color || "#000000"}
-                onChange={(e) => updateEl(selected.id, { color: e.target.value })} className="h-8 w-full mt-1" />
+              <div className="flex items-center gap-2">
+                <Input type="color" value={selected.color || "#000000"}
+                  onChange={(e) => updateEl(selected.id, { color: e.target.value })} className="h-8 w-12 p-0.5 rounded cursor-pointer shrink-0" />
+                <Input type="text" value={selected.color || "#000000"}
+                  onChange={(e) => updateEl(selected.id, { color: e.target.value })} className="h-8 text-xs font-mono uppercase bg-white dark:bg-slate-800 flex-1" />
+              </div>
             </div>
             {!isEditableText(selected.type) && (
               <label className="flex items-center gap-2 text-[11px]">
@@ -2849,36 +3139,91 @@ function LayersList({
   onRename: (el: CardElement) => void;
 }) {
   return (
-    <div className="space-y-1 max-h-72 overflow-y-auto">
+    <div className="space-y-1.5 max-h-80 overflow-y-auto pr-0.5">
       {elements.length === 0 ? (
-        <p className="text-xs text-muted-foreground text-center py-3">لا توجد عناصر</p>
+        <div className="p-4 text-center rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-dashed border-slate-200 dark:border-slate-700/60">
+          <Layers className="h-6 w-6 mx-auto mb-1 text-muted-foreground/40" />
+          <p className="text-xs text-muted-foreground">لا توجد طبقات في هذا الوجه</p>
+        </div>
       ) : (
-        [...elements].reverse().map((el) => (
-          <div key={el.id} onClick={() => setSelectedId(el.id)}
-            className={cn("flex items-center gap-1 p-1.5 rounded-lg cursor-pointer text-xs transition",
-              selectedId === el.id ? "bg-teal-500/10 ring-1 ring-teal-500/30" : "hover:bg-accent")}>
-            <button onClick={(e) => { e.stopPropagation(); toggleVisible(el.id); }} className="text-muted-foreground hover:text-foreground">
-              {el.visible ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
-            </button>
-            <button onClick={(e) => { e.stopPropagation(); onRename(el); }} className="text-muted-foreground hover:text-foreground">
-              <Pencil className="h-3 w-3" />
-            </button>
-            <span className={cn("flex-1 truncate", !el.visible && "opacity-50")}>{el.name}</span>
-            {el.locked && <Lock className="h-3 w-3 text-amber-500" />}
-            <button onClick={(e) => { e.stopPropagation(); bringToFront(el.id); }} className="text-muted-foreground hover:text-foreground">
-              <ChevronUp className="h-3 w-3" />
-            </button>
-            <button onClick={(e) => { e.stopPropagation(); sendToBack(el.id); }} className="text-muted-foreground hover:text-foreground">
-              <ChevronDown className="h-3 w-3" />
-            </button>
-            <button onClick={(e) => { e.stopPropagation(); duplicateElement(el.id); }} className="text-muted-foreground hover:text-foreground">
-              <Copy className="h-3 w-3" />
-            </button>
-            <button onClick={(e) => { e.stopPropagation(); deleteElement(el.id); }} className="text-muted-foreground hover:text-rose-500">
-              <Trash2 className="h-3 w-3" />
-            </button>
-          </div>
-        ))
+        [...elements].reverse().map((el) => {
+          const isSelected = selectedId === el.id;
+          return (
+            <div
+              key={el.id}
+              onClick={() => setSelectedId(el.id)}
+              className={cn(
+                "group flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl cursor-pointer text-xs transition-all border",
+                isSelected
+                  ? "bg-teal-50/90 dark:bg-teal-950/40 border-teal-500/50 shadow-xs ring-1 ring-teal-500/30"
+                  : "bg-white/80 dark:bg-slate-800/60 border-slate-200/70 dark:border-slate-700/50 hover:bg-slate-100/70 dark:hover:bg-slate-800"
+              )}
+            >
+              {/* Visibility toggle */}
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); toggleVisible(el.id); }}
+                className={cn("p-1 rounded-md transition text-muted-foreground hover:text-foreground", !el.visible && "text-amber-500 opacity-60")}
+                title={el.visible ? "إخفاء العنصر" : "إظهار العنصر"}
+              >
+                {el.visible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+              </button>
+
+              {/* Rename icon */}
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onRename(el); }}
+                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-slate-100 dark:hover:bg-slate-700"
+                title="تعديل الاسم"
+              >
+                <Pencil className="h-3 w-3" />
+              </button>
+
+              {/* Layer Title */}
+              <span className={cn("flex-1 truncate font-medium text-[11px]", !el.visible && "opacity-50 line-through")}>
+                {el.name}
+              </span>
+
+              {el.locked && <Lock className="h-3 w-3 text-amber-500 shrink-0" />}
+
+              {/* Action buttons */}
+              <div className="flex items-center gap-0.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); bringToFront(el.id); }}
+                  className="p-1 rounded hover:bg-slate-200/60 dark:hover:bg-slate-700 text-muted-foreground hover:text-foreground"
+                  title="تقديم للأمام"
+                >
+                  <ChevronUp className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); sendToBack(el.id); }}
+                  className="p-1 rounded hover:bg-slate-200/60 dark:hover:bg-slate-700 text-muted-foreground hover:text-foreground"
+                  title="تأخير للخلف"
+                >
+                  <ChevronDown className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); duplicateElement(el.id); }}
+                  className="p-1 rounded hover:bg-slate-200/60 dark:hover:bg-slate-700 text-muted-foreground hover:text-foreground"
+                  title="تكرار الطبقة"
+                >
+                  <Copy className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); deleteElement(el.id); }}
+                  className="p-1 rounded hover:bg-rose-100 dark:hover:bg-rose-900/30 text-muted-foreground hover:text-rose-600"
+                  title="حذف الطبقة"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
+          );
+        })
       )}
     </div>
   );
@@ -2896,12 +3241,19 @@ function CollapsiblePanel({
 }) {
   const [open, setOpen] = useState(defaultOpen ?? false);
   return (
-    <div className="rounded-lg border border-white/30 dark:border-white/5 overflow-hidden bg-white/40 dark:bg-slate-900/40">
-      <button onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-1.5 px-2 py-1.5 text-xs font-bold hover:bg-accent/40 transition">
-        <Icon className="h-3.5 w-3.5 text-teal-600 shrink-0" />
-        <span className="flex-1 text-right">{title}</span>
-        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
+    <div className="rounded-xl border border-slate-200/90 dark:border-slate-800/90 overflow-hidden bg-white/90 dark:bg-slate-900/90 shadow-2xs transition-colors">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between gap-2 px-3.5 py-2.5 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800/50 transition cursor-pointer select-none"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="p-1 rounded-lg bg-teal-500/10 text-teal-600 dark:text-teal-400 shrink-0">
+            <Icon className="h-3.5 w-3.5" />
+          </div>
+          <span className="truncate text-slate-800 dark:text-slate-100">{title}</span>
+        </div>
+        <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform duration-200 shrink-0", open ? "rotate-180" : "")} />
       </button>
       <AnimatePresence initial={false}>
         {open && (
@@ -2912,7 +3264,7 @@ function CollapsiblePanel({
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <div className="p-2 space-y-2 border-t border-white/20 dark:border-white/5">{children}</div>
+            <div className="p-3 space-y-2.5 border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/40 dark:bg-slate-950/20">{children}</div>
           </motion.div>
         )}
       </AnimatePresence>

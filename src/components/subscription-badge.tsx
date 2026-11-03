@@ -1,91 +1,135 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { KeyRound, Clock, ShieldCheck, AlertTriangle, Lock } from "lucide-react";
-import { ActivationModal } from "@/components/subscription-gate";
+import { ShieldCheck, Clock, AlertTriangle, Lock } from "lucide-react";
+import { SubscriptionModal, type SubscriptionStatusData } from "@/components/subscription-modal";
+import { getOfflineLicense, isOfflineLicenseActive } from "@/lib/offline-license";
 
-interface Status {
-  state: "pending" | "trial" | "active" | "grace" | "locked" | "suspended";
-  daysRemaining?: number;
-  plan?: string;
+function formatBadgeText(s: SubscriptionStatusData): string {
+  const days = s.daysRemaining ?? 0;
+  if (s.state === "active") {
+    if (days > 365) return "اشتراك نشط • عامان";
+    if (days > 300) return "اشتراك نشط • سنة";
+    if (days > 30) return `اشتراك نشط • ${Math.round(days / 30)} أشهر`;
+    if (days > 0) return `ساري • ${days} يوم`;
+    return "اشتراك نشط ومؤكد";
+  }
+  if (s.state === "trial") {
+    return `تجربة مجانية • ${days} يوم`;
+  }
+  if (s.state === "grace") {
+    return "فترة سماح (24 ساعة)";
+  }
+  if (s.state === "locked") {
+    return "الاشتراك منتهٍ • فعّل الآن";
+  }
+  if (s.state === "pending") {
+    return "بانتظار الموافقة";
+  }
+  if (s.state === "suspended") {
+    return "الحساب موقوف";
+  }
+  return "حالة الاشتراك";
 }
 
-const STATE_META: Record<
-  string,
-  { icon: any; className: string; label: (s: Status) => string }
-> = {
-  trial: {
-    icon: Clock,
-    className: "border-sky-300 text-sky-700 bg-sky-50 hover:bg-sky-100",
-    label: (s) => `تجربة — ${s.daysRemaining ?? 0} يوم`,
-  },
-  grace: {
-    icon: AlertTriangle,
-    className: "border-orange-300 text-orange-700 bg-orange-50 hover:bg-orange-100",
-    label: (s) => `سماح — ${s.daysRemaining ?? 0} يوم`,
-  },
-  locked: {
-    icon: Lock,
-    className: "border-rose-300 text-rose-700 bg-rose-50 hover:bg-rose-100",
-    label: () => "مقفل — فعّل الآن",
-  },
-  active: {
-    icon: ShieldCheck,
-    className: "border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100",
-    label: (s) => (s.daysRemaining !== undefined ? `مفعَّل — ${s.daysRemaining} يوم` : "مفعَّل"),
-  },
-  pending: {
-    icon: Clock,
-    className: "border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100",
-    label: () => "بانتظار الموافقة",
-  },
-  suspended: {
-    icon: Lock,
-    className: "border-violet-300 text-violet-700 bg-violet-50 hover:bg-violet-100",
-    label: () => "موقوف",
-  },
-};
-
-/**
- * زر دائم بالعارضة العلوية يعرض حالة الاشتراك ويفتح نافذة التفعيل —
- * متاح دائماً (مو بس وقت التجربة/السماح)، حتى لو الاشتراك نشط، حتى
- * يقدر صاحب النادي يشوف تفاصيله أو يفعّل كود جديد أوفلاين بأي وقت.
- */
 export function SubscriptionBadge() {
-  const [status, setStatus] = useState<Status | null>(null);
+  const [status, setStatus] = useState<SubscriptionStatusData | null>(null);
   const [open, setOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/subscription/status", { cache: "no-store" });
-      if (res.ok) setStatus(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        setStatus(data);
+        return;
+      }
     } catch {
-      // تجاهل — أوفلاين-أولاً، ما نعطّل الزر بسبب فشل شبكة عابر
+      // Offline-first fallback
+    }
+
+    // فحص رخصة أوفلاين
+    const offlineLic = getOfflineLicense();
+    if (offlineLic && isOfflineLicenseActive(offlineLic)) {
+      const now = new Date();
+      const end = new Date(offlineLic.expiresAt);
+      const days = Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      setStatus({
+        state: "active",
+        label: `اشتراك محلي (${offlineLic.planLabel})`,
+        color: "bg-emerald-500/15 text-emerald-700 border-emerald-500/30",
+        hasAccess: true,
+        message: `الاشتراك مفعّل محلياً (بدون إنترنت)`,
+        daysRemaining: days,
+        endDate: offlineLic.expiresAt,
+        plan: offlineLic.plan,
+        hardwareFingerprint: offlineLic.hardwareFingerprint,
+      });
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   if (!status) return null;
 
-  const meta = STATE_META[status.state] || STATE_META.active;
-  const Icon = meta.icon;
+  const state = status.state;
+  const isGrace = state === "grace";
+  const isTrial = state === "trial";
+  const isLocked = state === "locked";
+  const isActive = state === "active" || (!isGrace && !isTrial && !isLocked && status.hasAccess);
 
   return (
     <>
-      <Button
-        variant="outline"
-        size="sm"
+      <button
+        type="button"
         onClick={() => setOpen(true)}
-        className={`h-9 gap-1.5 px-2.5 text-xs font-semibold ${meta.className}`}
-        title="حالة الاشتراك — اضغط للتفعيل أو المراجعة"
+        className={`h-8 px-3 rounded-full text-xs font-semibold shadow-2xs transition-all flex items-center gap-2 cursor-pointer group ${
+          isActive
+            ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/20 hover:border-emerald-500/50"
+            : isTrial
+            ? "bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/30 hover:bg-sky-500/20 hover:border-sky-500/50"
+            : isGrace
+            ? "bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 hover:border-amber-500/50"
+            : "bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/30 hover:bg-rose-500/20 hover:border-rose-500/50 animate-pulse"
+        }`}
+        title="حالة الاشتراك والترخيص — انقر لعرض التفاصيل وتمديد الصلاحية"
       >
-        <Icon className="h-3.5 w-3.5" />
-        <span className="hidden lg:inline">{meta.label(status)}</span>
-      </Button>
-      <ActivationModal open={open} onClose={() => setOpen(false)} onActivated={load} />
+        <span className="relative flex h-2 w-2">
+          <span
+            className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+              isActive ? "bg-emerald-400" : isTrial ? "bg-sky-400" : isGrace ? "bg-amber-400" : "bg-rose-400"
+            }`}
+          />
+          <span
+            className={`relative inline-flex rounded-full h-2 w-2 ${
+              isActive ? "bg-emerald-500" : isTrial ? "bg-sky-500" : isGrace ? "bg-amber-500" : "bg-rose-500"
+            }`}
+          />
+        </span>
+
+        {isActive ? (
+          <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 group-hover:scale-110 transition-transform" />
+        ) : isTrial ? (
+          <Clock className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400 group-hover:scale-110 transition-transform" />
+        ) : isGrace ? (
+          <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 group-hover:scale-110 transition-transform" />
+        ) : (
+          <Lock className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400 group-hover:scale-110 transition-transform" />
+        )}
+
+        <span className="font-semibold text-xs leading-none">
+          {formatBadgeText(status)}
+        </span>
+      </button>
+
+      <SubscriptionModal
+        open={open}
+        onClose={() => setOpen(false)}
+        status={status}
+        onActivated={load}
+      />
     </>
   );
 }

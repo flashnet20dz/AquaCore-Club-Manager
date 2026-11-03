@@ -8,10 +8,10 @@ const config: CapacitorConfig = {
   server: {
     androidScheme: "https",
     url: "https://aladine-pool-manager.vercel.app",
-    cleartext: false,
+    cleartext: true,
   },
   android: {
-    allowMixedContent: false,
+    allowMixedContent: true,
     // 🔑 تم إزالة captureInput — كان يمنع الكتابة في حقول الإدخال
     webContentsDebuggingEnabled: false,
     backgroundColor: "#ffffff",

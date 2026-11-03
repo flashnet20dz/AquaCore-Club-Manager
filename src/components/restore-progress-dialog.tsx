@@ -16,8 +16,10 @@ import { Progress } from "@/components/ui/progress";
 import { notifySuccess, notifyError } from "@/lib/sounds";
 
 export interface RestoreFilePayload {
-  file: File;
-  targetEndpoint: "/api/backup" | "/api/backup/restore-db";
+  file?: File;
+  localFilename?: string;
+  localFileSize?: number;
+  targetEndpoint: "/api/backup" | "/api/backup/restore-db" | "/api/backup/restore-local";
   defaultMode?: "replace" | "merge";
 }
 
@@ -130,16 +132,19 @@ export function RestoreProgressDialog({
 
   if (!payload) return null;
 
-  const file = payload.file;
-  const isDbExt = file.name.endsWith(".db") || file.name.endsWith(".sqlite");
-  const isJsonExt = file.name.endsWith(".json");
+  const fileName = payload.file ? payload.file.name : payload.localFilename || "نسخة احتياطية";
+  const fileSize = payload.file ? payload.file.size : payload.localFileSize || 0;
+  const isDbExt = fileName.endsWith(".db") || fileName.endsWith(".sqlite");
+  const isJsonExt = fileName.endsWith(".json");
   const formattedSize =
-    file.size > 1024 * 1024
-      ? `${(file.size / (1024 * 1024)).toFixed(1)} ميغابايت`
-      : `${(file.size / 1024).toFixed(1)} كيلوبايت`;
+    fileSize > 1024 * 1024
+      ? `${(fileSize / (1024 * 1024)).toFixed(1)} ميغابايت`
+      : fileSize > 0
+      ? `${(fileSize / 1024).toFixed(1)} كيلوبايت`
+      : "محفوظ محلياً";
 
   const stages = [
-    { title: "نقل الحزمة ورفع الملف إلى الخادم", desc: "رفع تدفقي فائق السرعة عبر الشبكة" },
+    { title: "قراءة الحزمة والتحقق من التوقيع", desc: payload.localFilename ? "قراءة سريعة ومباشرة من السيرفر" : "رفع تدفقي فائق السرعة عبر الشبكة" },
     { title: "فحص التوافق وسلامة الترويسة", desc: "التحقق التلقائي من بنية الجداول وقاعدة البيانات" },
     { title: "استعادة السجلات والمنخرطين والصور", desc: "معالجة شاملة لكافة المنخرطين والصور الشخصية Base64" },
     { title: "إعادة بناء الفهارس وتثبيت الجلسة", desc: "تحديث الفهارس وحفظ جلسة العمل وتأمين البيانات" },
@@ -148,12 +153,72 @@ export function RestoreProgressDialog({
   // بدء عملية الاستعادة الفعلية
   const startRestore = () => {
     setStep("progress");
-    setProgressPercent(5);
+    setProgressPercent(10);
     setActiveStageIndex(0);
-    setCurrentStageText("جاري قراءة الملف وتجهيز تدفق الرفع المباشر...");
+    setCurrentStageText("جاري فحص الحزمة وتهيئة بيئة الاستعادة الشاملة...");
 
+    // إذا كانت نسخة محلية مخزنة على السيرفر
+    if (payload.localFilename) {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/api/backup/restore-local");
+      xhr.setRequestHeader("Content-Type", "application/json");
+
+      let curr = 15;
+      stageIntervalRef.current = setInterval(() => {
+        curr += 8;
+        if (curr >= 35 && curr < 65) {
+          setActiveStageIndex(1);
+          setCurrentStageText("التحقق من ترويسة SQLite وهيكلية السجلات والترخيص...");
+        } else if (curr >= 65 && curr < 85) {
+          setActiveStageIndex(2);
+          setCurrentStageText("جاري استعادة المنخرطين، الصور الشخصية، والعمليات المالية...");
+        } else if (curr >= 85 && curr < 98) {
+          setActiveStageIndex(3);
+          setCurrentStageText("جاري كتابة الفهارس وحفظ جلسة العمل وتأمين البيانات...");
+        }
+        if (curr < 98) {
+          setProgressPercent(curr);
+        }
+      }, 400);
+
+      xhr.onload = () => {
+        if (stageIntervalRef.current) clearInterval(stageIntervalRef.current);
+        try {
+          const data = JSON.parse(xhr.responseText || "{}");
+          if (xhr.status >= 200 && xhr.status < 300 && data.success) {
+            setProgressPercent(100);
+            setActiveStageIndex(3);
+            notifySuccess();
+            const counts: RestoreCounts = data.importedCounts || {};
+            counts.totalImported = data.totalImported || (data.size ? 1 : 0);
+            setSummaryCounts(counts);
+            setStep("success");
+          } else {
+            notifyError();
+            setErrorMessage(data.error || "حدث خطأ غير متوقع أثناء معالجة ملف النسخة الاحتياطية.");
+            setStep("error");
+          }
+        } catch {
+          notifyError();
+          setErrorMessage("تعذر قراءة استجابة الخادم. يرجى مراجعة الاتصال.");
+          setStep("error");
+        }
+      };
+
+      xhr.onerror = () => {
+        if (stageIntervalRef.current) clearInterval(stageIntervalRef.current);
+        notifyError();
+        setErrorMessage("انقطع الاتصال بالخادم أثناء المعالجة. يرجى المحاولة مرة أخرى.");
+        setStep("error");
+      };
+
+      xhr.send(JSON.stringify({ filename: payload.localFilename, mode }));
+      return;
+    }
+
+    // رفع ملف من جهاز العميل
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("file", payload.file!);
     formData.append("mode", mode);
 
     const xhr = new XMLHttpRequest();
@@ -277,7 +342,7 @@ export function RestoreProgressDialog({
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="text-xs font-semibold text-muted-foreground">الملف المختار:</span>
                   <span className="text-xs font-bold font-mono text-foreground truncate" dir="ltr">
-                    {file.name}
+                    {fileName}
                   </span>
                 </div>
                 <Badge variant="secondary" className="text-[11px] font-mono shrink-0">

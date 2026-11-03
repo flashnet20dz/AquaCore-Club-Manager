@@ -11,7 +11,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const { id } = await params;
     const body = await req.json();
-    const { name, role, phone, active, pending, password, hourlyRate, position } = body;
+    const { name, role, phone, email, active, pending, password, hourlyRate, position } = body;
 
     const clubFilter = currentUser.role === "superadmin" ? {} : { clubId: currentUser.clubId! };
     const existing = await db.user.findFirst({ where: { id, ...clubFilter } });
@@ -22,6 +22,25 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     // 🔑 تحديث بيانات User
     const data: Record<string, unknown> = {};
     if (name !== undefined) data.name = name;
+    if (email !== undefined) {
+      const cleanEmail = email.toLowerCase().trim();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!cleanEmail || !emailRegex.test(cleanEmail)) {
+        return NextResponse.json({ error: "صيغة البريد الإلكتروني غير صالحة" }, { status: 400 });
+      }
+      if (cleanEmail !== existing.email.toLowerCase().trim()) {
+        const conflict = await db.user.findFirst({
+          where: {
+            email: cleanEmail,
+            NOT: { id: existing.id },
+          },
+        });
+        if (conflict) {
+          return NextResponse.json({ error: "البريد الإلكتروني مستخدم بالفعل بحساب آخر" }, { status: 400 });
+        }
+        data.email = cleanEmail;
+      }
+    }
     if (role !== undefined) {
       // ★ حماية دور السوبر أدمن: لا يمكن تخفيضه
       // إذا كان المستخدم الحالي superadmin، يُسمح بتحديث الأدوار الأخرى فقط
@@ -53,6 +72,24 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       data,
       select: { id: true, email: true, name: true, role: true, phone: true, active: true, pending: true, createdAt: true },
     });
+
+    // مزامنة بيانات الجلسة النشطة في حال كان المستخدم يعدل حسابه الشخصي
+    if (currentUser.id === id) {
+      try {
+        const updatedSession = {
+          ...currentUser,
+          name: (data.name as string) || currentUser.name,
+          email: (data.email as string) || currentUser.email,
+          phone: data.phone !== undefined ? (data.phone as string | undefined) : currentUser.phone,
+        };
+        await db.session.updateMany({
+          where: { userId: id },
+          data: { data: JSON.stringify(updatedSession) },
+        });
+      } catch (err) {
+        console.warn("Session sync warning:", err);
+      }
+    }
 
     // 🔑 تحديث/إنشاء Employee لربط hourlyRate و position
     if (hourlyRate !== undefined || position !== undefined) {

@@ -25,13 +25,16 @@ const DEFAULT_CONFIG: AutoBackupConfig = {
   lastBackupDate: null,
 };
 
-// GET: جلب إعدادات النسخ الاحتياطي التلقائي وسجل النسخ المحفوظة
-export async function GET() {
+// GET: جلب إعدادات النسخ الاحتياطي التلقائي وسجل النسخ المحفوظة أو تحميل ملف محدد
+export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser();
     if (!user || (user.role !== "admin" && user.role !== "superadmin")) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
     }
+
+    const { searchParams } = new URL(req.url);
+    const downloadFilename = searchParams.get("download");
 
     const setting = await db.setting.findUnique({
       where: { clubId_key: { clubId: user.clubId!, key: AUTO_BACKUP_SETTING_KEY } },
@@ -48,6 +51,25 @@ export async function GET() {
     const targetDir = config.destination && config.destination !== "backups"
       ? config.destination
       : DEFAULT_BACKUP_DIR;
+
+    // معالجة تحميل ملف محدد من السجل
+    if (downloadFilename) {
+      const safeFilename = path.basename(downloadFilename);
+      const filePath = path.join(targetDir, safeFilename);
+      if (!fs.existsSync(filePath)) {
+        return NextResponse.json({ error: "الملف المطلوب غير متوفر" }, { status: 404 });
+      }
+      const fileBuffer = fs.readFileSync(filePath);
+      const contentType = safeFilename.endsWith(".json")
+        ? "application/json"
+        : "application/x-sqlite3";
+      return new NextResponse(fileBuffer, {
+        headers: {
+          "Content-Type": contentType,
+          "Content-Disposition": `attachment; filename="${safeFilename}"`,
+        },
+      });
+    }
 
     let history: { filename: string; size: number; date: string; isDb: boolean }[] = [];
     if (fs.existsSync(targetDir)) {
@@ -70,6 +92,47 @@ export async function GET() {
     return NextResponse.json({ config, history, defaultDir: DEFAULT_BACKUP_DIR });
   } catch (e) {
     return NextResponse.json({ error: "Internal" }, { status: 500 });
+  }
+}
+
+// DELETE: حذف ملف نسخة احتياطية قديمة من السيرفر
+export async function DELETE(req: NextRequest) {
+  try {
+    const user = await getCurrentUser();
+    if (!user || (user.role !== "admin" && user.role !== "superadmin")) {
+      return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const filename = searchParams.get("filename");
+    if (!filename) {
+      return NextResponse.json({ error: "يرجى تحديد اسم الملف المراد حذفه" }, { status: 400 });
+    }
+
+    const setting = await db.setting.findUnique({
+      where: { clubId_key: { clubId: user.clubId!, key: AUTO_BACKUP_SETTING_KEY } },
+    });
+
+    let destination = "backups";
+    if (setting?.value) {
+      try {
+        const parsed = JSON.parse(setting.value);
+        if (parsed.destination) destination = parsed.destination;
+      } catch {}
+    }
+
+    const targetDir = destination && destination !== "backups" ? destination : DEFAULT_BACKUP_DIR;
+    const safeFilename = path.basename(filename);
+    const filePath = path.join(targetDir, safeFilename);
+
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      return NextResponse.json({ success: true, message: `تم حذف النسخة ${safeFilename} بنجاح` });
+    }
+
+    return NextResponse.json({ error: "الملف غير موجود" }, { status: 404 });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || "فشل حذف الملف" }, { status: 500 });
   }
 }
 

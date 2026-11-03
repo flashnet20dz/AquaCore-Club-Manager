@@ -69,6 +69,7 @@ import { WaitlistPanel } from "@/components/waitlist-panel";
 import { useSubscriptionTypes } from "@/hooks/use-subscription-types";
 import { ContractsPanel } from "@/components/contracts-panel";
 import { IncomingMailPanel } from "@/components/incoming-mail-panel";
+import { ProfessionalFooter } from "@/components/professional-footer";
 
 
 import { NotificationBell } from "@/components/notification-bell";
@@ -76,6 +77,8 @@ import { AnalyticsCharts } from "@/components/analytics-charts";
 import { BackupPanel } from "@/components/backup-panel";
 import { SubscriberRecordModal } from "@/components/subscriber-record-modal";
 import { LocalNetworkCard } from "@/components/local-network-card";
+import { NetworkConnectionDialog } from "@/components/network-connection-dialog";
+import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { WhatsAppReminders } from "@/components/whatsapp-reminders";
 import { hasPermission, ROLE_LABELS, ROLE_ICONS } from "@/lib/roles";
 import { onFinancialUpdated } from "@/lib/financial-events";
@@ -98,6 +101,7 @@ import { AchievementsPanel } from "@/components/achievements-panel";
 import { KioskMode } from "@/components/kiosk-mode";
 import { POSReceipt } from "@/components/pos-receipt";
 import { ExecutiveDashboard } from "@/components/dashboard/executive-dashboard";
+import { EnterpriseHub } from "@/components/enterprise-hub";
 
 interface Stats {
   total: number;
@@ -179,8 +183,8 @@ export default function Home() {
   const [stats, setStats] = useState<Stats | null>(null);
   // ★ الملخص المالي من دفتر القيود — المصدر الوحيد لأرقام لوحة التحكم المالية
   const [finSummary, setFinSummary] = useState<FinSummary | null>(null);
-  // ★ فترة عرض الأرقام المالية في لوحة التحكم (اليوم / الأسبوع / الشهر)
-  const [finPeriod, setFinPeriod] = useState<"today" | "week" | "month">("month");
+  // ★ فترة عرض الأرقام المالية في لوحة التحكم (اليوم / 7 أيام / الشهر / 90 يوماً / السنة)
+  const [finPeriod, setFinPeriod] = useState<"today" | "week" | "month" | "90d" | "year">("month");
   // ★ نافذة تسجيل حركة مالية سريعة من الصفحة الرئيسية
   const [quickTxOpen, setQuickTxOpen] = useState(false);
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -440,7 +444,7 @@ export default function Home() {
   //   — كل 45 ثانية + عند العودة إلى التبويبة + زر تحديث فوري في البطاقة.
   //   الأرقام تبقى من دفتر القيود حصراً (/api/financial/dashboard) — بلا أي حساب موازٍ.
   const [finRefreshing, setFinRefreshing] = useState(false);
-  const refreshFinSummary = useCallback(async (periodOverride?: "today" | "week" | "month") => {
+  const refreshFinSummary = useCallback(async (periodOverride?: "today" | "week" | "month" | "90d" | "year") => {
     if (!sessionUser || !hasPermission(sessionUser.role, "financialDashboard")) return;
     setFinRefreshing(true);
     const targetPeriod = periodOverride || finPeriod;
@@ -648,7 +652,7 @@ export default function Home() {
 
           <div className="flex items-center gap-1 sm:gap-1.5 md:gap-2 flex-nowrap shrink-0 justify-end">
             {sessionUser.role !== "superadmin" && (
-              <div className="hidden xl:block">
+              <div className="hidden md:block shrink-0">
                 <SubscriptionBadge />
               </div>
             )}
@@ -682,16 +686,16 @@ export default function Home() {
               <Search className="h-4 w-4" />
               <kbd className="hidden md:inline text-[10px] font-mono border rounded px-1">Ctrl+K</kbd>
             </Button>
-            {/* ★ زر ربط الهاتف بالواي فاي بدون إنترنت */}
+            {/* ★ زر ربط الهاتف والشبكة (سحابي / واي فاي محلي) */}
             <Button
               variant="outline"
               size="sm"
               onClick={() => setWifiModalOpen(true)}
-              className="hidden sm:inline-flex h-9 gap-1.5 border-emerald-500/40 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10 shrink-0"
-              title="الاتصال بالهاتف عبر الواي فاي (بدون إنترنت)"
+              className="inline-flex h-9 px-2 sm:px-3 gap-1.5 border-emerald-500/40 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10 shrink-0"
+              title="إعدادات الاتصال والشبكة (سحابي / محلي)"
             >
               <Wifi className="h-4 w-4" />
-              <span className="hidden lg:inline">ربط الهاتف (Wi-Fi)</span>
+              <span className="hidden sm:inline">ربط الشبكة</span>
             </Button>
             {/* ★ زر شاشة البوابة الذكية */}
             <Button
@@ -788,7 +792,10 @@ export default function Home() {
         </Sheet>
 
         {/* Main Workspace Area */}
-        <main className="flex-1 min-w-0 px-2 sm:px-4 lg:px-8 py-4 sm:py-8 space-y-4 sm:space-y-6 overflow-y-auto">
+        <main className={cn(
+          "flex-1 min-w-0 overflow-y-auto pb-24 md:pb-8",
+          activeTab === "cards-pro" ? "p-0 space-y-0 overflow-hidden" : "px-2 sm:px-4 lg:px-8 py-4 sm:py-8 space-y-4 sm:space-y-6"
+        )}>
           <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
             {/* DASHBOARD TAB */}
             {visitedTabs.has("dashboard") && (
@@ -1210,7 +1217,7 @@ export default function Home() {
           {/* CARD DESIGNER PRO TAB (unified — المصمم الوحيد) */}
           {hasPermission(sessionUser.role, "cards") && visitedTabs.has("cards-pro") && (
             <TabsContent value="cards-pro" forceMount className="mt-0 data-[state=inactive]:hidden">
-              <CardDesignerPro subscribers={subscribers} onBack={() => window.location.href = "/"} />
+              <CardDesignerPro subscribers={subscribers} onBack={() => handleTabChange("dashboard")} />
             </TabsContent>
           )}
 
@@ -1225,6 +1232,13 @@ export default function Home() {
           {isAdmin && visitedTabs.has("users") && (
             <TabsContent value="users" forceMount className="mt-0 data-[state=inactive]:hidden">
               <UserManagement />
+            </TabsContent>
+          )}
+
+          {/* ENTERPRISE HUB TAB (Club Admin) */}
+          {isAdmin && visitedTabs.has("enterprise-hub") && (
+            <TabsContent value="enterprise-hub" forceMount className="mt-0 data-[state=inactive]:hidden">
+              <EnterpriseHub clubName={headerTitle || "النادي الرياضي"} />
             </TabsContent>
           )}
 
@@ -1325,15 +1339,13 @@ export default function Home() {
         </SheetContent>
       </Sheet>
 
-      <footer className="mt-auto border-t border-border/40 bg-card/30 backdrop-blur-sm">
-        <div className="max-w-[1500px] mx-auto px-4 sm:px-6 lg:px-8 py-5 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-muted-foreground">
-          <div className="flex items-center gap-2">
-            <WavesIcon className="h-3.5 w-3.5 text-primary" />
-            <span>{footerText}</span>
-          </div>
-          <span>{footerNote}</span>
-        </div>
-      </footer>
+      <ProfessionalFooter
+        clubName={headerTitle}
+        headerTitle={headerSubtitle}
+        onNavigateTab={handleTabChange}
+        onOpenCommandPalette={() => setCmdOpen(true)}
+        sessionUser={sessionUser}
+      />
 
       <SubscriberForm open={formOpen} onOpenChange={setFormOpen} initial={editInitial} onSaved={fetchData} />
       <QRBadgeModal open={!!qrTarget} onOpenChange={(o) => !o && setQrTarget(null)} subscriber={qrTarget} />
@@ -1404,18 +1416,17 @@ export default function Home() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* نافذة ربط الهاتف بالواي فاي المحلي بدون إنترنت ورمز QR */}
-      <Dialog open={wifiModalOpen} onOpenChange={setWifiModalOpen}>
-        <DialogContent className="max-w-2xl p-4 sm:p-6" dir="rtl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base font-bold">
-              <Wifi className="h-5 w-5 text-teal-600" />
-              الاتصال المحلي عبر الواي فاي (بدون إنترنت)
-            </DialogTitle>
-          </DialogHeader>
-          <LocalNetworkCard />
-        </DialogContent>
-      </Dialog>
+      {/* نافذة إعدادات الاتصال بالسيرفر والشبكة (سحابي / محلي) */}
+      <NetworkConnectionDialog open={wifiModalOpen} onClose={() => setWifiModalOpen(false)} />
+
+      {/* شريط التنقل السفلي الاحترافي للأجهزة المحمولة */}
+      <MobileBottomNav
+        activeTab={activeTab}
+        onTabChange={handleTabChange}
+        onOpenMenu={() => setMobileNavOpen(true)}
+        subscribersCount={stats?.total}
+        unresolvedAlertsCount={stats?.workers?.contractsExpiringSoon}
+      />
     </div>
     </SubscriptionGate>
   );

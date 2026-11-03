@@ -306,11 +306,11 @@ function LoginForm() {
           ★ القسم الأيسر (RTL) — نموذج الدخول
           ═════════════════════════════════════════════════════════ */}
       <div className="flex-1 flex items-center justify-center p-4 sm:p-6 relative">
-        {/* خلفية متدرجة للجوال */}
-        <div className="absolute inset-0 lg:hidden">
+        {/* خلفية متدرجة وشفق أورورا الأصلي يملأ الفراغ على جميع الشاشات */}
+        <div className="absolute inset-0 pointer-events-none">
           <div className="absolute inset-0 bg-gradient-to-br from-[#0d0b10] via-[#170d13] to-[#0d0b10]" />
-          <div className="aurora-blob absolute top-[-10%] right-[-5%] w-72 h-72 rounded-full bg-[#e04fa4]/15 blur-3xl" />
-          <div className="aurora-blob-delayed absolute bottom-[-10%] left-[-5%] w-72 h-72 rounded-full bg-fuchsia-600/15 blur-3xl" />
+          <div className="aurora-blob absolute top-[-10%] right-[-5%] w-96 h-96 rounded-full bg-[#e04fa4]/15 blur-3xl" />
+          <div className="aurora-blob-delayed absolute bottom-[-10%] left-[-5%] w-96 h-96 rounded-full bg-fuchsia-600/15 blur-3xl" />
         </div>
 
         {/* نموذج الدخول */}
@@ -370,7 +370,7 @@ function LoginForm() {
                     البريد الإلكتروني
                   </Label>
                   <div className="relative">
-                    <Mail className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/30" />
+                    <Mail className="absolute right-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-white/30 pointer-events-none" />
                     <Input
                       type="email"
                       value={email}
@@ -385,27 +385,43 @@ function LoginForm() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-white/60 uppercase tracking-wider">
-                    كلمة المرور
-                  </Label>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-white/60 uppercase tracking-wider">
+                      كلمة المرور
+                    </Label>
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="text-[11px] text-[#e04fa4] hover:text-pink-300 transition-colors flex items-center gap-1 focus:outline-none cursor-pointer"
+                    >
+                      {showPassword ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                      <span>{showPassword ? "إخفاء" : "إظهار"}</span>
+                    </button>
+                  </div>
                   <div className="relative">
-                    <Lock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/30" />
+                    <Lock className="absolute right-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-white/30 pointer-events-none z-10" />
                     <Input
                       type={showPassword ? "text" : "password"}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="h-12 pr-10 pl-10 bg-white/[0.06] border-white/[0.12] text-white placeholder:text-white/25 rounded-2xl focus:bg-white/[0.1] focus:border-[#e04fa4]/60 transition"
+                      className="h-12 pr-10 pl-11 bg-white/[0.06] border-white/[0.12] text-white placeholder:text-white/25 rounded-2xl focus:bg-white/[0.1] focus:border-[#e04fa4]/60 transition"
                       required
                       autoComplete="current-password"
                       dir="ltr"
                     />
                     <button
                       type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 p-1 text-white/30 hover:text-white/60 transition"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setShowPassword(!showPassword);
+                      }}
+                      title={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
+                      aria-label={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
+                      className="absolute left-2.5 top-1/2 -translate-y-1/2 h-7 w-7 flex items-center justify-center rounded-lg bg-white/10 hover:bg-white/20 text-white/70 hover:text-white transition cursor-pointer z-20"
                     >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      {showPassword ? <EyeOff className="h-4 w-4 text-[#e04fa4]" /> : <Eye className="h-4 w-4 text-white/60" />}
                     </button>
                   </div>
                 </div>

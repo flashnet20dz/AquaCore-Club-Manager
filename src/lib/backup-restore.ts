@@ -60,7 +60,7 @@ export async function restoreSqliteBuffer(
     console.warn("[restoreSqliteBuffer] Reading sessions warning:", e);
   }
 
-  // 3. دمج سجل الكتابة المسبقة (WAL) والتحويل إلى DELETE mode لإغلاق وحذف -wal و -shm بأمان
+  // 3. دمج سجل الكتابة المسبقة (WAL) وإغلاق المقابض بأمان
   try {
     await db.$queryRawUnsafe("PRAGMA wal_checkpoint(TRUNCATE);");
     await db.$queryRawUnsafe("PRAGMA journal_mode = DELETE;");
@@ -78,19 +78,49 @@ export async function restoreSqliteBuffer(
     }
   }
 
-  // 5. كتابة ملف قاعدة البيانات المستورد
-  fs.writeFileSync(dbPath, buffer);
+  // 5. فصل اتصال Prisma مؤقتاً لتحرير مقبض الملف على نظام ويندوز (تجنب EBUSY)
+  try {
+    await db.$disconnect();
+  } catch (discErr) {
+    console.warn("[restoreSqliteBuffer] Disconnect warning:", discErr);
+  }
+
+  // كتابة ملف قاعدة البيانات المستورد بحلقة إعادة محاولة ذكية
+  let writeSuccess = false;
+  let lastWriteErr: any = null;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    try {
+      fs.writeFileSync(dbPath, buffer);
+      writeSuccess = true;
+      break;
+    } catch (err: any) {
+      lastWriteErr = err;
+      if (err.code === "EBUSY" || err.code === "EPERM") {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  if (!writeSuccess) {
+    throw new Error(`تعذر استبدال ملف قاعدة البيانات: ${lastWriteErr?.message || "الملف مقفل من النظام"}`);
+  }
 
   // 6. حذف أي ملفات WAL أو SHM قديمة متبقية
-  if (fs.existsSync(walPath)) {
-    try { fs.unlinkSync(walPath); } catch {}
-  }
-  if (fs.existsSync(shmPath)) {
-    try { fs.unlinkSync(shmPath); } catch {}
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+      break;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
   }
 
-  // 7. إعادة تفعيل نمط WAL الفائق السرعة على قاعدة البيانات الجديدة
+  // 7. إعادة الاتصال بقاعدة البيانات وتفعيل نمط WAL الفائق السرعة
   try {
+    await db.$connect();
     await db.$queryRawUnsafe("PRAGMA journal_mode = WAL;");
     await db.$queryRawUnsafe("PRAGMA busy_timeout = 8000;");
   } catch (e) {
