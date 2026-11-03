@@ -129,7 +129,7 @@ export function ChargesPanel({ subscribers: initialSubs }: ChargesPanelProps) {
 
   // Worker totals
   const getWorkerTotal = (workerId: string) => {
-    return payments.filter((p) => p.category === "salary" && p.userId === workerId).reduce((s, p) => s + p.amount, 0);
+    return payments.filter((p) => p.category === "salary" && p.user?.id === workerId).reduce((s, p) => s + p.amount, 0);
   };
 
   // Worker work hours + dues
@@ -365,7 +365,7 @@ export function ChargesPanel({ subscribers: initialSubs }: ChargesPanelProps) {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-60 overflow-y-auto mb-4 pr-1 -mr-1">
               {filteredSubs.slice(0, 30).map((s) => {
                 const isSelected = selectedSubIds.includes(s.id);
-                const isInsured = payments.some((p) => p.category === "insurance" && p.subscriberId === s.id);
+                const isInsured = payments.some((p) => p.category === "insurance" && p.subscriber?.id === s.id);
                 return (
                   <button
                     key={s.id}
@@ -442,7 +442,7 @@ export function ChargesPanel({ subscribers: initialSubs }: ChargesPanelProps) {
                 {workers.map((w, i) => {
                   const wh = getWorkerHours(w.id);
                   const totalPaid = wh.paid;
-                  const workerPayments = payments.filter((p) => p.category === "salary" && p.userId === w.id);
+                  const workerPayments = payments.filter((p) => p.category === "salary" && p.user?.id === w.id);
                   return (
                     <motion.div
                       key={w.id}
