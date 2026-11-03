@@ -5,6 +5,7 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { NextResponse } from "next/server";
+import { resolveSqliteDbPath } from "@/lib/db-path";
 
 export interface BackupDataPayload {
   version?: string;
@@ -24,10 +25,8 @@ export async function restoreSqliteBuffer(
   filename: string,
   currentUser: SessionUser
 ): Promise<NextResponse> {
-  const prismaDir = path.join(process.cwd(), "prisma");
-  const dbPath = path.join(prismaDir, "dev.db");
-  const walPath = path.join(prismaDir, "dev.db-wal");
-  const shmPath = path.join(prismaDir, "dev.db-shm");
+  // ★ المسار يُستخرج من DATABASE_URL مباشرة (إصلاح فشل الاستعادة في مسارات غير prisma/dev.db)
+  const dbPath = resolveSqliteDbPath();
 
   // 1. فحص ذكي: هل الملف نصي JSON تم حفظه بامتداد .db بالخطأ؟
   const SQLITE_HEADER = Buffer.from("SQLite format 3\0");
@@ -52,6 +51,16 @@ export async function restoreSqliteBuffer(
     );
   }
 
+  // استعادة ملف .db الخام متاحة فقط عندما يكون محرك القاعدة SQLite (محلي) — وليس PostgreSQL (سحابي)
+  if (!dbPath) {
+    return NextResponse.json(
+      { error: "استعادة ملف .db متاحة فقط على الخادم المحلي (SQLite). على الخادم السحابي (PostgreSQL) استخدم استعادة ملف JSON بدلاً منه." },
+      { status: 501 }
+    );
+  }
+  const walPath = `${dbPath}-wal`;
+  const shmPath = `${dbPath}-shm`;
+
   // 2. حفظ جلسات المستخدمين النشطة في الذاكرة لتفادي طرد المستخدم الحالي
   let activeSessions: Array<{ id: string; userId: string; data: string; expiresAt: Date }> = [];
   try {
@@ -72,7 +81,7 @@ export async function restoreSqliteBuffer(
   if (fs.existsSync(dbPath)) {
     try {
       const backupFilename = `dev.db.before-restore-${Date.now()}.bak`;
-      fs.copyFileSync(dbPath, path.join(prismaDir, backupFilename));
+      fs.copyFileSync(dbPath, path.join(path.dirname(dbPath), backupFilename));
     } catch (e) {
       console.warn("[restoreSqliteBuffer] Backup copy warning:", e);
     }

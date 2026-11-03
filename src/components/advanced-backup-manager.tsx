@@ -142,7 +142,15 @@ export function AdvancedBackupManager() {
     setExportingDb(true);
     try {
       const res = await fetch("/api/backup?format=sqlite");
-      if (!res.ok) throw new Error("فشل");
+      if (!res.ok) {
+        // ★ إظهار رسالة الخادم الفعلية (مثل: غير متاح على PostgreSQL السحابي)
+        let msg = "فشل تصدير قاعدة البيانات";
+        try {
+          const j = await res.json();
+          if (j?.error) msg = j.error;
+        } catch {}
+        throw new Error(msg);
+      }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -151,8 +159,8 @@ export function AdvancedBackupManager() {
       a.click();
       URL.revokeObjectURL(url);
       toast.success("تم تصدير النسخة الشاملة (.db) بنجاح 100% — تشمل كافة الجداول والصور");
-    } catch {
-      toast.error("فشل تصدير قاعدة البيانات");
+    } catch (e: any) {
+      toast.error(e?.message || "فشل تصدير قاعدة البيانات");
     } finally {
       setExportingDb(false);
     }
@@ -163,7 +171,14 @@ export function AdvancedBackupManager() {
     setExportingJson(true);
     try {
       const res = await fetch("/api/backup");
-      if (!res.ok) throw new Error("فشل");
+      if (!res.ok) {
+        let msg = "فشل التصدير";
+        try {
+          const j = await res.json();
+          if (j?.error) msg = j.error;
+        } catch {}
+        throw new Error(msg);
+      }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -172,8 +187,8 @@ export function AdvancedBackupManager() {
       a.click();
       URL.revokeObjectURL(url);
       toast.success("تم تصدير ملف البيانات المنظم (.json) بنجاح");
-    } catch {
-      toast.error("فشل التصدير");
+    } catch (e: any) {
+      toast.error(e?.message || "فشل التصدير");
     } finally {
       setExportingJson(false);
     }

@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { restoreSqliteBuffer, restoreJsonData } from "@/lib/backup-restore";
+import { resolveSqliteDbPath } from "@/lib/db-path";
 import fs from "fs";
-import path from "path";
 
 export const dynamic = "force-dynamic";
 
@@ -22,10 +22,17 @@ export async function GET(req: NextRequest) {
 
     // أ) تصدير ملف SQLite المباشر (.db) — لقطة طبق الأصل 100% مع تفريغ الـ WAL
     if (format === "sqlite" || format === "db") {
-      const dbPath = path.join(process.cwd(), "prisma", "dev.db");
+      // ★ المسار يُستخرج من DATABASE_URL مباشرة (إصلاح فشل تصدير قاعدة البيانات)
+      const dbPath = resolveSqliteDbPath();
+      if (!dbPath) {
+        return NextResponse.json(
+          { error: "تصدير ملف .db متاح فقط على الخادم المحلي (SQLite). على الخادم السحابي (PostgreSQL) استخدم تصدير JSON الشامل بدلاً منه." },
+          { status: 501 }
+        );
+      }
       if (!fs.existsSync(dbPath)) {
         return NextResponse.json(
-          { error: "ملف قاعدة بيانات SQLite غير متوفر حالياً على الخادم" },
+          { error: `ملف قاعدة بيانات SQLite غير متوفر حالياً على الخادم (${dbPath})` },
           { status: 404 }
         );
       }

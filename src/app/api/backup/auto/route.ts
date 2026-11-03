@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { resolveSqliteDbPath } from "@/lib/db-path";
 import fs from "fs";
 import path from "path";
 
@@ -194,8 +195,8 @@ export async function PUT(req: NextRequest) {
       fs.mkdirSync(targetDir, { recursive: true });
     }
 
-    // مسار قاعدة بيانات SQLite
-    const devDbPath = path.join(process.cwd(), "prisma", "dev.db");
+    // مسار قاعدة بيانات SQLite — يُستخرج من DATABASE_URL (إصلاح المسار الثابت الخاطئ)
+    const devDbPath = resolveSqliteDbPath() ?? path.join(process.cwd(), "prisma", "dev.db");
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const filename = `aquacore-auto-backup-${timestamp}.db`;
     const destPath = path.join(targetDir, filename);
@@ -212,7 +213,7 @@ export async function PUT(req: NextRequest) {
       fs.copyFileSync(devDbPath, destPath);
       savedSize = fs.statSync(destPath).size;
     } else {
-      // احتياط: تصدير JSON إن لم يكن dev.db في المسار الافتراضي
+      // احتياط: تصدير JSON إن لم يكن ملف SQLite متوفراً (مثل PostgreSQL على السحابة)
       const jsonFilename = `aquacore-auto-backup-${timestamp}.json`;
       const jsonDestPath = path.join(targetDir, jsonFilename);
       const [subscribers, settings, attendances, payments] = await Promise.all([

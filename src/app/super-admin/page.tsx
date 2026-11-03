@@ -1996,7 +1996,7 @@ function SuperAdminContent() {
                 onChange={(e) => setProfile({ ...profile, email: e.target.value })}
                 className="h-10 bg-slate-800/90 border-slate-700 text-xs text-slate-100 font-mono rounded-xl focus:border-teal-500"
                 dir="ltr"
-                placeholder="admin@rcs.dz"
+                placeholder="manager@club.dz"
               />
               <p className="text-[10px] text-slate-400">
                 يُستخدم للدخول إلى لوحة التحكم واستعادة الحساب وتلقي الإشعارات.
