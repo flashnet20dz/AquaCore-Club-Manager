@@ -1334,3 +1334,32 @@ Stage Summary:
 - ✅ Vercel ينشر بنجاح مجدداً (088f084) — سلسلة الفشل المنذ 94e589c انتهت
 - ✅ الدرس: عند تشخيص فشل Vercel استخدم شجرة عمل معزولة على التزام البعيد المحدد مع إعادة توليد Prisma Client من مخططه هو — عميل محلي قديم يعطي أخطاء وهمية
 - ✅ المحلي متزامن تماماً مع البعيد (نماذج جديدة + حقل idIssueDate) والبناء المحلي نظيف
+
+---
+
+## Task: إصلاح «فشل تصدير قاعدة البيانات» + دمج موجة الميزات الجديدة (1f6455c)
+
+**Date:** 2026-11-04 | **Status:** ✅ مكتمل وموثق
+
+### المشكلة
+- المستخدم: «فشل تصدير قاعدة البيانات» عند الضغط على «تنزيل النسخة الاحتياطية الشاملة الآن (.db)» في مركز النسخ الموحد.
+- الجذر: `api/backup/route.ts` + `api/backup/auto/route.ts` + `lib/backup-restore.ts` كانت تبحث عن `prisma/dev.db` (غير موجود) بينما القاعدة الفعلية `db/custom.db` حسب `DATABASE_URL=file:...` ← 404 ← رسالة فشل عامة.
+
+### الحل
+- **`src/lib/db-path.ts` (جديد):** `resolveSqliteDbPath()` يقرأ المسار من `DATABASE_URL` (مطلق/نسبي/مع معاملات) ويعيد null إذا لم يكن SQLite (سحابي PostgreSQL).
+- **التصدير:** المسار الصحيح محلياً؛ وعلى السحابة رسالة 501 عربية واضحة ترشد لتصدير JSON.
+- **الاستعادة (.db):** تعمل محلياً فقط مع نفس المنطق؛ ملفات WAL/SHM تُشتق من المسار الفعلي.
+- **الواجهة:** toast يعرض رسالة الخادم الحقيقية بدل «فشل» مجهولة.
+- تنظيف placeholder `admin@rcs.dz` بقايا دمج في super-admin.
+
+### الدمج (مهم)
+- **origin/main تقدّر مستقلاً** (8d9af01): إصلاح بناء Vercel (crypto في backup-restore)، تطبيق هاتف، CI سطح مكتب، إعادة تصميم SuperAdmin وlogin، مركز النسخ الموحد.
+- دمج كامل مع حل تعارضات (backup-restore: نسخة remote الأقوى مع disconnect/retry لـ EBUSY؛ page.tsx: ProfessionalFooter؛ subscription-gate/backup-manager/restore-dialog: نسخ remote الجديدة).
+- **تنظيف المستودع:** حذف 903 ملف `skills/` أدوات لا علاقة لها بالتطبيق (~190 ألف سطر) + توحيد الأذونات + إلغاء تتبع `.zscripts/dev.pid`.
+- schema المدموج == المحلي (لا تغيير)؛ skip-worktree أعيد بعد الجراحة؛ `.env` أعيد بناؤه (كان محذوفاً: DIRECT_URL/ADMIN_*/SEED_DEFAULT_ADMIN).
+- `db push` أصل不同 مزامنة القاعدة المحلية (كانت أعمدة User.clubId وجدول Session مفقودة ← login 500).
+
+### التحقق
+- curl: login 200 + `.db` 200 (application/x-sqlite3، ~1MB، توقيع SQLite format 3) + JSON 200 + استعادة نفس الملف 200.
+- متصفح فعلي: صفحة `#backup` مصادقة وتعمل، زر «تنزيل النسخة الاحتياطية الشاملة الآن (.db)» ← `GET /api/backup?format=sqlite` ← **200**.
+- ملاحظة: OOM في بيئة الـ sandbox (4GB) يقتل dev server عند تجميعات متكررة — قيد بيئة التطوير فقط، ليس عيباً في الكود.
