@@ -1591,3 +1591,23 @@ Stage Summary:
 ### ملاحظات
 - تسجيل دخول الإنتاج: لا يوجد ADMIN_EMAIL/ADMIN_PASSWORD في env الإنتاج؛ الحسابات الحقيقية: flashnet20dz@gmail.com (superadmin)، rcssaida@gmail.com (admin) — كلمات المرور لدى المستخدم فقط.
 - ملاحظة جودة: `scripts/migrate-subscribers-to-pools.ts` يتوقف بصمت أحياناً بعد «Found N subscribers» (تعلّق اتصال pgbouncer محتمل) — الحالة النهائية تحققت SQL مباشرة.
+
+## 2026-11-10 — لماذا «يفشل» النسخ الاحتياطي السحابي؟ — إصلاح جذري: تصدير مجزأ متدفق (9c8f7dc)
+
+### التشخيص (سؤال المستخدم + لقطة الشاشة)
+- زر «النسخة الشاملة (.db)» على Vercel يفشل **بالتصميم**: لا يوجد ملف SQLite على PostgreSQL (501 مقصود).
+- الفجوة الحقيقية: JSON الكامل ~87MB (الصور Base64 وحدها 72MB) يتجاوز حدود استجابة serverless المفردة — فلا يوجد أي مسار نسخة شاملة فعّال على السحابة.
+
+### الحل (3 ملفات)
+1. **GET /api/backup?format=master&part=data** — كل الجداول + صور خفيفة (بدون Base64) + masterMeta {photoCount, photoTake=5, photoParts}.
+2. **GET /api/backup?format=master&part=photos&index=N** — دفعات 5 صور كاملة (original/cropped/thumbnail) عبر ReadableStream (دفعة ~10MB نجحت في 3s على الإنتاج).
+3. **buildJsonBackup()** مشترك بين JSON الكامل والمسار المجزأ — بنية النسخة النهائية مطابقة تماماً لمتوقع restoreJsonData (استعادة دون أي تعديل).
+4. **auto GET**: يكشف engine (sqlite/postgresql) + حماية حسابات بلا clubId.
+5. **الواجهة**: الزر الشامل سحابياً يجمع الدفعات في ملف JSON واحد مع شريط تقدم وحالة أزرار تكييفية + fallback تلقائي عند 501؛ زر JSON سحابياً يُحوَّل للمسار المجزأ.
+
+### التحقق
+- محلياً (SQLite): engine=sqlite، part=data (صور خفيفة بلا original)، part=photos (كاملة)، .db سليم (SQLite format 3) ✓.
+- إنتاجياً (9c8f7dc READY): engine=postgresql، part=data = 18MB/6.2s (382 منخرطاً و904 دفعات و42 صورة)، 9 دفعات صور (~74MB إجمالاً) ✓ — جلسة تحقق مؤقتة أُنشئت ثم **حُذفت**.
+
+### ملاحظة معروفة
+- جداول multi-pool (Pool/PoolEnrollment/MembershipCard/...) ليست ضمن ملف التصدير بعد — الاستعادة تعيد بناءها تلقائياً عبر backfill وقت التشغيل؛ إضافتها للتصدير تحسين لاحق.
