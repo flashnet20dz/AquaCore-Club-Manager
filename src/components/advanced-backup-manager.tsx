@@ -203,7 +203,14 @@ export function AdvancedBackupManager() {
         const res = await fetch(`/api/backup?format=master&part=photos&index=${i}`);
         if (!res.ok) throw new Error(`فشل جلب دفعة الصور رقم ${i + 1}`);
         const chunk = await res.json();
-        if (Array.isArray(chunk?.photos)) backup.data.subscriberPhotos.push(...chunk.photos);
+        if (Array.isArray(chunk?.photos)) {
+          // ★ استبدل النسخ الخفيفة (بدون Base64) القادمة مع part=data بالنسخ الكاملة
+          const fullIds = new Set(chunk.photos.map((p: { id: string }) => p.id));
+          backup.data.subscriberPhotos = backup.data.subscriberPhotos.filter(
+            (p: { id: string }) => !fullIds.has(p.id),
+          );
+          backup.data.subscriberPhotos.push(...chunk.photos);
+        }
       }
       setMasterProgress({ done: parts, total: parts, label: "تجميع الملف النهائي وتنزيله..." });
 
