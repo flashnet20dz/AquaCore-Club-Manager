@@ -87,6 +87,14 @@ model Club {
   wagePayments          WagePayment[]                  // تسديدات أجور العمال
   wageReceipts          WageReceipt[]                  // وصولات استلام المستحقات المالية
   incomingMails         IncomingMail[]                 // سجل المراسلات والوثائق الواردة
+  // ★ Multi-Pool Enterprise Architecture
+  pools                 Pool[]
+  poolEnrollments       PoolEnrollment[]
+  poolCounters          PoolNumberCounter[]
+  membershipCards       MembershipCard[]
+  fileNumberHistories   FileNumberHistory[]
+  subscriberTransfers   SubscriberTransfer[]
+  poolEnrollmentRenewals PoolEnrollmentRenewal[]
 }
 
 // Club subscription (اشتراك النادي)
@@ -199,23 +207,38 @@ model Subscriber {
   id              String   @id @default(cuid())
   clubId          String
   club            Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  fileNumber      String                                // RCS 001
+
+  // ══════════════════════════════════════════════════════════════════════
+  // ★ الحقول القديمة للتوافق المعماري (Legacy Backward-Compatibility Fields)
+  // ──────────────────────────────────────────────────────────────────────
+  // قاعدة هندسية ملزمة:
+  // هذه الحقول تمثل حصرياً انخراط الشخص في "المسبح الافتراضي" (Default Pool) للنادي،
+  // ولا تُحدث عشوائياً من مسابح ثانوية.
+  // المرجع التشغيلي الأساسي والوحيد لكل انخراط تشغيلي هو نموذج PoolEnrollment.
+  // ══════════════════════════════════════════════════════════════════════
+  fileNumber      String                                // رقم الملف في المسبح الافتراضي (RCS 001)
   lastName        String
   firstName       String
   birthDate       DateTime
   gender          String                                // ذكر/أنثى
   bloodType       String?
-  subscriptionType String
-  lastPaymentDate DateTime?
-  paymentStatus   String
-  swimmingDays    String?
-  timeSlot        String?
+  subscriptionType String                               // نوع الاشتراك في المسبح الافتراضي
+  lastPaymentDate DateTime?                             // تاريخ آخر دفع في المسبح الافتراضي
+  paymentStatus   String                                // حالة الدفع في المسبح الافتراضي
+  swimmingDays    String?                               // أيام السباحة في المسبح الافتراضي
+  timeSlot        String?                               // الحصة/التوقيت في المسبح الافتراضي
   phone           String?
   photoPath       String?                             // مسار الصورة الشخصية (uploads/subscribers/uuid.jpg)
   photoThumb      String?                             // مسار النسخة المصغّرة (300x300)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   deletedAt       DateTime?                             // حذف ناعم — يبقى محفوظاً للمزامنة
+
+  // ★ رابط المسبح الافتراضي للتوافق المعماري (Strict Default Pool Mirror)
+  // قاعدة معمارية قطعية: Subscriber.poolId يمثل حصرياً المسبح الافتراضي (Default Pool) للنادي (isDefault = true).
+  // لا يمثل أول مسبح أو آخر مسبح أو أي مسبح ثانوي. إذا لم ينخرط الشخص في المسبح الافتراضي، يكون NULL.
+  poolId          String?
+  pool            Pool?    @relation(fields: [poolId], references: [id], onDelete: SetNull)
 
   renewals        Renewal[]
   attendances     Attendance[]
@@ -224,9 +247,15 @@ model Subscriber {
   compensations   Compensation[]
   contracts       SubscriberContract[]
   photo           SubscriberPhoto?
+  enrollments     PoolEnrollment[]
+  cards           MembershipCard[]
+  fileNumberHistories FileNumberHistory[]
+  transfers       SubscriberTransfer[]
+  poolEnrollmentRenewals PoolEnrollmentRenewal[]
 
   @@unique([clubId, fileNumber])
   @@index([clubId])
+  @@index([clubId, poolId])
   @@index([clubId, fileNumber])
   @@index([clubId, createdAt])
   @@index([clubId, lastPaymentDate])
@@ -270,10 +299,18 @@ model Attendance {
   isCompensation  Boolean  @default(false)          // هل هذا حضور لحصة تعويضية؟
   createdAt       DateTime @default(now())
 
+  // ★ Multi-Pool Architecture
+  poolId          String?
+  pool            Pool?    @relation(fields: [poolId], references: [id], onDelete: SetNull)
+  enrollmentId    String?
+  enrollment      PoolEnrollment? @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+
   compensation    Compensation?
 
   @@unique([clubId, subscriberId, date])
   @@index([clubId, date])
+  @@index([clubId, poolId, date])
+  @@index([clubId, enrollmentId])
 }
 
 model User {
@@ -513,6 +550,9 @@ model SwimmingTimeSlot {
   sortOrder       Int      @default(0)
   // ★ ربط الحصة بيوم من أيام الأسبوع (sun|mon|tue|wed|thu|fri|sat) — null = تظهر في كل الأيام
   dayOfWeek       String?
+  // ★ ربط الحصة بمسبح محدد (null = حصة عامة لكل مسابح النادي)
+  poolId          String?
+  pool            Pool?    @relation(fields: [poolId], references: [id], onDelete: Cascade)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -521,8 +561,9 @@ model SwimmingTimeSlot {
   // ★ المرحلة 5: ساعات العمل المسجّلة على هذه الحصة (ربط اختياري — لقطة نصية في note)
   workHours        WorkHours[]
 
-  @@unique([clubId, name])
+  @@unique([clubId, poolId, name])
   @@index([clubId])
+  @@index([clubId, poolId])
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -715,6 +756,10 @@ model PoolClosure {
   registeredOnOrAfter      DateTime?
   registeredOnOrBefore     DateTime?
 
+  // ★ Multi-Pool Architecture (null = كل المسابح)
+  poolId                   String?
+  pool                     Pool?    @relation(fields: [poolId], references: [id], onDelete: Cascade)
+
   createdById     String?
   createdAt       DateTime @default(now())
 
@@ -722,6 +767,7 @@ model PoolClosure {
   history         CompensationHistory[]
 
   @@index([clubId, date])
+  @@index([clubId, poolId])
   @@index([clubId, startDate, endDate])
 }
 
@@ -762,6 +808,12 @@ model Compensation {
   attendanceId          String?  @unique            // ربط بسجل الحضور عند الاستخدام
   attendance             Attendance? @relation(fields: [attendanceId], references: [id], onDelete: SetNull)
 
+  // ★ Multi-Pool Architecture
+  poolId                String?
+  pool                  Pool?    @relation(fields: [poolId], references: [id], onDelete: SetNull)
+  enrollmentId          String?
+  enrollment            PoolEnrollment? @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+
   note                  String?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
@@ -770,6 +822,8 @@ model Compensation {
 
   @@index([clubId, status])
   @@index([clubId, subscriberId])
+  @@index([clubId, poolId])
+  @@index([enrollmentId])
   @@index([closureId])
   @@index([expiryDate])
 }
@@ -848,6 +902,10 @@ model Waitlist {
   status            String   @default("waiting")   // waiting | notified | converted | cancelled
   note              String?
 
+  // ★ Multi-Pool Architecture
+  poolId            String?
+  pool              Pool?    @relation(fields: [poolId], references: [id], onDelete: Cascade)
+
   convertedSubscriberId String?                      // إذا تحوّل لمشترك فعلي
 
   notifiedAt        DateTime?
@@ -856,6 +914,7 @@ model Waitlist {
   updatedAt         DateTime @updatedAt
 
   @@index([clubId, status])
+  @@index([clubId, poolId])
   @@index([clubId, desiredSwimmingDays, desiredTimeSlot])
 }
 
@@ -1121,7 +1180,10 @@ model CardTemplate {
   id              String   @id @default(cuid())
   clubId          String?
   club            Club?    @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  name            String   @unique
+  // ★ Multi-Pool Architecture (null = قالب عام للنادي)
+  poolId          String?
+  pool            Pool?    @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  name            String
   description     String?
   cardSize        String   @default("CR80")    // CR80 | A7 | A6 | custom
   orientation     String   @default("landscape") // landscape | portrait
@@ -1137,7 +1199,9 @@ model CardTemplate {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  @@unique([clubId, poolId, name])
   @@index([clubId])
+  @@index([clubId, poolId])
   @@index([isShared])
   @@index([isDefault])
 }
@@ -1260,6 +1324,11 @@ model FinancialTransaction {
   employeeId      String?  // للمصاريف: أجر عامل مرتبط
   staffCompensationId String? // ربط بتعويض عامل موجود
   closureId       String?  // ربط بإغلاق (لحقوق المركب)
+  // ★ Multi-Pool Architecture (null = عملية عامة على مستوى النادي)
+  poolId          String?
+  pool            Pool?    @relation(fields: [poolId], references: [id], onDelete: SetNull)
+  enrollmentId    String?
+  enrollment      PoolEnrollment? @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
 
   // مرجع مالي (رقم الإيصال، رقم الشيك، رقم التحويل)
   reference       String?
@@ -1289,6 +1358,7 @@ model FinancialTransaction {
   wagePayment     WagePayment?
 
   @@unique([clubId, seq])
+  @@index([clubId, poolId])
   @@index([clubId, type, category])
   @@index([clubId, date])
   @@index([clubId, payeeName])
@@ -1465,5 +1535,238 @@ model IncomingMail {
   @@index([clubId, status])
   @@index([clubId, sender])
   @@index([clubId, documentType])
+}
+
+// ═══════════════════════════════════════════════════════════
+// MULTI-POOL ENTERPRISE ARCHITECTURE
+// ═══════════════════════════════════════════════════════════
+
+// 1. Pool (المنشأة المائية التشغيلية التابعة للنادي)
+model Pool {
+  id                String    @id @default(cuid())
+  clubId            String
+  club              Club      @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  name              String                            // اسم المسبح (المسبح الرئيسي، مسبح ب، ...)
+  code              String                            // رمز المسبح (MAIN, POOL-B, P1)
+  fileNumberPrefix  String?                           // بادئة الترقيم (فارغة للمسبح الافتراضي فقط؛ إلزامية للمسابح غير الافتراضية، 1-4 أحرف وأرقام، فريدة بالنادي)
+  isDefault         Boolean   @default(false)         // هل هو المسبح الافتراضي للنادي؟
+  active            Boolean   @default(true)          // نشط / معطل
+  status            String    @default("active")      // active | maintenance | closed | archived
+  capacity          Int       @default(100)           // الطاقة الاستيعابية القصوى
+  color             String?   @default("#0284c7")     // لون المسبح المميز في الواجهة
+  lanesCount        Int?                              // عدد الأروقة
+  lengthMeters      Float?                            // طول الحوض بالمتر
+  address           String?
+  phone             String?
+  description       String?
+
+  // أرشفة ناعمة — لا حذف لمسبح عليه بيانات تاريخية
+  archivedAt        DateTime?
+  archivedById      String?
+  archiveReason     String?
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // العلاقات
+  subscribers       Subscriber[]
+  enrollments       PoolEnrollment[]
+  attendances       Attendance[]
+  swimmingTimeSlots SwimmingTimeSlot[]
+  poolClosures      PoolClosure[]
+  waitlists         Waitlist[]
+  cardTemplates     CardTemplate[]
+  financialTransactions FinancialTransaction[]
+  counters          PoolNumberCounter[]
+  transfersFrom     SubscriberTransfer[] @relation("TransferSourcePool")
+  transfersTo       SubscriberTransfer[] @relation("TransferTargetPool")
+  membershipCards   MembershipCard[]
+  compensations     Compensation[]
+  fileNumberHistories FileNumberHistory[]
+  enrollmentRenewals PoolEnrollmentRenewal[]
+
+  @@unique([clubId, code])
+  @@index([clubId])
+  @@index([clubId, active])
+  @@index([clubId, isDefault])
+}
+
+// 2. PoolEnrollment (انخراط المشترك في مسبح تشغيلي محدد)
+model PoolEnrollment {
+  id                String    @id @default(cuid())
+  clubId            String
+  club              Club      @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  poolId            String
+  pool              Pool      @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  subscriberId      String
+  subscriber        Subscriber @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
+
+  // الترقيم والاشتراك الخاص بهذا المسبح
+  fileNumber        String                            // رقم الملف الخاص بهذا المسبح (RCS001 أو B-RCS001)
+  status            String    @default("active")      // active | expired | frozen | cancelled | archived
+  subscriptionType  String                            // نوع الاشتراك المعتمد في هذا المسبح
+  startDate         DateTime  @default(now())
+  expiryDate        DateTime?
+  lastPaymentDate   DateTime?
+  paymentStatus     String                            // مدفوع / لم يدفع / تأمين فقط / اشتراك 300 / معفى
+  isExempt          Boolean   @default(false)
+  swimmingDays      String?                           // أيام السباحة لهذا المسبح
+  timeSlot          String?                           // الحصة/التوقيت في هذا المسبح
+  notes             String?
+
+  // تجديد وتاريخ الانخراط (الحفاظ على السجل التاريخي دون فقدان)
+  renewedAt         DateTime?                         // تاريخ آخر تجديد لهذا الانخراط
+  renewalCount      Int       @default(0)             // عدد مرات التجديد
+  previousExpiryDate DateTime?                        // تاريخ الانتهاء قبل آخر تجديد
+
+  // الأرشفة والتدقيق
+  archivedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // العلاقات
+  attendances       Attendance[]
+  cards             MembershipCard[]
+  compensations     Compensation[]
+  financialTransactions FinancialTransaction[]
+  transfersSource   SubscriberTransfer[] @relation("TransferSourceEnrollment")
+  transfersTarget   SubscriberTransfer[] @relation("TransferTargetEnrollment")
+  fileNumberHistories FileNumberHistory[]
+  renewals          PoolEnrollmentRenewal[]
+
+  @@unique([clubId, poolId, fileNumber])
+  @@index([clubId, poolId, subscriberId])          // فهرس سريع لاسترجاع انخراطات الشخص في المسبح
+  @@index([clubId, poolId, subscriberId, status])  // فحص الانخراط النشط (الفريد مدعوم بـ partial index على active)
+  @@index([clubId, poolId])
+  @@index([subscriberId])
+  @@index([clubId, fileNumber])
+  @@index([status])
+}
+
+// 2.1. PoolEnrollmentRenewal (سجل التدقيق التاريخي الكامل لعمليات التجديد)
+model PoolEnrollmentRenewal {
+  id                 String    @id @default(cuid())
+  clubId             String
+  club               Club      @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  poolId             String
+  pool               Pool      @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  subscriberId       String
+  subscriber         Subscriber @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
+  enrollmentId       String
+  enrollment         PoolEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  // تفاصيل التجديد والتواريخ
+  previousExpiryDate DateTime?                        // تاريخ الانتهاء السابق قبل التجديد
+  newExpiryDate      DateTime                         // تاريخ الانتهاء الجديد بعد التجديد
+  renewedAt          DateTime  @default(now())        // تاريخ ووقت تنفيذ التجديد
+  renewedById        String?                          // معرف الموظف/المسؤول الذي قام بالتجديد
+  subscriptionType   String?                          // نوع الاشتراك المعتمد في هذا التجديد
+  months             Int       @default(1)            // عدد الأشهر المجددة
+  amount             Int?                             // المبلغ المقبوض مقابل التجديد
+  paymentMethod      String?                          // طريقة الدفع (نقداً / بطاقة / تحويل)
+  transactionId      String?                          // ربط اختياري بسجل المعاملة المالية
+  notes              String?                          // ملاحظات على التجديد
+
+  createdAt          DateTime  @default(now())
+
+  @@index([clubId, enrollmentId])
+  @@index([clubId, poolId])
+  @@index([clubId, subscriberId])
+  @@index([renewedAt])
+}
+
+// 3. PoolNumberCounter (العداد الذري للترقيم لكل مسبح ومجموعة)
+model PoolNumberCounter {
+  id                String    @id @default(cuid())
+  clubId            String
+  club              Club      @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  poolId            String
+  pool              Pool      @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  numberingGroup    String                            // مجموعة الترقيم (RCS, M, X, إلخ)
+  lastValue         Int       @default(0)             // آخر رقم متسلسل تم توليده
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([clubId, poolId, numberingGroup])
+  @@index([clubId, poolId])
+}
+
+// 4. MembershipCard (بطاقات العضوية والتحقق الآمن من QR)
+model MembershipCard {
+  id                String    @id @default(cuid())
+  clubId            String
+  club              Club      @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  poolId            String
+  pool              Pool      @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  subscriberId      String
+  subscriber        Subscriber @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
+  enrollmentId      String
+  enrollment        PoolEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  templateId        String?
+  
+  cardUid           String    @unique                 // معرّف عشوائي آمن ومشفّر (Cryptographic Token) لـ QR
+  cardNumber        String?                           // رقم البطاقة المطبوع للعرض
+  status            String    @default("active")      // active | revoked | expired | replaced
+  issueDate         DateTime  @default(now())
+  expiryDate        DateTime?
+  printedAt         DateTime?
+  revokedAt         DateTime?
+  revokedReason     String?
+  revokedById       String?
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([clubId, poolId])
+  @@index([enrollmentId])
+  @@index([subscriberId])
+  @@index([cardUid])
+}
+
+// 5. FileNumberHistory (سجل تدقيق تغييرات أرقام الملفات)
+model FileNumberHistory {
+  id                String    @id @default(cuid())
+  clubId            String
+  club              Club      @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  subscriberId      String
+  subscriber        Subscriber @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
+  enrollmentId      String?
+  enrollment        PoolEnrollment? @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+  poolId            String
+  pool              Pool      @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  oldFileNumber     String
+  newFileNumber     String
+  reason            String?
+  changedById       String?
+  createdAt         DateTime  @default(now())
+
+  @@index([clubId, subscriberId])
+  @@index([clubId, poolId])
+}
+
+// 6. SubscriberTransfer (سجل انتقالات المنخرطين بين المسابح)
+model SubscriberTransfer {
+  id                    String    @id @default(cuid())
+  clubId                String
+  club                  Club      @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  subscriberId          String
+  subscriber            Subscriber @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
+  sourcePoolId          String
+  sourcePool            Pool      @relation("TransferSourcePool", fields: [sourcePoolId], references: [id], onDelete: Cascade)
+  targetPoolId          String
+  targetPool            Pool      @relation("TransferTargetPool", fields: [targetPoolId], references: [id], onDelete: Cascade)
+  sourceEnrollmentId    String?
+  sourceEnrollment      PoolEnrollment? @relation("TransferSourceEnrollment", fields: [sourceEnrollmentId], references: [id], onDelete: SetNull)
+  targetEnrollmentId    String?
+  targetEnrollment      PoolEnrollment? @relation("TransferTargetEnrollment", fields: [targetEnrollmentId], references: [id], onDelete: SetNull)
+  transferFileNumber    Boolean   @default(false)
+  oldFileNumber         String
+  newFileNumber         String
+  reason                String?
+  transferredById       String?
+  createdAt             DateTime  @default(now())
+
+  @@index([clubId, subscriberId])
 }
 

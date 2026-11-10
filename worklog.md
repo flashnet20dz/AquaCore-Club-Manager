@@ -1,4 +1,200 @@
 ---
+Task ID: multi-pool-phase-5
+Agent: Antigravity
+Task: تنفيذ المرحلة الخامسة — ترحيل البيانات القديمة والفحص الشامل للقبول النهائي (Phase 5: Data Migration & Final Acceptance)
+Work Log:
+- تم تنفيذ ترحيل البيانات التكراري الآمن (Idempotent Data Backfill) عبر `scripts/migrate-subscribers-to-pools.ts`:
+  1. إنشاء وضمان المسبح الافتراضي (Default Pool) لكل نادٍ مسجل مع بادئة فارغة حصراً.
+  2. فحص وترحيل جميع المنخرطين الحاليين في قاعدة البيانات:
+     - إنشاء انخراط تشغيلي نشط `PoolEnrollment` في المسبح الافتراضي لكل مشترك لا يملك انخراطاً، مع نقل رقم الملف، نوع الاشتراك، الصلاحية، وحالة الدفع.
+     - توليد وتعيين بطاقة عضوية `MembershipCard` برمز تشفيري فريد `AQCR-HEX32` لكل انخراط.
+     - ترحيل وتوثيق السجل التاريخي الكامل للتجديدات القديمة (`Renewal`) إلى نموذج `PoolEnrollmentRenewal`.
+     - تثبيت حقل `Subscriber.poolId` ليرتبط حصرياً بمعرّف المسبح الافتراضي.
+  3. مزامنة وضبط عدادات الترقيم `PoolNumberCounter` وفق أعلى رقم تسلسلي موجود، لضمان عدم حدوث أي تصادم أو فجوات ترقيم لاحقة.
+  4. التحقق من خاصية التكرارية الآمنة (Idempotency): إعادة تشغيل السكربت عدة مرات تضمن عدم تكرار أي سجلات أو إحداث أي أخطاء.
+- بناء وتشغيل حزمة اختبارات القبول الشاملة E2E (`scripts/verify-phase5-e2e.ts`):
+  - تغطية 15 سيناريو تكاملي دقيق يشمل:
+    1. المسبح الافتراضي وثبات خصائصه وبادئته الفارغة.
+    2. القواعد المعمارية لبادئات المسابح (A-Z0-9 فقط، 1-4 محارف).
+    3. إنشاء المسابح الفرعية مع السعة والأروقة.
+    4. منع تكرار بادئات المسابح داخل النادي.
+    5. الترقيم التسلسلي الذري المستقل لكل مسبح.
+    6. هوية المنخرط الموحدة عبر النادي.
+    7. الانخراط المتزامن للشخص نفسه في مسبحين مختلفين ببطاقتين مشفرتين مستقلتين.
+    8. قاعدة ثبات مرآة المسبح الافتراضي في `Subscriber.poolId`.
+    9. منع تكرار الانخراط النشط للشخص نفسه داخل المسبح الواحد.
+    10. مسح رمز QR الآمن عبر `cardUid` بدون أي التباس.
+    11. رصد وحظر مسح أرقام الملفات المشتركة بدون تحديد المسبح (Ambiguity Guard - 409).
+    12. فك الالتباس الدقيق عند تحديد سياق المسبح.
+    13. نقل المنخرط ذرياً بين مسبحين مع أرشفة القديم وتوليد رقم جديد وتسجيل التدقيق.
+    14. التجديد المزدوج وحفظ التاريخ المالي والتنفيذي الكامل في `PoolEnrollmentRenewal`.
+    15. العزل الأمني الصارم للبيانات بين الأندية (Multi-Tenancy Guard).
+  - اجتياز اختبارات القبول بنسبة 100% (15 / 15 Tests Passed).
+- فحص الأنواع الصارم:
+  - تشغيل `npx tsc --noEmit` -> نجاح كامل بنسبة 100% (0 أخطاء).
+- استقرار خادم التطوير: يعمل بسلاسة على `http://localhost:3000`.
+---
+---
+Task ID: multi-pool-phase-4
+Agent: Antigravity
+Task: تنفيذ المرحلة الرابعة — تكامل واجهات المستخدم مع بنية المسابح المتعددة (Phase 4: Frontend UI Multi-Pool Integration)
+Work Log:
+- تم ربط وتحديث واجهات المستخدم (Frontend UI) بالكامل لدعم البنية التحتية متعددة المسابح (Multi-Pool):
+  1. موفر السياق العام (`src/app/layout.tsx`):
+     - تغليف شجرة المكونات بالكامل بموفر `<Providers>` الذي يحوي `<PoolProvider>` لتمكين حالة وسياق المسبح النشط (`usePools`) عبر كافة الصفحات واللوحات.
+  2. اللوحة الرئيسية وإدارة المنخرطين (`src/app/page.tsx`):
+     - ربط `currentPoolId` من `usePools()` لتصفية المنخرطين والإحصائيات والبحث بصورة فورية وسلسة عند تبديل المسبح من شريط التنقل العلوي (`PoolSelector`).
+  3. بطاقة المنخرط (`src/components/subscriber-card.tsx`):
+     - إضافة بادجات أنيقة تعرض قائمة المسابح التي ينخرط فيها العضو (`PoolEnrollment`) مع حالة الاشتراك وبادئة المسبح.
+  4. نافذة ملف وسجل المنخرط (`src/components/subscriber-record-modal.tsx`):
+     - عرض السجل التاريخي الكامل لعمليات التجديد متعددة المسابح عبر `PoolEnrollmentRenewal`.
+     - تصحيح حمولة النقل بين المسابح (`handleTransferPool`) لمطابقة واجهة مسار التحويل: `{ sourcePoolId, targetPoolId, keepFileNumber, reason }`.
+  5. نافذة ماسح الـ QR والحضور الذكي (`src/components/qr-scanner.tsx`):
+     - ربط الماسح بسياق المسبح النشط أو الممرر (`poolId`).
+     - معالجة ذكية لحالة الالتباس المعماري (Ambiguity Resolution - كود 409): عند مسح رقم ملف مشترك بين مسبحين أو أكثر بدون سياق، تعرض الواجهة نافذة فورية تتيح لمسؤول الاستقبال اختيار المسبح المستهدف بنقرة واحدة لتأكيد الحضور دون أي خطأ.
+  6. لوحة الحضور السريع والمباشر (`src/components/attendance-panel.tsx`):
+     - تمرير سياق المسبح النشط (`currentPoolId`) لعمليات الحضور الفوري واليدوي وقراءة الإحصائيات الحية (`/api/attendance`, `/api/attendance/live`, `/api/attendance/live?mode=heatmap`).
+     - ربط ماسح الـ QR بنافذة الحضور مع تمرير `poolId={currentPoolId}` لضمان دقة التسجيل.
+  7. نافذة إدارة وضبط المسابح (`src/components/pools-management-modal.tsx`):
+     - فرض قيود البادئة الصارمة على الواجهة: تقييد الإدخال بحروف وأرقام إنجليزية كبيرة فقط (`A-Z0-9`) بحد أقصى 4 محارف (`maxLength={4}`).
+     - قفل البادئة للمسبح الافتراضي وجعلها فارغة حصراً، مع إلزاميتها للمسابح الإضافية.
+  8. لوحة الإعدادات (`src/components/settings-panel.tsx`):
+     - توفير تبويب مخصص ومباشر لإدارة المسابح والمنشآت المائية في صدارة إعدادات النادي مع زر وصول سريع لنافذة الضبط والإضافة.
+- التحقق الهندسي والاختبارات التفاعلية:
+  - إنشاء وتشغيل سكربت التحقق التكاملي لواجهات المستخدم (`scripts/verify-phase4-ui.ts`):
+    - اجتياز 9 من أصل 9 اختبارات بنسبة 100% (Test Exit Code: 0).
+  - فحص الأنواع الصارم:
+    - تشغيل `npx tsc --noEmit` -> نجاح كامل بنسبة 100% (0 أخطاء).
+  - خادم التطوير يعمل بسلاسة على المنفذ 3000 (`http://localhost:3000`).
+- الالتزام التام: لم يتم إجراء أي تعديل للبيانات القديمة في قاعدة البيانات (Backfill)، وسيتم ذلك في المرحلة الخامسة (Phase 5: Data Migration & Final Acceptance) بعد الموافقة النهائية.
+---
+---
+Task ID: multi-pool-phase-3
+Agent: Antigravity
+Task: تنفيذ المرحلة الثالثة — ربط وتحديث واجهات برمجة التطبيقات والكتابة المزدوجة التوافقية (Phase 3: API Layer & Dual-Write Integration)
+Work Log:
+- تم تحديث وربط جميع مسارات API المحددة لدعم بنية Multi-Pool والتوافق التام عبر Dual-Write:
+  1. مسار المسابح (`src/app/api/pools/route.ts`):
+     - تفعيل دالة `validatePoolPrefixRules`: رفض البادئات الفارغة للمسابح الفرعية، الحد الأقصى 4 محارف، حروف وأرقام فقط (A-Z0-9).
+     - منع تكرار البادئة داخل النادي (حتى مع المسابح المؤرشفة) مع إرجاع كود 409 Conflict.
+  2. مسار المنخرطين (`src/app/api/subscribers/route.ts`):
+     - في `POST`: دعم إنشاء المنخرط داخل المسبح الافتراضي أو الفرعي ذرياً مع انخراط `PoolEnrollment` وبطاقة `MembershipCard` بـ `cardUid`.
+     - تطبيق قاعدة `Subscriber.poolId` الصارمة: يظل `null` إذا أنشئ المنخرط في مسبح ثانوي حصراً، ولا يمثل إلا المسبح الافتراضي.
+     - في `GET`: دعم الفلترة الدقيقة بـ `poolId` عبر `where.enrollments = { some: { poolId, status: "active" } }` وتضمين الانخراطات والبطاقات النشطة.
+  3. مسار الانخراط المتعدد (`src/app/api/subscribers/[id]/enroll/route.ts`):
+     - ربطه مباشرة بخدمة `createPoolEnrollmentService`: التحقق من الملكية، القواعد المعمارية للبادئة، الترقيم الذري، وتوليد بطاقة جديدة بـ `cardUid`.
+     - منع التكرار النشط لنفس الشخص في المسبح نفسه (409 Conflict) والمحافظة على `Subscriber.poolId` دون تلوث.
+  4. مسار النقل بين المسابح (`src/app/api/subscribers/[id]/transfer/route.ts`):
+     - ربطه بخدمة `transferSubscriberService`: أرشفة الانخراط المصدر، تعطيل البطاقة السابقة، إنشاء انخراط وبطاقة جديدة في المسبح الهدف، وتسجيل النقل في `SubscriberTransfer` وتاريخ الأرقام في `FileNumberHistory`.
+     - تحديث `Subscriber.poolId` حصراً عند الانتقال إلى أو من المسبح الافتراضي.
+  5. مسار التجديد المالي المزدوج (`src/app/api/renewals/route.ts`):
+     - تفعيل الكتابة المزدوجة المتزامنة (Dual-Write): تحديث `PoolEnrollment` وتسجيل التدقيق الكامل في `PoolEnrollmentRenewal`، مع الحفاظ على تسجيل `Renewal` وتحديث `Subscriber` القديم.
+  6. مسار التحقق والمسح السريع (`src/app/api/qr-checkin/route.ts`):
+     - الأولوية الأولى للرمز التشفيري `cardUid` (`AQCR-...`).
+     - الرفض المعماري الصارم للأرقام الملتبسة غير المحددة المسبح (Ambiguity Guard) بكود 409 وإرجاع قائمة الخيارات لتحديد المسبح بدقة.
+     - تسجيل الحضور المربوط بـ `poolId` و `enrollmentId`.
+  7. مسار الحضور وقراءة السجلات (`src/app/api/attendance/route.ts` و `[id]/record/route.ts`):
+     - ربط الحضور والانخراط والمسبح، وفلترة الحضور حسب `poolId`.
+     - عرض السجل التاريخي الشامل في `[id]/record` بما فيه `poolEnrollmentRenewals` والانتقالات بين المسابح.
+- إنشاء وتشغيل سكربت التحقق التكاملي الصارم عبر الشبكة المحلية (`scripts/verify-phase3-api.ts`):
+  - اجتياز 9 من أصل 9 اختبارات بنسبة 100% (Test Exit Code: 0).
+- التحقق من تكامل TypeScript:
+  - تشغيل `npx tsc --noEmit` -> نجاح كامل بنسبة 100% (0 أخطاء).
+- الالتزام المعماري: لم يتم تعديل أي واجهة مستخدم (UI components) أو إجراء أي backfill إنتاجي بعد، بانتظار الاعتماد للانتقال إلى المرحلة الرابعة (Phase 4: Frontend UI Multi-Pool Integration).
+---
+---
+Task ID: multi-pool-phase-2
+Agent: Antigravity
+Task: تنفيذ المرحلة الثانية — بناء طبقة الخدمات والمنطق الذري للمسابح المتعددة (Phase 2: Services & Atomic Logic Layer)
+Work Log:
+- تم بناء وتكامل طبقة الخدمات والمنطق الذري في `src/lib/multi-pool.ts` وفق جميع الشروط المعمارية:
+  1. `validatePoolPrefixRules`:
+     - المسبح الافتراضي: البادئة فارغة حصراً (`""`).
+     - المسبح الثانوي: البادئة إلزامية (غير فارغة)، حد أقصى 4 أحرف، وصيغة A-Z0-9 فقط بدون رموز.
+  2. `generateSecureCardUid`:
+     - توليد معرّف مشفر آمن غير قابل للتخمين بصيغة `AQCR-HEX32`.
+  3. `ensureDefaultPool`:
+     - اكتشاف المسبح الافتراضي أو إنشاؤه تلقائياً بصورة Idempotent مع بادئة فارغة وحالة نشطة.
+  4. `generateAtomicFileNumber`:
+     - ترقيم تسلسلي ذري على مستوى المسبح (`PoolNumberCounter`) يدعم البادئات (`OB-RCS001`) وتحديث العداد تلقائياً عند إدخال رقم يدوي أكبر.
+  5. `assertClubOwnership`:
+     - حارس أمني متعدد المشتركين (Multi-Tenancy Guard) يعزل بيانات المسابح والمنخرطين والانخراطات ويمنع تسريب أي عملية بين الأندية.
+  6. `createPoolEnrollmentService`:
+     - إنشاء انخراط تشغيلي ذري في المسبح مع توليد بطاقة العضوية المشفرة.
+     - منع إنشاء انخراط نشط مكرر لنفس الشخص في نفس المسبح.
+     - فرض قاعدة `Subscriber.poolId` الصارمة: تُحدّث بيانات `Subscriber` القديمة فقط إذا كان المسبح المستهدف هو المسبح الافتراضي (`isDefault = true`)، وتبقى معزولة تماماً عند الانخراط في مسبح ثانوي.
+  7. `renewPoolEnrollmentService`:
+     - تجديد الانخراط وتحديث الصلاحية والعدادات، مع التوثيق الكامل وغير المنقوص في نموذج `PoolEnrollmentRenewal` (المبلغ، طريقة الدفع، الشهور، التواريخ، المستخدم المنفذ).
+     - تحديث بيانات `Subscriber` القديمة حصراً إذا كان المسبح المستهدف هو الافتراضي.
+  8. `transferSubscriberService`:
+     - نقل المنخرط ذرياً بين مسبحين مع أرشفة انخراط المسبح المصدر وإلغاء بطاقته السابقة بسبب النقل.
+     - إنشاء انخراط وبطاقة جديدة في المسبح الهدف مع رقم ملف تسلسلي جديد.
+     - توثيق النقل بالكامل في `SubscriberTransfer` وتوثيق تغير رقم الملف في `FileNumberHistory`.
+     - معالجة ذكية لحقل `Subscriber.poolId` بحسب طبيعة المسبح المنقول منه وإليه (افتراضي أو ثانوي).
+  9. `resolveCardOrFileNumberService`:
+     - أولوية أولى للبحث المشفر بـ `cardUid` (`AQCR-...`).
+     - دعم البحث برقم الملف مع سياق المسبح المحدد صراحة.
+     - الرفض المعماري الصارم لأي رقم ملف ملتبس مشترك بين أكثر من مسبح نشط عند البحث العام بدون سياق، وإرجاع قائمة الخيارات لتحديد المسبح المستهدف بدقة لمنع الخطأ في تسجيل الحضور.
+- إنشاء وتشغيل حزمة الاختبارات الشاملة للمرحلة الثانية (`scripts/verify-phase2-services.ts`):
+  - اجتياز 9 من أصل 9 اختبارات بنسبة 100% (Test Exit Code: 0).
+- فحص الأنواع الصارم:
+  - تشغيل `npx tsc --noEmit` -> نجاح كامل (0 أخطاء).
+- الالتزام التام بعدم تعديل واجهات المستخدم (UI) أو تفعيل Dual-Write في مسارات API، بانتظار الاعتماد للانتقال إلى المرحلة الثالثة (Phase 3).
+---
+---
+Task ID: multi-pool-phase-1-1
+Agent: Antigravity
+Task: تنفيذ المرحلة 1.1 — التدقيق والتصحيحات المعمارية النهائية للمرحلة الأولى (Phase 1.1: Final Architecture Audit & Corrections)
+Work Log:
+- اعتمد نموذج `PoolEnrollmentRenewal` لحفظ سجل كامل وغير منقوص لكل عمليات التجديد عبر التاريخ مع الحقول: (`enrollmentId`, `clubId`, `poolId`, `subscriberId`, `previousExpiryDate`, `newExpiryDate`, `renewedAt`, `renewedById`, `subscriptionType`, `months`, `amount`, `paymentMethod`, `transactionId`, `notes`).
+- فرض القواعد المعمارية الصارمة لبادئات أرقام ملفات المسابح:
+  - المسبح الافتراضي فقط يسمح ببادئة فارغة (empty string).
+  - كل مسبح غير افتراضي ملزم ببادئة غير فارغة.
+  - الحد الأقصى 4 أحرف، وصيغة A-Z0-9 فقط بدون رموز.
+  - تفرد البادئة داخل النادي ومنع إعادة استخدام بادئة مسبح مؤرشف.
+  - دالة `validatePoolPrefixRules` في `src/lib/multi-pool.ts`.
+- تثبيت قاعدة `Subscriber.poolId`: يمثل حصرياً المسبح الافتراضي (Default Pool) للنادي (`isDefault = true`)، ولا يمثل أول مسبح أو آخر مسبح انضم إليه الشخص.
+- ترقية التحقق من الفهرس الجزئي في `src/lib/runtime-schema.ts`:
+  - دالة `hasValidPartialIndex` تفحص شرط `WHERE` الفعلي في `sqlite_master` و `pg_indexes` للتأكد من شرط `status = 'active'` بدلاً من الاكتفاء بفحص الاسم.
+  - معالجة استباقية للتعارضات: أرشفة التكرارات القديمة تلقائياً وتعديل البادئات المتكررة بالخطأ قبل إنشاء الفهارس الفريدة لمنع فشل الترحيل (Error 2067).
+- تحديث المخططين ومطابقتهما:
+  - `prisma/schema.prisma` و `prisma/schema.sqlite.prisma` اجتازا `prisma validate` بنجاح 100%.
+- تحديث ملف الترحيل SQL الأساسي ونسخة PostgreSQL في `prisma/manual-sql-postgres`.
+- تطبيق التعديلات محلياً بـ `npm run db:push:local`.
+- تشغيل فحص الأنواع الصارم: `npx tsc --noEmit` -> نجاح كامل (0 أخطاء).
+- تشغيل حزمة اختبارات Phase 1.1 الشاملة (`scripts/verify-phase1-1-multi-pool.ts`) -> نجاح 9/9 سيناريوهات بنسبة 100%.
+- إعادة تشغيل خادم التطوير بنجاح.
+- الالتزام التام بعدم تعديل الواجهات أو تفعيل Dual-Write أو تنفيذ Backfill إنتاجي.
+---
+---
+Task ID: multi-pool-phase-1
+Agent: Antigravity
+Task: تنفيذ المرحلة الأولى — ضبط مخطط قاعدة البيانات والمحاذاة المزدوجة (Phase 1: Database Schema & Dual-Engine Alignment)
+Work Log:
+- راجع تقرير Phase 0 واعتمد التصحيحات الهندسية الخمسة الموجهة من المهندس.
+- حدّث `prisma/schema.prisma` (PostgreSQL / Neon) بكل النماذج والعلاقات والقيود:
+  - `Pool`: إضافة علاقات `compensations` و `fileNumberHistories`.
+  - `PoolEnrollment`: إضافة حقول التجديد وتاريخ الانخراط (`renewedAt`, `renewalCount`, `previousExpiryDate`) لحفظ السجل التاريخي كاملاً دون فقدان.
+  - استبدال قيد `@@unique([clubId, poolId, subscriberId])` بفهرسين مرنين: `@@index([clubId, poolId, subscriberId])` و `@@index([clubId, poolId, subscriberId, status])` لتمكين إنشاء انخراطات تاريخية جديدة أو إعادة التفعيل، مع فرض فرادة الانخراط النشط عبر partial unique index.
+  - `FileNumberHistory`: ربطه بـ `Pool` عبر `fields: [poolId], references: [id], onDelete: Cascade`.
+  - `Compensation`: ربطه بـ `Pool` عبر `fields: [poolId], references: [id], onDelete: SetNull`.
+  - `Subscriber`: توثيق الحقول القديمة كمرآة متوافقة لانخراط المسبح الافتراضي (Default Pool) فقط.
+- حدّث `scripts/generate-sqlite-schema.js` وولّد `prisma/schema.sqlite.prisma` (SQLite dev.db) بنجاح وتطابق 100%.
+- حدّث ترحيل `prisma/migrations/20261109180000_multi_pool_architecture/migration.sql` وأنشأ نسخة مطابقة في `prisma/manual-sql-postgres/20261109180000_multi_pool_architecture.sql`.
+- حدّث `src/lib/runtime-schema.ts` لدعم الأعمدة الجديدة ذاتياً والفهارس الجزئية:
+  - `PoolEnrollment_active_unique` (حظر تكرار الانخراط النشط مع السماح بالسجلات المؤرشفة والمنتهية).
+  - `Pool_club_default_unique_idx` (تفرد المسبح الافتراضي لكل نادٍ).
+  - `Pool_club_prefix_unique_idx` (تفرد بادئة الترقيم لكل مسبح داخل النادي).
+- تحقق من سلامة المخططين:
+  - `npx prisma validate --schema=prisma/schema.prisma` -> صالح 100% 🚀
+  - `npx prisma validate --schema=prisma/schema.sqlite.prisma` -> صالح 100% 🚀
+- طبق تحديث المخطط المحلي: `npm run db:push:local` وتوليد Prisma Client بنجاح.
+- أجرى فحص TypeScript الشامل: `npx tsc --noEmit` -> 0 أخطاء.
+- شغّل سكربت التحقق: `npx tsx scripts/verify-phase1-multi-pool.ts` -> نجاح 7/7 سيناريوهات بنسبة 100%.
+- التزام صارم: تم إيقاف العمل بنهاية المرحلة الأولى وعدم تعديل واجهات المستخدم أو APIs أو تنفيذ Dual-Write أو ترحيل البيانات الفعلي بانتظار الموافقة.
+---
+
+---
 Task ID: reports-center-rebuild
 Agent: main
 Task: إعادة بناء قسم التصدير إلى مركز تقارير احترافي + إصلاح خطأ مصمم البطاقات + نقل إعدادات الترويسة الموحدة إلى الإعدادات

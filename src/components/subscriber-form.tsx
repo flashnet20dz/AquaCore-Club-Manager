@@ -34,6 +34,7 @@ import { toast } from "sonner";
 import { notifyFinancialUpdated } from "@/lib/financial-events";
 import { useSubscriptionTypes } from "@/hooks/use-subscription-types";
 import { useSwimConfig } from "@/hooks/use-swim-config";
+import { usePools } from "@/hooks/use-pools";
 import { PhotoUploader } from "@/components/photo-uploader";
 import {
   BLOOD_TYPES,
@@ -64,6 +65,7 @@ export interface SubscriberFormValues {
   photoUrl?: string;
   fileNumber?: string; // ★ رقم الملف (قابل للتعديل)
   startDate?: string;   // ★ تاريخ بداية خاص (اختياري) — DD/MM/YYYY
+  poolId?: string | null; // ★ المسبح المستهدف (Multi-Pool)
 }
 
 interface SubscriberFormProps {
@@ -183,6 +185,7 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
     }
     return swimSlotLabels.map((t) => ({ value: t, label: t }));
   }, [selectedGroup, swimSlotLabels]);
+  const { pools, isMultiPool, currentPoolId, defaultPool } = usePools();
   const [saving, setSaving] = useState(false);
   const isEdit = !!initial?.id;
   // ★ معاينة رقم الملف التالي
@@ -202,12 +205,13 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
     subscriptionType: string;
   } | null>(null);
 
-  // ★ جلب رقم الملف التالي فور اختيار نوع الاشتراك — استخدام endpoint خفيف
+  // ★ جلب رقم الملف التالي فور اختيار نوع الاشتراك والمسبح — استخدام endpoint خفيف
   useEffect(() => {
     if (form.subscriptionType && !isEdit) {
       setLoadingFileNumber(true);
-      // 🔑 Endpoint خفيف: يعيد فقط الرقم التالي — لا يجلب 10000 منخرط
-      fetch(`/api/subscribers/next-file-number?subscriptionType=${encodeURIComponent(form.subscriptionType)}`)
+      const targetPoolId = form.poolId || (currentPoolId !== "all" ? currentPoolId : (defaultPool?.id || ""));
+      const poolQuery = targetPoolId ? `&poolId=${encodeURIComponent(targetPoolId)}` : "";
+      fetch(`/api/subscribers/next-file-number?subscriptionType=${encodeURIComponent(form.subscriptionType)}${poolQuery}`)
         .then(r => r.ok ? r.json() : null)
         .then(data => {
           if (data?.fileNumber) {
@@ -220,16 +224,17 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
     } else {
       setPreviewFileNumber("");
     }
-     
-  }, [form.subscriptionType, isEdit]);
+  }, [form.subscriptionType, form.poolId, isEdit, currentPoolId, defaultPool]);
 
   useEffect(() => {
     if (open) {
       setSavedResult(null); // reset success view on open
       setPendingPhoto(null);
+      const initialPool = initial?.poolId || (currentPoolId !== "all" ? currentPoolId : (defaultPool?.id || null));
       setForm({
         ...emptyForm,
         ...initial,
+        poolId: initialPool,
         // Convert DB ISO dates to manual DD/MM/YYYY
         birthDate: initial?.birthDate ? isoToYMD(initial.birthDate) : "",
         lastPaymentDate: initial?.lastPaymentDate ? isoToYMD(initial.lastPaymentDate) : "",
@@ -242,8 +247,7 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
       setPreviewFileNumber("");
       setPendingPhoto(null);
     }
-     
-  }, [open, initial]);
+  }, [open, initial, currentPoolId, defaultPool]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -662,6 +666,41 @@ export function SubscriberForm({ open, onOpenChange, initial, onSaved }: Subscri
               onChange={(v) => setForm({ ...form, bloodType: v })}
               columns={4}
             />
+
+            {isMultiPool && (
+              <div className="space-y-1.5 p-3 rounded-xl border border-sky-500/25 bg-sky-950/20">
+                <Label className="text-xs font-bold text-sky-300 flex items-center gap-1.5">
+                  <Waves className="h-4 w-4 text-sky-400" />
+                  المسبح والمنشأة المستهدفة
+                </Label>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {pools.filter((p) => p.active).map((p) => {
+                    const isSelected = (form.poolId || defaultPool?.id) === p.id;
+                    const pColor = p.color || "#0284c7";
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setForm((f) => ({ ...f, poolId: p.id }))}
+                        className={`text-xs px-3 py-1.5 rounded-lg border flex items-center gap-2 transition-all cursor-pointer ${
+                          isSelected
+                            ? "bg-sky-500/25 border-sky-400 text-sky-200 font-bold shadow-sm"
+                            : "bg-slate-800/60 border-slate-700 text-slate-300 hover:border-slate-600"
+                        }`}
+                      >
+                        <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: pColor }} />
+                        <span>{p.name}</span>
+                        {p.fileNumberPrefix && (
+                          <span className="text-[10px] px-1 rounded bg-slate-900 font-mono text-amber-300">
+                            {p.fileNumberPrefix}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             <ChipSelector
               label="نوع الاشتراك"

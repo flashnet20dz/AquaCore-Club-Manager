@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/session";
 import { recordSyncOutbox } from "@/lib/sync-outbox";
 import { postLedgerEntry } from "@/lib/financial-posting";
 import { ensureRuntimeColumns, ensureFinancialIndexes } from "@/lib/runtime-schema";
+import { ensureClubMultiPoolReady, ensureDefaultPool, generateAtomicFileNumber, generateSecureCardUid } from "@/lib/multi-pool";
 import {
   computeSubscriberFields,
   computeSubscriberFieldsDynamic,
@@ -20,6 +21,10 @@ export async function GET(req: NextRequest) {
   try {
     const currentUser = await getCurrentUser();
     if (!currentUser) return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
+
+    if (currentUser.clubId) {
+      await ensureClubMultiPoolReady(currentUser.clubId).catch(() => null);
+    }
 
     const url = new URL(req.url);
     const search = url.searchParams.get("search") || "";
@@ -53,6 +58,12 @@ export async function GET(req: NextRequest) {
       where.isExempt = true;
     }
 
+    // ★ Multi-Pool filter: المنخرطون الذين لديهم انخراط نشط في هذا المسبح
+    const poolId = url.searchParams.get("poolId");
+    if (poolId && poolId !== "all") {
+      where.enrollments = { some: { poolId: poolId, status: "active" } };
+    }
+
     // 🔑 الترتيب الافتراضي حسب رقم الملف (تصاعدي) — خاصية دائمة
     const sortBy = url.searchParams.get("sortBy") || "fileNumber";
     const sortOrder = (url.searchParams.get("sortOrder") || "asc") as "asc" | "desc";
@@ -61,6 +72,16 @@ export async function GET(req: NextRequest) {
     const [subscribers, total] = await Promise.all([
       db.subscriber.findMany({
         where,
+        include: {
+          enrollments: {
+            where: { status: "active" },
+            include: {
+              pool: { select: { id: true, name: true, code: true, fileNumberPrefix: true } },
+              cards: { where: { status: "active" }, select: { id: true, cardUid: true, cardNumber: true } },
+            },
+          },
+          pool: { select: { id: true, name: true, code: true, fileNumberPrefix: true } },
+        },
         orderBy: sortBy === "fileNumber" ? { fileNumber: sortOrder } : { createdAt: sortOrder },
         take: limit,
         skip,
@@ -150,7 +171,16 @@ export async function POST(req: NextRequest) {
       }, { status: 400 });
     }
 
-    const count = await db.subscriber.count({ where: { clubId: currentUser.clubId } });
+    // تحديد المسبح المستهدف (أو المسبح الافتراضي)
+    let targetPool: any = null;
+    if (body.poolId && body.poolId !== "all") {
+      targetPool = await db.pool.findFirst({
+        where: { id: body.poolId, clubId },
+      });
+    }
+    if (!targetPool) {
+      targetPool = await ensureDefaultPool(clubId);
+    }
 
     // التحقق من نوع الاشتراك و numberingGroup + جلب الإعدادات الكاملة
     const subType = await db.subscriptionType.findFirst({
@@ -158,45 +188,27 @@ export async function POST(req: NextRequest) {
     });
 
     let fileNumber: string;
-    // ★ إذا قدم المستخدم رقم ملف يدوياً، استخدمه
-    if (body.fileNumber && body.fileNumber.trim()) {
-      fileNumber = body.fileNumber.trim();
-    } else if (subType && !subType.givesMembershipNumber) {
-      // النوع لا يمنح رقم عضوية — استخدم الكود نفسه
-      fileNumber = body.subscriptionType;
+    if (subType && !subType.givesMembershipNumber) {
+      const prefix = (targetPool.fileNumberPrefix || "").trim();
+      fileNumber = prefix ? `${prefix}-${body.subscriptionType}` : body.subscriptionType;
     } else {
-      // النوع يمنح رقم عضوية — استخدم numberingGroup + عداد
       const group = subType?.numberingGroup || "RCS";
-      // البحث عن أكبر رقم موجود في هذه المجموعة
-      const existingSubs = await db.subscriber.findMany({
-        where: { clubId: currentUser.clubId },
-        select: { fileNumber: true },
-      });
-      let maxNum = 0;
-      for (const sub of existingSubs) {
-        const match = sub.fileNumber.match(new RegExp(`^${group}(\\d+)$`));
-        if (match) {
-          const num = parseInt(match[1]);
-          if (num > maxNum) maxNum = num;
-        }
-      }
-      // تجربة أرقام حتى نجد واحداً غير مستخدم
-      let attempts = 0;
-      fileNumber = `${group}${String(maxNum + 1).padStart(3, "0")}`;
-      while (attempts < 100) {
-        const conflict = existingSubs.some(s => s.fileNumber === fileNumber);
-        if (!conflict) break;
-        maxNum++;
-        fileNumber = `${group}${String(maxNum + 1).padStart(3, "0")}`;
-        attempts++;
-      }
+      const numResult = await generateAtomicFileNumber(
+        clubId,
+        targetPool.id,
+        group,
+        body.fileNumber,
+        db
+      );
+      fileNumber = numResult.fileNumber;
     }
 
-    // ★ ذرّية كاملة: المنخرط + القيود المالية للتسجيل المدفوع + النشاط (المرحلة 3)
+    // ★ ذرّية كاملة: المنخرط + الانخراط التشغيلي + البطاقة + القيود المالية
     const subscriber = await db.$transaction(async (tx) => {
       const created = await tx.subscriber.create({
         data: {
           clubId,
+          poolId: targetPool.isDefault ? targetPool.id : null,
           fileNumber,
           lastName: body.lastName,
           firstName: body.firstName,
@@ -204,7 +216,6 @@ export async function POST(req: NextRequest) {
           gender: body.gender as Gender,
           bloodType: body.bloodType || null,
           subscriptionType: body.subscriptionType as SubscriptionType,
-          // ★ EXEMPT subscribers may not have a payment date — that's fine
           lastPaymentDate: body.lastPaymentDate ? new Date(body.lastPaymentDate) : null,
           paymentStatus: normalizedStatus as PaymentStatus,
           swimmingDays: body.swimmingDays || null,
@@ -212,6 +223,37 @@ export async function POST(req: NextRequest) {
           phone: body.phone || null,
         },
       });
+
+      // إنشاء الانخراط التشغيلي الأول في هذا المسبح
+      const enrollment = await tx.poolEnrollment.create({
+        data: {
+          clubId,
+          poolId: targetPool.id,
+          subscriberId: created.id,
+          fileNumber,
+          status: "active",
+          subscriptionType: body.subscriptionType,
+          paymentStatus: normalizedStatus,
+          lastPaymentDate: body.lastPaymentDate ? new Date(body.lastPaymentDate) : null,
+          isExempt: isExemptStatus(normalizedStatus),
+          swimmingDays: body.swimmingDays || null,
+          timeSlot: body.timeSlot || null,
+        },
+      });
+
+      // إنشاء بطاقة العضوية برمز QR مشفر وآمن
+      const cardUid = generateSecureCardUid(targetPool.id, created.id);
+      await tx.membershipCard.create({
+        data: {
+          clubId,
+          poolId: targetPool.id,
+          subscriberId: created.id,
+          enrollmentId: enrollment.id,
+          cardUid,
+          cardNumber: fileNumber,
+          status: "active",
+        },
+      }).catch(() => null);
 
       // ═══ الترحيل المالي التلقائي للتسجيل المدفوع — نفس مبالغ نوع الاشتراك حرفياً ═══
       // الحساب من الحقول المحسوبة بنفس منطق لوحة التحكم (computeSubscriberFieldsDynamic)

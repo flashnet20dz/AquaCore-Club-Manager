@@ -1,17 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
-// 🔒 القائمة البيضاء الوحيدة للنماذج القابلة للمزامنة — كلها تحمل clubId.
-// أي نموذج آخر (users, clubs, settings...) يُرفض فوراً — الكود القديم كان
-// يقبل أي نموذج عبر (db as any)[modelName] فيسمح بكتابة أي جدول في النظام.
-const SYNC_MODELS = new Set(["payment", "renewal", "attendance", "subscriber"]);
+// 🔒 القائمة البيضاء للنماذج القابلة للمزامنة مع دعم منظومة المسابح المتعددة
+const SYNC_MODELS = new Set([
+  "pool",
+  "subscriber",
+  "poolEnrollment",
+  "membershipCard",
+  "payment",
+  "renewal",
+  "attendance",
+]);
 
 // موديلات "معاملات" — append-only، لا يوجد تعارض ممكن، فقط "أضِف إذا غير موجود"
-const APPEND_ONLY_MODELS = new Set(["payment", "renewal", "attendance"]);
+const APPEND_ONLY_MODELS = new Set(["payment", "renewal", "attendance", "membershipCard"]);
 
 // موديلات "وصفية" — تُحل بالتعارض عبر updatedAt (آخر تعديل يفوز)
-// وتدعم الحذف الناعم (deletedAt موجود على subscriber فقط)
-const METADATA_MODELS = new Set(["subscriber"]);
+const METADATA_MODELS = new Set(["subscriber", "pool", "poolEnrollment"]);
+
+// ترتيب الأولويات المعمارية لضمان سلامة العلاقات:
+// المسبح أولاً -> المنخرط -> الانخراط -> البطاقة -> المعاملات والحضور
+const MODEL_PRIORITY: Record<string, number> = {
+  pool: 1,
+  subscriber: 2,
+  poolEnrollment: 3,
+  membershipCard: 4,
+  attendance: 5,
+  payment: 6,
+  renewal: 7,
+};
 
 interface SyncChange {
   modelName: string;
@@ -38,7 +55,9 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const changes: SyncChange[] = body.changes || [];
+    const rawChanges: SyncChange[] = body.changes || [];
+    // ترتيب التغييرات لضمان إنشاء الكيانات الأصل قبل الفروع
+    const changes = rawChanges.slice().sort((a, b) => (MODEL_PRIORITY[a.modelName] || 99) - (MODEL_PRIORITY[b.modelName] || 99));
 
     let applied = 0;
     let skipped = 0;

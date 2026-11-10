@@ -21,7 +21,11 @@ export async function GET(req: NextRequest) {
 
     const url = new URL(req.url);
     const mode = url.searchParams.get("mode") || "live";
-    const clubFilter = currentUser.role === "superadmin" ? {} : { clubId: currentUser.clubId! };
+    const poolId = url.searchParams.get("poolId");
+    const clubFilter: Record<string, any> = currentUser.role === "superadmin" ? {} : { clubId: currentUser.clubId! };
+    if (poolId && poolId !== "all") {
+      clubFilter.poolId = poolId;
+    }
 
     if (mode === "heatmap") {
       const days = parseInt(url.searchParams.get("days") || "90", 10);

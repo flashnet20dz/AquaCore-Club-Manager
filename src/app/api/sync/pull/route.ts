@@ -20,9 +20,12 @@ export async function GET(req: NextRequest) {
     const sinceParam = req.nextUrl.searchParams.get("since");
     const since = sinceParam ? new Date(sinceParam) : new Date(0);
 
-    const [subscribers, payments, renewals, attendances, compensations, poolClosures] =
+    const [pools, subscribers, poolEnrollments, membershipCards, payments, renewals, attendances, compensations, poolClosures] =
       await Promise.all([
+        db.pool.findMany({ where: { clubId: club.id, updatedAt: { gt: since } } }),
         db.subscriber.findMany({ where: { clubId: club.id, updatedAt: { gt: since } } }),
+        db.poolEnrollment.findMany({ where: { clubId: club.id, updatedAt: { gt: since } } }),
+        db.membershipCard.findMany({ where: { clubId: club.id, updatedAt: { gt: since } } }),
         db.payment.findMany({ where: { clubId: club.id, createdAt: { gt: since } } }),
         db.renewal.findMany({ where: { clubId: club.id, createdAt: { gt: since } } }),
         db.attendance.findMany({ where: { clubId: club.id, createdAt: { gt: since } } }),
@@ -31,7 +34,10 @@ export async function GET(req: NextRequest) {
       ]);
 
     return NextResponse.json({
+      pools,
       subscribers,
+      poolEnrollments,
+      membershipCards,
       payments,
       renewals,
       attendances,

@@ -116,16 +116,71 @@ export async function POST(req: NextRequest) {
         include: { subscriber: true },
       });
 
-      // Update subscriber's last payment & status
-      // ★ For EXEMPT: keep lastPaymentDate as-is (no payment happened),
-      //    but update paymentStatus to "معفى" so the subscriber is marked exempt.
-      await tx.subscriber.update({
-        where: { id: subscriberId },
-        data: {
-          lastPaymentDate: exempt ? sub.lastPaymentDate : renewalDate,
-          paymentStatus: normalizedStatus,
+      // ═════════════════════════════════════════════════════════════
+      // ★ Dual-Write: PoolEnrollment & PoolEnrollmentRenewal
+      // ═════════════════════════════════════════════════════════════
+      const requestedPoolId = body.poolId && body.poolId !== "all" ? body.poolId : null;
+      const targetEnrollment = await tx.poolEnrollment.findFirst({
+        where: {
+          clubId: sub.clubId,
+          subscriberId,
+          status: "active",
+          ...(body.enrollmentId ? { id: body.enrollmentId } : {}),
+          ...(requestedPoolId ? { poolId: requestedPoolId } : {}),
         },
+        include: { pool: true },
+        orderBy: [{ pool: { isDefault: "desc" } }, { createdAt: "desc" }],
       });
+
+      // Update subscriber's legacy last payment & status ONLY if no enrollment or default pool
+      if (!targetEnrollment || targetEnrollment.pool.isDefault) {
+        await tx.subscriber.update({
+          where: { id: subscriberId },
+          data: {
+            lastPaymentDate: exempt ? sub.lastPaymentDate : renewalDate,
+            paymentStatus: normalizedStatus,
+          },
+        });
+      }
+
+      if (targetEnrollment) {
+        const prevExp = targetEnrollment.expiryDate;
+        await tx.poolEnrollment.update({
+          where: { id: targetEnrollment.id },
+          data: {
+            status: "active",
+            expiryDate,
+            lastPaymentDate: exempt ? targetEnrollment.lastPaymentDate : renewalDate,
+            paymentStatus: normalizedStatus,
+            renewedAt: renewalDate,
+            renewalCount: { increment: 1 },
+            previousExpiryDate: prevExp,
+          },
+        });
+
+        await tx.membershipCard.updateMany({
+          where: { enrollmentId: targetEnrollment.id, status: "active" },
+          data: { expiryDate },
+        });
+
+        await tx.poolEnrollmentRenewal.create({
+          data: {
+            clubId: sub.clubId,
+            poolId: targetEnrollment.poolId,
+            subscriberId,
+            enrollmentId: targetEnrollment.id,
+            previousExpiryDate: prevExp,
+            newExpiryDate: expiryDate,
+            renewedAt: renewalDate,
+            renewedById: currentUser.id,
+            subscriptionType: targetEnrollment.subscriptionType,
+            months: months || 1,
+            amount: finalAmount,
+            paymentMethod: "cash",
+            notes: note || null,
+          },
+        });
+      }
 
       // ★ ترحيل تلقائي: مدخول التجديد إلى دفتر التسديدات (لا التحويل للمعفيّ)
       if (finalAmount > 0) {
@@ -138,6 +193,8 @@ export async function POST(req: NextRequest) {
           paymentMethod: "cash",
           payeeName: `${sub.lastName} ${sub.firstName}`.trim(),
           subscriberId,
+          poolId: targetEnrollment?.poolId || sub.poolId || null,
+          enrollmentId: targetEnrollment?.id || null,
           reference: `renewal:${created.id}`,
           note: `تسجيل — تجديد ${months || 1} شهر (${normalizedStatus}) — تلقائي من التجديد`,
           createdById: currentUser.id,
