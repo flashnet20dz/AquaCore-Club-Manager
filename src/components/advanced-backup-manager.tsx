@@ -194,7 +194,8 @@ export function AdvancedBackupManager() {
       const photoCount = Number(meta.photoCount) || 0;
       const photoTake = Number(meta.photoTake) || 5;
       const parts = Math.ceil(photoCount / photoTake);
-      if (!Array.isArray(backup.data)) backup.data = {};
+      // ★ data كائن يفهرس الجداول بالاسم — لا يمسح أبداً! (كان Array.isArray يمسح كل الجداول ويترك الصور فقط)
+      if (!backup.data || typeof backup.data !== "object" || Array.isArray(backup.data)) backup.data = {};
       if (!Array.isArray(backup.data.subscriberPhotos)) backup.data.subscriberPhotos = [];
 
       for (let i = 0; i < parts; i++) {
