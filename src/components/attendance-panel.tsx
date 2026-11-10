@@ -19,6 +19,7 @@ import { QRScanner } from "@/components/qr-scanner";
 import { notifySuccess, notifyWarning, notifyClick, notifyError } from "@/lib/sounds";
 import type { SubscriberWithComputed } from "@/lib/rcs";
 import { formatDateArabic } from "@/lib/date-utils";
+import { usePools } from "@/hooks/use-pools";
 
 interface Attendance {
   id: string;
@@ -61,6 +62,8 @@ interface AttendancePanelProps {
 }
 
 export function AttendancePanel({ subscribers, onRefresh }: AttendancePanelProps) {
+  const { currentPoolId } = usePools();
+  const activePoolId = currentPoolId && currentPoolId !== "all" ? currentPoolId : null;
   const [attendances, setAttendances] = useState<Attendance[]>([]);
   const [live, setLive] = useState<LiveData | null>(null);
   const [heatmap, setHeatmap] = useState<HeatmapData | null>(null);
@@ -87,7 +90,8 @@ export function AttendancePanel({ subscribers, onRefresh }: AttendancePanelProps
   const fetchAttendance = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/attendance?date=${selectedDate}`);
+      const poolQuery = activePoolId ? `&poolId=${encodeURIComponent(activePoolId)}` : "";
+      const res = await fetch(`/api/attendance?date=${selectedDate}${poolQuery}`);
       const data = await res.json();
       setAttendances(data.attendances || []);
     } catch {
@@ -95,23 +99,25 @@ export function AttendancePanel({ subscribers, onRefresh }: AttendancePanelProps
     } finally {
       setLoading(false);
     }
-  }, [selectedDate]);
+  }, [selectedDate, activePoolId]);
 
   const fetchLive = useCallback(async () => {
     try {
-      const res = await fetch("/api/attendance/live");
+      const poolQuery = activePoolId ? `?poolId=${encodeURIComponent(activePoolId)}` : "";
+      const res = await fetch(`/api/attendance/live${poolQuery}`);
       const data = await res.json();
       setLive(data);
     } catch { /* ignore */ }
-  }, []);
+  }, [activePoolId]);
 
   const fetchHeatmap = useCallback(async () => {
     try {
-      const res = await fetch("/api/attendance/live?mode=heatmap&days=90");
+      const poolQuery = activePoolId ? `&poolId=${encodeURIComponent(activePoolId)}` : "";
+      const res = await fetch(`/api/attendance/live?mode=heatmap&days=90${poolQuery}`);
       const data = await res.json();
       setHeatmap(data);
     } catch { /* ignore */ }
-  }, []);
+  }, [activePoolId]);
 
   useEffect(() => { fetchAttendance(); }, [fetchAttendance]);
   useEffect(() => {
@@ -127,7 +133,11 @@ export function AttendancePanel({ subscribers, onRefresh }: AttendancePanelProps
     if (!subscriberId) return;
     try {
       const { offlineFetch } = await import("@/hooks/use-offline-mutation");
-      const body: Record<string, unknown> = { subscriberId, method: "manual" };
+      const body: Record<string, unknown> = {
+        subscriberId,
+        method: "manual",
+        poolId: activePoolId || undefined,
+      };
       // ★ وقت مخصص إن قُدم — يدعم صيغتين:
       //   - "HH:MM" → يحوّل إلى اليوم HH:MM:00
       //   - "HH:MM-HH:MM" (مثل 10:00-11:00) → يأخذ وقت البداية (HH:MM)
@@ -625,6 +635,7 @@ export function AttendancePanel({ subscribers, onRefresh }: AttendancePanelProps
       <QRScanner
         open={scannerOpen}
         onClose={() => setScannerOpen(false)}
+        poolId={activePoolId}
         onCheckIn={() => { fetchAttendance(); fetchLive(); onRefresh?.(); }}
       />
     </div>

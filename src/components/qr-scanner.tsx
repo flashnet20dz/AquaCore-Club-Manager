@@ -3,12 +3,13 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { motion, AnimatePresence } from "framer-motion";
-import { Camera, X, ScanLine, CheckCircle2, AlertCircle, Loader2, Keyboard } from "lucide-react";
+import { Camera, X, ScanLine, CheckCircle2, AlertCircle, Loader2, Keyboard, Waves } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { notifySuccess, notifyWarning, notifyError } from "@/lib/sounds";
 import type { SubscriberWithComputed } from "@/lib/rcs";
+import { usePools } from "@/hooks/use-pools";
 
 interface CheckInResult {
   success: boolean;
@@ -21,13 +22,41 @@ interface CheckInResult {
   offline?: boolean;
 }
 
+export interface CandidateEnrollment {
+  id?: string;
+  enrollmentId?: string;
+  poolId: string;
+  poolName?: string;
+  fileNumber?: string;
+  subscriptionType: string;
+  status?: string;
+  subscriberName?: string;
+  pool?: {
+    id: string;
+    name: string;
+    color?: string | null;
+    fileNumberPrefix?: string | null;
+  };
+  subscriber?: {
+    id: string;
+    lastName: string;
+    firstName: string;
+    fileNumber: string;
+  };
+}
+
 interface QRScannerProps {
   open: boolean;
   onClose: () => void;
+  poolId?: string | null;
   onCheckIn?: (result: CheckInResult) => void;
 }
 
-export function QRScanner({ open, onClose, onCheckIn }: QRScannerProps) {
+export function QRScanner({ open, onClose, poolId: propPoolId, onCheckIn }: QRScannerProps) {
+  const { currentPoolId } = usePools();
+  const rawPoolId = propPoolId !== undefined ? propPoolId : currentPoolId;
+  const effectivePoolId = rawPoolId && rawPoolId !== "all" ? rawPoolId : null;
+
   const scannerRef = useRef<Html5Qrcode | null>(null);
   // ★ معرّف فريد للحاوية لتفادي إعادة استخدام نفس العنصر (يزيد الاستقرار)
   const containerId = useRef(`qr-reader-${Date.now()}`).current;
@@ -35,6 +64,8 @@ export function QRScanner({ open, onClose, onCheckIn }: QRScannerProps) {
   const [manualMode, setManualMode] = useState(false);
   const [manualCode, setManualCode] = useState("");
   const [lastResult, setLastResult] = useState<CheckInResult | null>(null);
+  const [ambiguousCandidates, setAmbiguousCandidates] = useState<CandidateEnrollment[] | null>(null);
+  const [ambiguousScannedCode, setAmbiguousScannedCode] = useState<string>("");
   const [processing, setProcessing] = useState(false);
   // ★ تقليل فترة الـ debounce من 3000ms إلى 1500ms (استجابة أسرع)
   const lastScanRef = useRef<{ code: string; time: number }>({ code: "", time: 0 });
@@ -56,27 +87,44 @@ export function QRScanner({ open, onClose, onCheckIn }: QRScannerProps) {
     setScanning(false);
   }, []);
 
-  const doCheckIn = useCallback(async (fileNumber: string) => {
+  const doCheckIn = useCallback(async (fileNumber: string, specificPoolId?: string) => {
     // ★ منع المعالجة المتزامنة: استخدم flag بدلاً من setProcessing callback
     if (processing) return;
     setProcessing(true);
     try {
       const { offlineFetch } = await import("@/hooks/use-offline-mutation");
+      const targetPoolId =
+        specificPoolId !== undefined
+          ? specificPoolId
+          : effectivePoolId && effectivePoolId !== "all"
+          ? effectivePoolId
+          : undefined;
       const res = await offlineFetch("/api/qr-checkin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileNumber }),
+        body: JSON.stringify({ fileNumber, poolId: targetPoolId }),
       });
       const data = await res.json();
       if (!res.ok) {
+        if (res.status === 409 && data.ambiguous && Array.isArray(data.candidateEnrollments)) {
+          notifyWarning();
+          setAmbiguousScannedCode(fileNumber);
+          setAmbiguousCandidates(data.candidateEnrollments);
+          toast.warning("يوجد أكثر من انخراط بهذا الرقم في مسابح مختلفة، اختر المسبح للتأكيد");
+          return;
+        }
+        setAmbiguousCandidates(null);
+        setAmbiguousScannedCode("");
         notifyError();
         toast.error(data.error || "فشل تسجيل الحضور");
         setLastResult({ success: false, error: data.error, subscriber: data.subscriber });
       } else if (data.offline) {
+        setAmbiguousCandidates(null);
         notifySuccess();
         toast.success("✓ تم تسجيل الحضور محلياً — سيُزامن عند عودة الاتصال");
         setLastResult({ success: true, offline: true, subscriber: { fileNumber, lastName: "", firstName: "" } as any, status: "offline" });
       } else {
+        setAmbiguousCandidates(null);
         setLastResult(data);
         onCheckInRef.current?.(data);
         if (data.alreadyCheckedIn) {
@@ -97,7 +145,7 @@ export function QRScanner({ open, onClose, onCheckIn }: QRScannerProps) {
     } finally {
       setProcessing(false);
     }
-  }, [processing]);
+  }, [processing, effectivePoolId]);
 
   const startScanner = useCallback(async () => {
     // ★ منع البدء المزدوج
@@ -158,6 +206,7 @@ export function QRScanner({ open, onClose, onCheckIn }: QRScannerProps) {
     } else {
       stopScanner();
       setLastResult(null);
+      setAmbiguousCandidates(null);
       setManualCode("");
       setManualMode(false);
     }
@@ -279,6 +328,74 @@ export function QRScanner({ open, onClose, onCheckIn }: QRScannerProps) {
                 تسجيل الحضور
               </Button>
             </form>
+          )}
+
+          {/* Ambiguous candidates disambiguation */}
+          {ambiguousCandidates && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="rounded-2xl p-4 border border-amber-500/40 bg-amber-500/10 space-y-3"
+            >
+              <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
+                <AlertCircle className="h-5 w-5 text-amber-400 shrink-0" />
+                <span>الرقم مسجل في أكثر من مسبح: حدد المسبح</span>
+              </div>
+              <p className="text-xs text-amber-200/80 leading-relaxed">
+                تم العثور على انخراطات متعددة بهذا الرقم. اختر المسبح المستهدف لتسجيل الحضور مباشرة:
+              </p>
+              <div className="space-y-2">
+                {ambiguousCandidates.map((cand) => {
+                  const poolDisplayName = cand.pool?.name || cand.poolName || "مسبح";
+                  const memberDisplayName = cand.subscriber
+                    ? `${cand.subscriber.lastName} ${cand.subscriber.firstName}`
+                    : cand.subscriberName || "";
+                  const codeToUse = cand.fileNumber || ambiguousScannedCode;
+                  const candStatus = cand.status || "active";
+                  return (
+                    <button
+                      key={cand.id || cand.enrollmentId || cand.poolId}
+                      type="button"
+                      disabled={processing}
+                      onClick={() => doCheckIn(codeToUse, cand.poolId)}
+                      className="w-full text-right p-3 rounded-xl bg-card border border-border hover:border-sky-500 hover:bg-sky-500/5 transition flex items-center justify-between group cursor-pointer"
+                    >
+                      <div>
+                        <div className="flex items-center gap-1.5 font-bold text-sm text-foreground group-hover:text-sky-400">
+                          <Waves className="h-4 w-4 text-sky-400" />
+                          <span>{poolDisplayName}</span>
+                          {cand.pool?.fileNumberPrefix && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted font-mono">
+                              {cand.pool.fileNumberPrefix}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5 font-mono">
+                          {memberDisplayName ? `${memberDisplayName} — ` : ""}
+                          رقم الملف: {codeToUse} | {cand.subscriptionType}
+                        </p>
+                      </div>
+                      <div className="text-left shrink-0">
+                        <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${
+                          candStatus === "active" ? "bg-emerald-500/15 text-emerald-600" : "bg-muted text-muted-foreground"
+                        }`}>
+                          {candStatus === "active" ? "نشط" : candStatus}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setAmbiguousCandidates(null)}
+                className="w-full text-xs text-muted-foreground hover:text-foreground h-8"
+              >
+                إلغاء واستئناف المسح
+              </Button>
+            </motion.div>
           )}
 
           {/* Last result */}

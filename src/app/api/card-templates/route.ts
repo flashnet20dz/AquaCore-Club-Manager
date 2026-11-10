@@ -69,9 +69,15 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ★ name هو @unique عالمياً — أضف لاحقة فريدة لو الاسم مكرر
+    // ★ أضف لاحقة فريدة لو الاسم مكرر داخل نفس النادي والمسبح
     let uniqueName = name;
-    const existing = await db.cardTemplate.findUnique({ where: { name } });
+    const existing = await db.cardTemplate.findFirst({
+      where: {
+        clubId: targetClubId,
+        poolId: body.poolId || null,
+        name,
+      },
+    });
     if (existing) {
       uniqueName = `${name} (${Date.now().toString().slice(-4)})`;
     }

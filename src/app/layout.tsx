@@ -5,6 +5,7 @@ import "@/lib/date-utils";
 import { Toaster } from "@/components/ui/sonner";
 import { PWAInstaller } from "@/components/pwa-installer";
 import { ThemeProvider } from "@/lib/theme-context";
+import { Providers } from "@/components/providers";
 import { LatinDigitsGuard } from "@/components/latin-digits-guard";
 
 const cairo = Cairo({
@@ -295,7 +296,9 @@ export default function RootLayout({
       >
         <LatinDigitsGuard />
         <ThemeProvider>
-          {children}
+          <Providers>
+            {children}
+          </Providers>
         </ThemeProvider>
         <Toaster position="top-center" richColors closeButton />
         <PWAInstaller />

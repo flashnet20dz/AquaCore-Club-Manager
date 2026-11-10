@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { ensureDefaultPool } from "@/lib/multi-pool";
 
-// ═══ GET /api/subscribers/next-file-number?subscriptionType=RCS ═══
-// Lightweight endpoint: returns the next file number for a given subscription type.
-// Used by the subscriber form to preview the file number immediately when the user
-// picks a subscription type. Avoids fetching all subscribers (10000 rows) just to
-// compute the next number.
+// ═══ GET /api/subscribers/next-file-number?subscriptionType=RCS&poolId=... ═══
+// Lightweight endpoint: returns the next file number preview for a given pool and subscription type.
+// Supports multi-pool prefixes (e.g. B-RCS001, C-RCS001, or RCS001 for default pool).
 //
 // Logic:
 //   1. Look up the subscription type config (givesMembershipNumber, numberingGroup).
@@ -50,6 +49,19 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "لم يتم العثور على نادٍ" }, { status: 400 });
     }
 
+    const rawPoolId = url.searchParams.get("poolId");
+    let pool: any = null;
+    if (rawPoolId && rawPoolId !== "all") {
+      pool = await db.pool.findFirst({
+        where: { id: rawPoolId, clubId: targetClubId },
+      });
+    }
+    if (!pool) {
+      pool = await ensureDefaultPool(targetClubId);
+    }
+
+    const prefix = (pool?.fileNumberPrefix || "").trim();
+
     // جلب إعداد نوع الاشتراك
     const subType = await db.subscriptionType.findFirst({
       where: { clubId: targetClubId, code: subscriptionType },
@@ -62,45 +74,75 @@ export async function GET(req: NextRequest) {
 
     // إذا النوع لا يمنح رقم عضوية — استخدم الكود نفسه
     if (subType && !subType.givesMembershipNumber) {
+      const codeOnly = prefix ? `${prefix}-${subType.code}` : subType.code;
       return NextResponse.json({
-        fileNumber: subType.code,
+        fileNumber: codeOnly,
         group: subType.code,
         givesMembershipNumber: false,
+        poolId: pool?.id,
+        poolName: pool?.name,
+        prefix,
       });
     }
 
     // النوع يمنح رقم عضوية — استخدم numberingGroup + العداد
     const group = subType?.numberingGroup || "RCS";
 
-    // 🔑 جلب كل أرقام الملفات لهذه المجموعة فقط (select خفيف)
-    // استخدم startsWith لتقليص النتائج (العدد الذي يطابق البادئة فقط)
-    const subs = await db.subscriber.findMany({
+    // جلب قيمة العداد الذري الحالي
+    const counter = await db.poolNumberCounter.findUnique({
       where: {
-        clubId: targetClubId,
-        fileNumber: { startsWith: group },
+        clubId_poolId_numberingGroup: {
+          clubId: targetClubId,
+          poolId: pool.id,
+          numberingGroup: group,
+        },
       },
-      select: { fileNumber: true },
     });
 
-    // ابحث عن أكبر رقم في المجموعة
-    let maxNum = 0;
+    let maxNum = counter?.lastValue || 0;
+
+    // فحص إضافي للأرقام المحجوزة في هذا المسبح
+    const enrollments = await db.poolEnrollment.findMany({
+      where: { clubId: targetClubId, poolId: pool.id },
+      select: { fileNumber: true },
+    });
     const existingSet = new Set<string>();
-    for (const s of subs) {
-      existingSet.add(s.fileNumber);
-      const match = s.fileNumber.match(new RegExp(`^${group}(\\d+)$`));
+    for (const e of enrollments) {
+      existingSet.add(e.fileNumber);
+      const match = e.fileNumber.match(/(\d+)$/);
       if (match) {
         const num = parseInt(match[1], 10);
         if (num > maxNum) maxNum = num;
       }
     }
 
-    // جرّب أرقاماً حتى نجد واحداً غير مستخدم (حد أقصى 200 محاولة)
+    // إذا كان المسبح الافتراضي: فحص المشتركين القدامى للتوافق
+    if (pool.isDefault) {
+      const subs = await db.subscriber.findMany({
+        where: { clubId: targetClubId, fileNumber: { startsWith: group } },
+        select: { fileNumber: true },
+      });
+      for (const s of subs) {
+        existingSet.add(s.fileNumber);
+        const match = s.fileNumber.match(new RegExp(`^${group}(\\d+)$`));
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (num > maxNum) maxNum = num;
+        }
+      }
+    }
+
     let nextNum = maxNum + 1;
     let attempts = 0;
-    let fileNumber = `${group}${String(nextNum).padStart(3, "0")}`;
+    const formatNumber = (num: number) => {
+      const padded = String(num).padStart(3, "0");
+      return prefix ? `${prefix}-${group}${padded}` : `${group}${padded}`;
+    };
+
+    let fileNumber = formatNumber(nextNum);
     while (existingSet.has(fileNumber) && attempts < 200) {
       nextNum++;
-      fileNumber = `${group}${String(nextNum).padStart(3, "0")}`;
+      fileNumber = formatNumber(nextNum);
       attempts++;
     }
 
@@ -108,6 +150,9 @@ export async function GET(req: NextRequest) {
       fileNumber,
       group,
       givesMembershipNumber: true,
+      poolId: pool.id,
+      poolName: pool.name,
+      prefix,
     });
   } catch (error) {
     console.error("GET /api/subscribers/next-file-number error:", error);

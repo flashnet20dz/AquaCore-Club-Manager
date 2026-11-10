@@ -19,18 +19,43 @@ export async function GET(
     const { id } = await params;
 
     const clubFilter = currentUser.role === "superadmin" ? {} : { clubId: currentUser.clubId! };
-    const subscriber = await db.subscriber.findFirst({ where: { id, ...clubFilter } });
+    const subscriber = await db.subscriber.findFirst({
+      where: { id, ...clubFilter },
+      include: {
+        pool: { select: { id: true, name: true, code: true, color: true } },
+        enrollments: {
+          include: {
+            pool: { select: { id: true, name: true, code: true, color: true } },
+            cards: { select: { id: true, cardNumber: true, cardUid: true, status: true, issueDate: true } },
+          },
+          orderBy: { createdAt: "desc" },
+        },
+        transfers: {
+          include: {
+            sourcePool: { select: { id: true, name: true, code: true } },
+            targetPool: { select: { id: true, name: true, code: true } },
+          },
+          orderBy: { createdAt: "desc" },
+        },
+      },
+    });
     if (!subscriber) {
       return NextResponse.json({ error: "غير موجود" }, { status: 404 });
     }
 
-    const [renewals, attendances, payments, activities] = await Promise.all([
+    const [renewals, poolEnrollmentRenewals, attendances, payments, activities] = await Promise.all([
       db.renewal.findMany({
         where: { subscriberId: id, ...clubFilter },
         orderBy: { renewalDate: "desc" },
       }),
+      db.poolEnrollmentRenewal.findMany({
+        where: { subscriberId: id, ...clubFilter },
+        include: { pool: { select: { id: true, name: true, code: true } } },
+        orderBy: { renewedAt: "desc" },
+      }),
       db.attendance.findMany({
         where: { subscriberId: id, ...clubFilter },
+        include: { pool: { select: { id: true, name: true, code: true } } },
         orderBy: { date: "desc" },
         take: 100,
       }),
@@ -60,6 +85,7 @@ export async function GET(
     return NextResponse.json({
       subscriber,
       renewals,
+      poolEnrollmentRenewals,
       attendances,
       payments,
       activities,

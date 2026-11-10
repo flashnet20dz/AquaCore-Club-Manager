@@ -79,6 +79,24 @@ const COLUMN_SPECS: Array<{
   // ★ المرحلة 5: مفتاح Idempotency للتسديد + ربط بسجل الموظف
   { table: "WagePayment", column: "idempotencyKey", pg: `ALTER TABLE "WagePayment" ADD COLUMN IF NOT EXISTS "idempotencyKey" TEXT`, sqlite: `ALTER TABLE "WagePayment" ADD COLUMN "idempotencyKey" TEXT` },
   { table: "WagePayment", column: "employeeId", pg: `ALTER TABLE "WagePayment" ADD COLUMN IF NOT EXISTS "employeeId" TEXT`, sqlite: `ALTER TABLE "WagePayment" ADD COLUMN "employeeId" TEXT` },
+  // ★ Multi-Pool Enterprise Architecture
+  { table: "Pool", column: "color", pg: `ALTER TABLE "Pool" ADD COLUMN IF NOT EXISTS "color" TEXT DEFAULT '#0284c7'`, sqlite: `ALTER TABLE "Pool" ADD COLUMN "color" TEXT DEFAULT '#0284c7'` },
+  { table: "Pool", column: "lanesCount", pg: `ALTER TABLE "Pool" ADD COLUMN IF NOT EXISTS "lanesCount" INTEGER`, sqlite: `ALTER TABLE "Pool" ADD COLUMN "lanesCount" INTEGER` },
+  { table: "Pool", column: "lengthMeters", pg: `ALTER TABLE "Pool" ADD COLUMN IF NOT EXISTS "lengthMeters" DOUBLE PRECISION`, sqlite: `ALTER TABLE "Pool" ADD COLUMN "lengthMeters" REAL` },
+  { table: "Subscriber", column: "poolId", pg: `ALTER TABLE "Subscriber" ADD COLUMN IF NOT EXISTS "poolId" TEXT`, sqlite: `ALTER TABLE "Subscriber" ADD COLUMN "poolId" TEXT` },
+  { table: "Attendance", column: "poolId", pg: `ALTER TABLE "Attendance" ADD COLUMN IF NOT EXISTS "poolId" TEXT`, sqlite: `ALTER TABLE "Attendance" ADD COLUMN "poolId" TEXT` },
+  { table: "Attendance", column: "enrollmentId", pg: `ALTER TABLE "Attendance" ADD COLUMN IF NOT EXISTS "enrollmentId" TEXT`, sqlite: `ALTER TABLE "Attendance" ADD COLUMN "enrollmentId" TEXT` },
+  { table: "SwimmingTimeSlot", column: "poolId", pg: `ALTER TABLE "SwimmingTimeSlot" ADD COLUMN IF NOT EXISTS "poolId" TEXT`, sqlite: `ALTER TABLE "SwimmingTimeSlot" ADD COLUMN "poolId" TEXT` },
+  { table: "PoolClosure", column: "poolId", pg: `ALTER TABLE "PoolClosure" ADD COLUMN IF NOT EXISTS "poolId" TEXT`, sqlite: `ALTER TABLE "PoolClosure" ADD COLUMN "poolId" TEXT` },
+  { table: "Compensation", column: "poolId", pg: `ALTER TABLE "Compensation" ADD COLUMN IF NOT EXISTS "poolId" TEXT`, sqlite: `ALTER TABLE "Compensation" ADD COLUMN "poolId" TEXT` },
+  { table: "Compensation", column: "enrollmentId", pg: `ALTER TABLE "Compensation" ADD COLUMN IF NOT EXISTS "enrollmentId" TEXT`, sqlite: `ALTER TABLE "Compensation" ADD COLUMN "enrollmentId" TEXT` },
+  { table: "Waitlist", column: "poolId", pg: `ALTER TABLE "Waitlist" ADD COLUMN IF NOT EXISTS "poolId" TEXT`, sqlite: `ALTER TABLE "Waitlist" ADD COLUMN "poolId" TEXT` },
+  { table: "CardTemplate", column: "poolId", pg: `ALTER TABLE "CardTemplate" ADD COLUMN IF NOT EXISTS "poolId" TEXT`, sqlite: `ALTER TABLE "CardTemplate" ADD COLUMN "poolId" TEXT` },
+  { table: "FinancialTransaction", column: "poolId", pg: `ALTER TABLE "FinancialTransaction" ADD COLUMN IF NOT EXISTS "poolId" TEXT`, sqlite: `ALTER TABLE "FinancialTransaction" ADD COLUMN "poolId" TEXT` },
+  { table: "FinancialTransaction", column: "enrollmentId", pg: `ALTER TABLE "FinancialTransaction" ADD COLUMN IF NOT EXISTS "enrollmentId" TEXT`, sqlite: `ALTER TABLE "FinancialTransaction" ADD COLUMN "enrollmentId" TEXT` },
+  { table: "PoolEnrollment", column: "renewedAt", pg: `ALTER TABLE "PoolEnrollment" ADD COLUMN IF NOT EXISTS "renewedAt" TIMESTAMP(3)`, sqlite: `ALTER TABLE "PoolEnrollment" ADD COLUMN "renewedAt" DATETIME` },
+  { table: "PoolEnrollment", column: "renewalCount", pg: `ALTER TABLE "PoolEnrollment" ADD COLUMN IF NOT EXISTS "renewalCount" INTEGER NOT NULL DEFAULT 0`, sqlite: `ALTER TABLE "PoolEnrollment" ADD COLUMN "renewalCount" INTEGER NOT NULL DEFAULT 0` },
+  { table: "PoolEnrollment", column: "previousExpiryDate", pg: `ALTER TABLE "PoolEnrollment" ADD COLUMN IF NOT EXISTS "previousExpiryDate" TIMESTAMP(3)`, sqlite: `ALTER TABLE "PoolEnrollment" ADD COLUMN "previousExpiryDate" DATETIME` },
 ];
 
 async function columnExists(
@@ -167,8 +185,183 @@ export async function ensureRuntimeColumns(): Promise<void> {
   } catch { /* الفهرس اختياري */ }
 
   await ensureSubscriberPerformanceIndexes().catch(() => undefined);
+  await ensureMultiPoolRuntimeIndexes().catch(() => undefined);
 
   runtimeDdlDone = true;
+}
+
+// ─────────────────────────────────────────────────────────────
+// فهارس تعدد المسابح — فريدة جزئية للمسابح والترقيم والانخراط النشط
+// ─────────────────────────────────────────────────────────────
+let multiPoolIndexesDone = false;
+
+export async function ensureMultiPoolRuntimeIndexes(): Promise<void> {
+  if (multiPoolIndexesDone) return;
+  const { db } = await import("@/lib/db");
+
+  // 🛡️ إنشاء جدول سجل التجديد PoolEnrollmentRenewal تلقائياً إذا لم يكن موجوداً
+  try {
+    const tableSql = isSqlite()
+      ? `CREATE TABLE IF NOT EXISTS "PoolEnrollmentRenewal" (
+          "id" TEXT NOT NULL PRIMARY KEY,
+          "clubId" TEXT NOT NULL,
+          "poolId" TEXT NOT NULL,
+          "subscriberId" TEXT NOT NULL,
+          "enrollmentId" TEXT NOT NULL,
+          "previousExpiryDate" DATETIME,
+          "newExpiryDate" DATETIME NOT NULL,
+          "renewedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "renewedById" TEXT,
+          "subscriptionType" TEXT,
+          "months" INTEGER NOT NULL DEFAULT 1,
+          "amount" INTEGER,
+          "paymentMethod" TEXT,
+          "transactionId" TEXT,
+          "notes" TEXT,
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`
+      : `CREATE TABLE IF NOT EXISTS "PoolEnrollmentRenewal" (
+          "id" TEXT NOT NULL PRIMARY KEY,
+          "clubId" TEXT NOT NULL,
+          "poolId" TEXT NOT NULL,
+          "subscriberId" TEXT NOT NULL,
+          "enrollmentId" TEXT NOT NULL,
+          "previousExpiryDate" TIMESTAMP(3),
+          "newExpiryDate" TIMESTAMP(3) NOT NULL,
+          "renewedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "renewedById" TEXT,
+          "subscriptionType" TEXT,
+          "months" INTEGER NOT NULL DEFAULT 1,
+          "amount" INTEGER,
+          "paymentMethod" TEXT,
+          "transactionId" TEXT,
+          "notes" TEXT,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`;
+    await db.$executeRawUnsafe(tableSql).catch(() => undefined);
+  } catch {}
+
+  // 🛡️ معالجة استباقية للتعارضات: إذا وجد انخراط مكرر نشط قديماً، نؤرشف الأقدم لضمان سلامة الفهرس الجزئي
+  try {
+    await db.$executeRawUnsafe(`
+      UPDATE "PoolEnrollment"
+      SET "status" = 'archived', "archivedAt" = CURRENT_TIMESTAMP
+      WHERE "id" IN (
+        SELECT "id" FROM (
+          SELECT "id",
+                 ROW_NUMBER() OVER (
+                   PARTITION BY "clubId", "poolId", "subscriberId"
+                   ORDER BY "createdAt" DESC
+                 ) as rn
+          FROM "PoolEnrollment"
+          WHERE "status" = 'active'
+        ) sub
+        WHERE sub.rn > 1
+      )
+    `).catch(() => undefined);
+  } catch {}
+
+  // 🛡️ معالجة استباقية لتعارض بادئات المسابح: إذا وُجدت مسابح بنفس البادئة بالخطأ، نعدل المتكررة لتفادي فشل الفهرس
+  try {
+    const duplicatePools = (await db.$queryRawUnsafe(`
+      SELECT id, "clubId", "fileNumberPrefix"
+      FROM "Pool"
+      WHERE "fileNumberPrefix" IS NOT NULL AND "fileNumberPrefix" != ''
+      AND id NOT IN (
+        SELECT MIN(id)
+        FROM "Pool"
+        WHERE "fileNumberPrefix" IS NOT NULL AND "fileNumberPrefix" != ''
+        GROUP BY "clubId", "fileNumberPrefix"
+      )
+    `)) as Array<{ id: string; clubId: string; fileNumberPrefix: string }>;
+
+    if (Array.isArray(duplicatePools) && duplicatePools.length > 0) {
+      for (let i = 0; i < duplicatePools.length; i++) {
+        const dp = duplicatePools[i];
+        const newPrefix = `${dp.fileNumberPrefix.slice(0, 3)}${i + 2}`.slice(0, 4);
+        await db.$executeRawUnsafe(`UPDATE "Pool" SET "fileNumberPrefix" = '${newPrefix}' WHERE id = '${dp.id}'`).catch(() => undefined);
+      }
+    }
+  } catch {}
+
+  const indexes = [
+    {
+      name: "PoolEnrollment_active_unique",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS "PoolEnrollment_active_unique" ON "PoolEnrollment"("clubId", "poolId", "subscriberId") WHERE "status" = 'active'`,
+      conditionCheck: "active",
+    },
+    {
+      name: "Pool_club_default_unique_idx",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS "Pool_club_default_unique_idx" ON "Pool"("clubId") WHERE "isDefault" = 1 OR "isDefault" = true`,
+      conditionCheck: "isDefault",
+    },
+    {
+      name: "Pool_club_prefix_unique_idx",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS "Pool_club_prefix_unique_idx" ON "Pool"("clubId", "fileNumberPrefix") WHERE "fileNumberPrefix" IS NOT NULL AND "fileNumberPrefix" != ''`,
+      conditionCheck: "fileNumberPrefix",
+    },
+    {
+      name: "SwimmingTimeSlot_club_global_name_idx",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS "SwimmingTimeSlot_club_global_name_idx" ON "SwimmingTimeSlot"("clubId", "name") WHERE "poolId" IS NULL`,
+      conditionCheck: "poolId",
+    },
+    {
+      name: "CardTemplate_club_global_name_idx",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS "CardTemplate_club_global_name_idx" ON "CardTemplate"("clubId", "name") WHERE "poolId" IS NULL`,
+      conditionCheck: "poolId",
+    },
+  ];
+
+  for (const idx of indexes) {
+    try {
+      const isValid = await hasValidPartialIndex(db, idx.name, idx.conditionCheck);
+      if (!isValid) {
+        // إذا كان هناك فهرس قديم باسم مطابق بدون شرط جزئي، نسقطه أولاً لإعادة بنائه بالشرط الصحيح
+        await db.$executeRawUnsafe(`DROP INDEX IF EXISTS "${idx.name}"`).catch(() => undefined);
+        await db.$executeRawUnsafe(idx.sql).catch(() => undefined);
+      }
+    } catch { /* فهرس اختياري */ }
+  }
+  multiPoolIndexesDone = true;
+}
+
+/**
+ * فحص عميق للفهرس الجزئي: لا يكتفي بالاسم بل يتحقق من وجود شرط WHERE الفعلي في المخطط
+ */
+async function hasValidPartialIndex(
+  db: { $queryRawUnsafe: (q: string) => Promise<unknown> },
+  indexName: string,
+  expectedConditionSubstring: string
+): Promise<boolean> {
+  // PostgreSQL
+  if (!isSqlite()) {
+    try {
+      const rows = (await db.$queryRawUnsafe(
+        `SELECT indexdef FROM pg_indexes WHERE indexname = '${indexName}'`
+      )) as Array<{ indexdef?: string }>;
+      if (Array.isArray(rows) && rows.length > 0) {
+        const def = rows[0]?.indexdef?.toLowerCase() || "";
+        return def.includes("where") && def.includes(expectedConditionSubstring.toLowerCase());
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  // SQLite
+  try {
+    const rows = (await db.$queryRawUnsafe(
+      `SELECT sql FROM sqlite_master WHERE type='index' AND name = '${indexName}'`
+    )) as Array<{ sql?: string }>;
+    if (Array.isArray(rows) && rows.length > 0) {
+      const sql = rows[0]?.sql?.toLowerCase() || "";
+      return sql.includes("where") && sql.includes(expectedConditionSubstring.toLowerCase());
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -184,7 +184,19 @@ export const SubscriberCard = memo(function SubscriberCard({
         </div>
 
         {/* Badges row */}
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-1.5 items-center">
+          {/* Multi-Pool Enrollment Badge */}
+          {Array.isArray((subscriber as any).enrollments) && (subscriber as any).enrollments.length > 1 ? (
+            <Badge variant="outline" className="border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-300 gap-1 text-[10px] font-bold">
+              <Waves className="h-3 w-3 text-sky-500 shrink-0" />
+              {(subscriber as any).enrollments.length} مسابح
+            </Badge>
+          ) : (subscriber as any).pool ? (
+            <Badge variant="outline" className="border-slate-500/20 bg-slate-500/10 text-slate-600 dark:text-slate-300 gap-1 text-[10px]">
+              <Waves className="h-3 w-3 text-sky-400 shrink-0" />
+              {(subscriber as any).pool.name}
+            </Badge>
+          ) : null}
           <Badge variant="outline" className={cn("border", ageCatInfo.color)}>
             {ageCatInfo.icon} {ageCatInfo.shortLabel}
           </Badge>

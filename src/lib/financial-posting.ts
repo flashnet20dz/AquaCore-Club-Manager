@@ -32,6 +32,8 @@ function parseJSONMap(str: string | null | undefined): Record<string, number> {
 
 export interface LedgerEntryInput {
   clubId: string;
+  poolId?: string | null;
+  enrollmentId?: string | null;
   type: "income" | "expense";
   category: string;
   amount: number;
@@ -134,6 +136,8 @@ export async function postLedgerEntry(tx: PrismaTx, data: LedgerEntryInput): Pro
       const entry = await tx.financialTransaction.create({
         data: {
           clubId: data.clubId,
+          poolId: data.poolId ?? null,
+          enrollmentId: data.enrollmentId ?? null,
           type: data.type,
           category: data.category,
           amount,

@@ -94,6 +94,8 @@ import {
 } from "@/lib/rcs";
 import { SubscriptionGate } from "@/components/subscription-gate";
 import { SubscriptionBadge } from "@/components/subscription-badge";
+import { PoolSelector } from "@/components/pool-selector";
+import { usePools } from "@/hooks/use-pools";
 import { CommandPalette } from "@/components/command-palette";
 import { DashboardExtras } from "@/components/dashboard-extras";
 import { OnboardingChecklist } from "@/components/onboarding-checklist";
@@ -280,6 +282,7 @@ export default function Home() {
   // Hook موحد لجلب أنواع الاشتراك — Single Source of Truth
   // يجب استدعاؤه قبل أي early return (قواعد الـ Hooks)
   const { types: subscriptionTypes, refresh: refreshSubTypes } = useSubscriptionTypes();
+  const { currentPoolId } = usePools();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   // التقرير المفتوح حالياً في مركز التقارير
   const [openReportId, setOpenReportId] = useState<string | null>(null);
@@ -406,10 +409,16 @@ export default function Home() {
       params.set("sortOrder", sortOrder);
       params.set("limit", "10000");
 
+      // ★ Multi-Pool filter
+      if (currentPoolId && currentPoolId !== "all") {
+        params.set("poolId", currentPoolId);
+      }
+
       const canFin = sessionUser ? hasPermission(sessionUser.role, "financialDashboard") : false;
+      const statsUrl = currentPoolId && currentPoolId !== "all" ? `/api/stats?poolId=${currentPoolId}` : "/api/stats";
       const [subsRes, statsRes, actRes, finRes] = await Promise.all([
         fetch(`/api/subscribers?${params.toString()}`).then((r) => r.json()).catch(() => ({ subscribers: [] })),
-        fetch("/api/stats"),
+        fetch(statsUrl),
         fetch("/api/activities"),
         // ★ المال من الدفتر فقط — للصلاحيات المالية فقط (الكاشير لا يرى بطاقات المال)
         // المرحلة 3: عبر طبقة الاستعلام المالية الموحدة (مصدر واحد للحقيقة)
@@ -427,7 +436,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [filterPayment, filterType, filterGender, filterRenewal, sortBy, sortOrder, sessionUser]);
+  }, [filterPayment, filterType, filterGender, filterRenewal, sortBy, sortOrder, sessionUser, currentPoolId]);
 
   useEffect(() => {
     if (!sessionUser) return;
@@ -651,6 +660,9 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-1 sm:gap-1.5 md:gap-2 flex-nowrap shrink-0 justify-end">
+            <div className="shrink-0">
+              <PoolSelector />
+            </div>
             {sessionUser.role !== "superadmin" && (
               <div className="hidden md:block shrink-0">
                 <SubscriptionBadge />

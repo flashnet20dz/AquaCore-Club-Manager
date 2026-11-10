@@ -31,6 +31,7 @@ export async function GET(req: NextRequest) {
     const dateTo = url.searchParams.get("dateTo");
     const payeeName = url.searchParams.get("payeeName") || "";
     const paymentMethod = url.searchParams.get("paymentMethod") || "";
+    const poolIdParam = url.searchParams.get("poolId");
     const q = (url.searchParams.get("q") || "").trim();
     const page = Math.max(1, parseInt(url.searchParams.get("page") || "1"));
     const limit = Math.min(200, Math.max(1, parseInt(url.searchParams.get("limit") || "50")));
@@ -54,6 +55,13 @@ export async function GET(req: NextRequest) {
     if (category) where.category = category;
     if (paymentMethod) where.paymentMethod = paymentMethod;
     if (payeeName) where.payeeName = { contains: payeeName };
+    if (poolIdParam) {
+      if (poolIdParam === "general" || poolIdParam === "null") {
+        where.poolId = null;
+      } else if (poolIdParam !== "all") {
+        where.poolId = poolIdParam;
+      }
+    }
 
     if (dateFrom || dateTo) {
       const dateFilter: Record<string, Date> = {};
@@ -182,7 +190,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const { type, category, subCategory, amount, date, paymentMethod, payeeName, payeeId,
-      subscriberId, employeeId, staffCompensationId, closureId, reference, note } = body;
+      subscriberId, employeeId, staffCompensationId, closureId, reference, note, poolId, enrollmentId } = body;
 
     // Validate
     if (!type || !category || !amount) {
@@ -216,6 +224,8 @@ export async function POST(req: NextRequest) {
     const result = await db.$transaction(async (tx) => {
       const posted = await postLedgerEntry(tx, {
         clubId,
+        poolId: poolId || null,
+        enrollmentId: enrollmentId || null,
         type,
         category,
         amount: txAmount,

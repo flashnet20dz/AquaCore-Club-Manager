@@ -25,9 +25,11 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { timeSlot, subscriberIds, date, method, checkInTime } = body;
+    const { timeSlot, subscriberIds, date, method, checkInTime, poolId } = body;
 
     const clubFilter = currentUser.role === "superadmin" ? {} : { clubId: currentUser.clubId! };
+    const cleanPoolId = poolId && poolId !== "all" ? poolId : null;
+    const poolFilter = cleanPoolId ? { enrollments: { some: { poolId: cleanPoolId, status: "active" } } } : {};
     const clubId = currentUser.clubId || (currentUser.role === "superadmin" ? null : null);
 
     // تحديد التاريخ (اليوم افتراضياً)
@@ -39,14 +41,14 @@ export async function POST(req: NextRequest) {
     if (subscriberIds && Array.isArray(subscriberIds) && subscriberIds.length > 0) {
       // قائمة محددة من IDs
       targetSubs = await db.subscriber.findMany({
-        where: { id: { in: subscriberIds }, ...clubFilter },
-        select: { id: true, clubId: true, lastName: true, firstName: true, paymentStatus: true, lastPaymentDate: true },
+        where: { id: { in: subscriberIds }, ...clubFilter, ...poolFilter },
+        select: { id: true, clubId: true, poolId: true, lastName: true, firstName: true, paymentStatus: true, lastPaymentDate: true },
       });
     } else if (timeSlot) {
       // كل منخرطي فوج محدد
       targetSubs = await db.subscriber.findMany({
-        where: { timeSlot: timeSlot, ...clubFilter },
-        select: { id: true, clubId: true, lastName: true, firstName: true, paymentStatus: true, lastPaymentDate: true },
+        where: { timeSlot: timeSlot, ...clubFilter, ...poolFilter },
+        select: { id: true, clubId: true, poolId: true, lastName: true, firstName: true, paymentStatus: true, lastPaymentDate: true },
       });
     } else {
       return NextResponse.json({
@@ -92,6 +94,7 @@ export async function POST(req: NextRequest) {
       return {
         clubId: s.clubId,
         subscriberId: s.id,
+        poolId: cleanPoolId || s.poolId || undefined,
         date: today,
         checkInTime: now,
         method: method || "bulk",

@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser, hasPermission } from "@/lib/session";
 import { computeSubscriberFields, computeSubscriberFieldsDynamic, type Gender, type BloodType, type SubscriptionType, type PaymentStatus, type SwimmingDays, type TimeSlot, type SubscriptionTypeConfig, DEFAULT_TYPES_MAP, normalizePaymentStatus, isExemptStatus } from "@/lib/rcs";
 import { postLedgerEntriesBatchTx, type LedgerEntryInput } from "@/lib/financial-posting";
+import { ensureDefaultPool, migrateLegacySubscribers } from "@/lib/multi-pool";
 import * as XLSX from "xlsx";
 
 // Parse dates in multiple formats:
@@ -141,6 +142,11 @@ export async function POST(req: NextRequest) {
     if (!targetClubId) {
       return NextResponse.json({ error: "لم يتم العثور على نادٍ نشط للاستيراد فيه" }, { status: 400 });
     }
+
+    const rawRequestedPoolId = (formData.get("poolId") as string) || null;
+    const requestedPoolId = rawRequestedPoolId && rawRequestedPoolId !== "all" ? rawRequestedPoolId : null;
+    const defaultPool = await ensureDefaultPool(targetClubId);
+    const targetPoolId = requestedPoolId || defaultPool.id;
 
     if (!file) {
       return NextResponse.json({ error: "لم يتم رفع أي ملف" }, { status: 400 });
@@ -873,6 +879,7 @@ export async function POST(req: NextRequest) {
 
       return {
         clubId: targetClubId,
+        poolId: targetPoolId,
         fileNumber,
         lastName: r.lastName,
         firstName: r.firstName,
@@ -1247,6 +1254,10 @@ export async function POST(req: NextRequest) {
         errors: importErrors.slice(0, 50),
         totalRows: rows.length,
       }, { status: 500 });
+    }
+
+    if (imported > 0 || updated > 0) {
+      await migrateLegacySubscribers(targetClubId).catch(() => null);
     }
 
     return NextResponse.json({

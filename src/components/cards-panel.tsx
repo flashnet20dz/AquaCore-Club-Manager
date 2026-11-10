@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { usePools } from "@/hooks/use-pools";
 import {
   AGE_CATEGORY_INFO,
   getAgeCategory,
@@ -74,18 +75,25 @@ const DEFAULT_CONFIG: CardConfig = {
 // إذا كان النوع غير معروف، نعرض الكود كما هو
 
 export function CardsPanel({ subscribers }: CardsPanelProps) {
+  const { pools, isMultiPool } = usePools();
+  const [filterPoolId, setFilterPoolId] = useState<string>("all");
   const [config, setConfig] = useState<CardConfig>(DEFAULT_CONFIG);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const filteredSubscribers = subscribers.filter((s) => {
+    if (filterPoolId === "all") return true;
+    return (s as any).poolId === filterPoolId;
+  });
+
   const toggleSelect = (id: string) => setSelectedIds((prev) => prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]);
-  const selectAll = () => setSelectedIds(subscribers.map((s) => s.id));
+  const selectAll = () => setSelectedIds(filteredSubscribers.map((s) => s.id));
   const deselectAll = () => setSelectedIds([]);
 
   const handleGeneratePDF = async () => {
-    const targetSubs = subscribers.filter((s) => selectedIds.includes(s.id));
+    const targetSubs = filteredSubscribers.filter((s) => selectedIds.includes(s.id));
     if (targetSubs.length === 0) { toast.error("اختر منخرطاً واحداً على الأقل"); return; }
     setGenerating(true);
     try {
@@ -138,9 +146,26 @@ export function CardsPanel({ subscribers }: CardsPanelProps) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 mb-3">
-          <Button size="sm" variant="ghost" onClick={selectAll}>تحديد الكل</Button>
-          <Button size="sm" variant="ghost" onClick={deselectAll}>إلغاء التحديد</Button>
+        <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="ghost" onClick={selectAll}>تحديد الكل</Button>
+            <Button size="sm" variant="ghost" onClick={deselectAll}>إلغاء التحديد</Button>
+          </div>
+          {isMultiPool && (
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="text-muted-foreground">تصفية حسب المسبح:</span>
+              <select
+                value={filterPoolId}
+                onChange={(e) => setFilterPoolId(e.target.value)}
+                className="h-8 rounded-lg bg-muted border border-border px-2 text-xs"
+              >
+                <option value="all">جميع المسابح</option>
+                {pools.filter((p) => p.active).map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         <div className="rounded-xl bg-teal-500/10 border border-teal-500/20 p-2.5 text-xs text-teal-800 dark:text-teal-200 mb-3">
@@ -150,7 +175,7 @@ export function CardsPanel({ subscribers }: CardsPanelProps) {
 
         {/* Card grid preview — auto-fit (1 col mobile, up to 4 cols desktop) */}
         <div className="grid gap-3 max-h-[600px] overflow-y-auto pr-1 -mr-1 scrollbar-thin" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
-          {subscribers.slice(0, 100).map((s, i) => (
+          {filteredSubscribers.slice(0, 100).map((s, i) => (
             <motion.div key={s.id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i * 0.02, 0.5) }} onClick={() => toggleSelect(s.id)} className="cursor-pointer contain-content">
               <CardPreview subscriber={s} config={config} selected={selectedIds.includes(s.id)} />
             </motion.div>

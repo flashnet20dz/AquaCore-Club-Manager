@@ -5,7 +5,7 @@ import {
   Settings as SettingsIcon, Save, Loader2, Building, Phone, MessageSquare,
   DollarSign, Clock, Users, Plus, Trash2, Type, Calendar, Timer,
   LayoutTemplate, Sparkles, Pencil, FileText, Monitor,
-  RefreshCw, Key, Copy, Eye, EyeOff, SlidersHorizontal, Wifi, Database,
+  RefreshCw, Key, Copy, Eye, EyeOff, SlidersHorizontal, Wifi, Database, Waves,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +32,8 @@ import { PageNavigationManager } from "@/components/page-navigation-manager";
 import { SwimmingScheduleHub } from "@/components/swimming-schedule-hub";
 import { LocalNetworkCard } from "@/components/local-network-card";
 import { AdvancedBackupManager } from "@/components/advanced-backup-manager";
+import { PoolsManagementModal } from "@/components/pools-management-modal";
+import { usePools } from "@/hooks/use-pools";
 
 export function SettingsPanel({ initialTab }: { initialTab?: string | null }) {
   const [settings, setSettings] = useState<Record<string, string>>({});
@@ -90,12 +92,16 @@ export function SettingsPanel({ initialTab }: { initialTab?: string | null }) {
   const swimDays = parseArr("customSwimDays", ["الأحد والأربعاء", "الاثنين والخميس", "الثلاثاء والجمعة", "كل الأيام"]);
   const timeSlots = parseArr("customTimeSlots", ["09:00-10:00", "10:00-11:00", "19:00-20:00", "20:00-21:00"]);
 
+  const { pools } = usePools();
+  const [poolsModalOpen, setPoolsModalOpen] = useState(false);
+
   if (loading) {
     return <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
 
   const SETTINGS_SECTIONS = [
     { id: "navigation", label: "إدارة وترتيب وتسمية الصفحات", icon: SlidersHorizontal, desc: "تسمية الواجهات، ترتيب القوائم، وتخصيص عناوين التصدير", badge: "جديد", color: "text-emerald-500 bg-emerald-500/10" },
+    { id: "pools", label: "إدارة المسابح والمنشآت المائية", icon: Waves, desc: "إضافة المسابح، ضبط السعة، بادئات الترقيم، والأرشفة", badge: "Multi-Pool", color: "text-sky-500 bg-sky-500/10" },
     { id: "appearance", label: "المظهر والهوية البصرية", icon: Sparkles, desc: "السمة، الألوان، الشعار والخطوط", color: "text-purple-500 bg-purple-500/10" },
     { id: "general", label: "معلومات النادي والعملة", icon: Building, desc: "اسم النادي، الهاتف، العنوان والعملة", color: "text-blue-500 bg-blue-500/10" },
     { id: "subscribers", label: "المنخرطون والأنواع", icon: Users, desc: "أنواع الاشتراكات، أيام وحصص السباحة", color: "text-teal-500 bg-teal-500/10" },
@@ -269,6 +275,65 @@ export function SettingsPanel({ initialTab }: { initialTab?: string | null }) {
               {/* ════════════ 0. إدارة وترتيب الصفحات (جديد) ════════════ */}
               <TabsContent value="navigation" className="m-0 focus-visible:outline-none">
                 <PageNavigationManager />
+              </TabsContent>
+
+              {/* ════════════ 0.1 إدارة المسابح والمنشآت المائية (Multi-Pool) ════════════ */}
+              <TabsContent value="pools" className="m-0 focus-visible:outline-none space-y-4">
+                <div className="rounded-2xl border border-sky-500/20 bg-sky-950/20 p-5 space-y-4">
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div className="space-y-1">
+                      <h4 className="font-bold text-sm text-sky-300 flex items-center gap-2">
+                        <Waves className="h-4 w-4 text-sky-400" />
+                        منظومة المسابح المتعددة (Multi-Pool Enterprise Architecture)
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        إجمالي المسابح المسجلة في النادي: <strong>{pools.length}</strong> مسبح. لكل مسبح ترقيم اشتراكات وسعة وحضور مستقل.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      onClick={() => setPoolsModalOpen(true)}
+                      className="bg-sky-600 hover:bg-sky-500 text-white text-xs h-9 font-bold gap-2"
+                    >
+                      <Waves className="h-4 w-4" /> فتح نافذة إدارة وضبط المسابح
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-2">
+                    {pools.map((p) => (
+                      <div
+                        key={p.id}
+                        className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/60 space-y-2 relative overflow-hidden"
+                      >
+                        <div
+                          className="absolute top-0 right-0 left-0 h-1"
+                          style={{ backgroundColor: p.color || "#0284c7" }}
+                        />
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-sm text-white flex items-center gap-1.5">
+                            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: p.color || "#0284c7" }} />
+                            {p.name}
+                          </span>
+                          {p.isDefault && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300">
+                              افتراضي
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-mono flex items-center justify-between">
+                          <span>كود: {p.code}</span>
+                          <span>بادئة: {p.fileNumberPrefix ? `${p.fileNumberPrefix}-` : "افتراضية"}</span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 flex items-center justify-between pt-1 border-t border-slate-800">
+                          <span>سعة: {p.capacity || "—"}</span>
+                          <span className="text-emerald-400">{p.activeSubscribersCount || 0} منخرط</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <PoolsManagementModal open={poolsModalOpen} onClose={() => setPoolsModalOpen(false)} />
               </TabsContent>
 
               {/* ════════════ 1. المظهر والشعار (ThemeSettingsPanel) ════════════ */}

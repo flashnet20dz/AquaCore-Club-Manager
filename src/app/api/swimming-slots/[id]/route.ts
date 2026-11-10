@@ -21,15 +21,22 @@ function isValidDay(v: unknown): v is DayKey {
   return typeof v === "string" && (DAY_KEYS as readonly string[]).includes(v);
 }
 
-/** تسمية فريدة per club — تُستخدم عند تغيير الاسم فقط */
+/** تسمية فريدة per club + pool — تُستخدم عند تغيير الاسم فقط */
 async function resolveUniqueName(
   clubId: string,
   desired: string,
   startTime: string,
+  poolId: string | null | undefined,
   excludeId: string
 ): Promise<string> {
+  const where: any = { clubId, id: { not: excludeId } };
+  if (poolId) {
+    where.poolId = poolId;
+  } else {
+    where.poolId = null;
+  }
   const rows = await db.swimmingTimeSlot.findMany({
-    where: { clubId, id: { not: excludeId } },
+    where,
     select: { name: true },
   });
   const taken = new Set(rows.map((r) => r.name));
@@ -72,7 +79,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       maxCapacity?: number;
       sortOrder?: number;
       active?: boolean;
+      poolId?: string | null;
     } = {};
+
+    if (body.poolId !== undefined) {
+      if (body.poolId === null || body.poolId === "") {
+        data.poolId = null;
+      } else {
+        const p = await db.pool.findFirst({ where: { id: body.poolId, clubId: user.clubId } });
+        if (!p) return NextResponse.json({ error: "المسبح المحدد غير موجود" }, { status: 404 });
+        data.poolId = body.poolId;
+      }
+    }
 
     if (body.startTime !== undefined) {
       const v = typeof body.startTime === "string" ? body.startTime.trim() : "";
@@ -107,16 +125,23 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
     if (body.name !== undefined) {
       const desired = typeof body.name === "string" ? body.name.trim() : "";
-      if (desired && desired !== existing.name) {
+      const effectivePoolId = data.poolId !== undefined ? data.poolId : existing.poolId;
+      if (desired && (desired !== existing.name || data.poolId !== undefined)) {
         const startForSuffix = data.startTime || existing.startTime;
-        data.name = await resolveUniqueName(user.clubId, desired, startForSuffix, id);
+        data.name = await resolveUniqueName(user.clubId, desired, startForSuffix, effectivePoolId, id);
       } else if (desired) {
         data.name = desired; // نفس الاسم الحالي — بلا تغيير
       }
       // اسم فارغ في التعديل → يُتجاهل (يحتفظ بالاسم الحالي)
     }
 
-    const slot = await db.swimmingTimeSlot.update({ where: { id }, data });
+    const slot = await db.swimmingTimeSlot.update({
+      where: { id },
+      data,
+      include: {
+        pool: { select: { id: true, name: true, code: true, color: true } },
+      },
+    });
     return NextResponse.json({ slot });
   } catch (e) {
     console.error("PATCH swimming-slots/[id]:", e);

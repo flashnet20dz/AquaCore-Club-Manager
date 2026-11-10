@@ -25,17 +25,28 @@ function isValidDay(v: unknown): v is DayKey {
 }
 
 /**
- * تسمية فريدة per club (@@unique([clubId, name])).
+ * تسمية فريدة per club + pool (@@unique([clubId, poolId, name])).
  * لو تكرر الاسم المطلوب: نجرّب «{الاسم} {startTime}» ثم نضيف عدّاداً.
  */
 async function resolveUniqueName(
   clubId: string,
   desired: string,
   startTime: string,
+  poolId?: string | null,
   excludeId?: string
 ): Promise<string> {
+  const where: any = { clubId };
+  if (poolId) {
+    where.poolId = poolId;
+  } else {
+    where.poolId = null;
+  }
+  if (excludeId) {
+    where.id = { not: excludeId };
+  }
+
   const rows = await db.swimmingTimeSlot.findMany({
-    where: { clubId, ...(excludeId ? { id: { not: excludeId } } : {}) },
+    where,
     select: { name: true },
   });
   const taken = new Set(rows.map((r) => r.name));
@@ -56,14 +67,27 @@ export async function GET(req: NextRequest) {
     // بذر تلقائي مرة واحدة للنوادي الجديدة (إصلاح: توقيتات السباحة فارغة)
     await ensureSwimDefaults(db, user.clubId).catch(() => null);
 
-    // فلتر اختياري ?day=sun → حصص هذا اليوم + الحصص العامة (dayOfWeek=null)
     const day = req.nextUrl.searchParams.get("day");
-    const where = isValidDay(day)
-      ? { clubId: user.clubId, OR: [{ dayOfWeek: day }, { dayOfWeek: null }] }
-      : { clubId: user.clubId };
+    const poolId = req.nextUrl.searchParams.get("poolId");
+
+    const conditions: any[] = [{ clubId: user.clubId }];
+
+    if (isValidDay(day)) {
+      conditions.push({ OR: [{ dayOfWeek: day }, { dayOfWeek: null }] });
+    }
+
+    if (poolId && poolId !== "all") {
+      // إرجاع حصص المسبح المحدد بالإضافة إلى الحصص العامة (poolId = null)
+      conditions.push({ OR: [{ poolId }, { poolId: null }] });
+    }
+
+    const where = conditions.length === 1 ? conditions[0] : { AND: conditions };
 
     const slots = await db.swimmingTimeSlot.findMany({
       where,
+      include: {
+        pool: { select: { id: true, name: true, code: true, color: true } },
+      },
       orderBy: [{ sortOrder: "asc" }, { startTime: "asc" }],
     });
     return NextResponse.json({ slots });
@@ -95,6 +119,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "وقت البداية والنهاية مطلوبان بصيغة HH:mm" }, { status: 400 });
     }
 
+    const poolId = typeof body.poolId === "string" && body.poolId.trim() ? body.poolId.trim() : null;
+    if (poolId) {
+      const pool = await db.pool.findFirst({ where: { id: poolId, clubId: user.clubId } });
+      if (!pool) {
+        return NextResponse.json({ error: "المسبح المحدد غير موجود" }, { status: 404 });
+      }
+    }
+
     // dayOfWeek: مفتاح يوم صالح أو null/"" (عامة — تظهر كل الأيام)
     const rawDay = body.dayOfWeek;
     let dayOfWeek: string | null = null;
@@ -105,9 +137,9 @@ export async function POST(req: NextRequest) {
       dayOfWeek = rawDay;
     }
 
-    // الاسم اختياري — الافتراضي «حصة سباحة» — فريد per club (لاحققة وقت عند التكرار)
+    // الاسم اختياري — الافتراضي «حصة سباحة» — فريد per club + pool
     const desiredName = typeof body.name === "string" && body.name.trim() ? body.name.trim() : "حصة سباحة";
-    const name = await resolveUniqueName(user.clubId, desiredName, startTime);
+    const name = await resolveUniqueName(user.clubId, desiredName, startTime, poolId);
 
     const maxCapacity = typeof body.maxCapacity === "number" && Number.isFinite(body.maxCapacity) && body.maxCapacity >= 1
       ? Math.floor(body.maxCapacity) : 30;
@@ -117,15 +149,21 @@ export async function POST(req: NextRequest) {
 
     try {
       const slot = await db.swimmingTimeSlot.create({
-        data: { clubId: user.clubId, name, startTime, endTime, dayOfWeek, maxCapacity, sortOrder, active },
+        data: { clubId: user.clubId, poolId, name, startTime, endTime, dayOfWeek, maxCapacity, sortOrder, active },
+        include: {
+          pool: { select: { id: true, name: true, code: true, color: true } },
+        },
       });
       return NextResponse.json({ slot }, { status: 201 });
     } catch (err) {
       // سباق تسمية نادر (P2002) — أعِد المحاولة بلاحقة وقت
       if (typeof err === "object" && err !== null && (err as { code?: string }).code === "P2002") {
-        const fallback = await resolveUniqueName(user.clubId, `${name} ${startTime}`, startTime);
+        const fallback = await resolveUniqueName(user.clubId, `${name} ${startTime}`, startTime, poolId);
         const slot = await db.swimmingTimeSlot.create({
-          data: { clubId: user.clubId, name: fallback, startTime, endTime, dayOfWeek, maxCapacity, sortOrder, active },
+          data: { clubId: user.clubId, poolId, name: fallback, startTime, endTime, dayOfWeek, maxCapacity, sortOrder, active },
+          include: {
+            pool: { select: { id: true, name: true, code: true, color: true } },
+          },
         });
         return NextResponse.json({ slot }, { status: 201 });
       }
