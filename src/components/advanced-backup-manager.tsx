@@ -86,6 +86,11 @@ export function AdvancedBackupManager() {
   const [triggeringBackup, setTriggeringBackup] = useState(false);
   const [deletingFilename, setDeletingFilename] = useState<string | null>(null);
 
+  // ★ محرك قاعدة البيانات على الخادم (sqlite محلياً / postgresql سحابياً)
+  const [dbEngine, setDbEngine] = useState<"sqlite" | "postgresql" | null>(null);
+  // ★ تقدم التصدير المجزأ للنسخة الشاملة على السحابة
+  const [masterProgress, setMasterProgress] = useState<{ done: number; total: number; label: string } | null>(null);
+
   // إعدادات النسخ التلقائي
   const [config, setConfig] = useState<AutoBackupConfig>({
     enabled: false,
@@ -117,6 +122,7 @@ export function AdvancedBackupManager() {
         if (data.config) setConfig(data.config);
         if (Array.isArray(data.history)) setHistory(data.history);
         if (data.defaultDir) setDefaultDir(data.defaultDir);
+        if (data.engine === "sqlite" || data.engine === "postgresql") setDbEngine(data.engine);
       }
     } catch {
       toast.error("تعذر تحميل إعدادات وسجل النسخ الاحتياطي");
@@ -137,8 +143,8 @@ export function AdvancedBackupManager() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   };
 
-  // 1. تصدير النسخة الشاملة المعتمدة SQLite (.db)
-  const handleExportSqlite = async () => {
+  // 1. تصدير النسخة الشاملة المعتمدة SQLite (.db) — يعيد true عند النجاح
+  const handleExportSqlite = async (): Promise<boolean> => {
     setExportingDb(true);
     try {
       const res = await fetch("/api/backup?format=sqlite");
@@ -159,15 +165,86 @@ export function AdvancedBackupManager() {
       a.click();
       URL.revokeObjectURL(url);
       toast.success("تم تصدير النسخة الشاملة (.db) بنجاح 100% — تشمل كافة الجداول والصور");
+      return true;
     } catch (e: any) {
       toast.error(e?.message || "فشل تصدير قاعدة البيانات");
+      return false;
     } finally {
       setExportingDb(false);
     }
   };
 
-  // 2. تصدير ملف JSON مهيكل
+  // ★ 1-ب. النسخة الشاملة المجزأة (master) — للسحابة (PostgreSQL):
+  // تجلب البيانات كاملة ثم الصور Base64 على دفعات وتجمعها في ملف JSON واحد
+  const handleExportMaster = async (): Promise<boolean> => {
+    setExportingDb(true);
+    setMasterProgress({ done: 0, total: 0, label: "جلب بيانات النسخة الشاملة..." });
+    try {
+      const dataRes = await fetch("/api/backup?format=master&part=data");
+      if (!dataRes.ok) {
+        let msg = "فشل تصدير النسخة الشاملة";
+        try {
+          const j = await dataRes.json();
+          if (j?.error) msg = j.error;
+        } catch {}
+        throw new Error(msg);
+      }
+      const backup = await dataRes.json();
+      const meta = backup.masterMeta || { photoCount: 0, photoTake: 5 };
+      const photoCount = Number(meta.photoCount) || 0;
+      const photoTake = Number(meta.photoTake) || 5;
+      const parts = Math.ceil(photoCount / photoTake);
+      if (!Array.isArray(backup.data)) backup.data = {};
+      if (!Array.isArray(backup.data.subscriberPhotos)) backup.data.subscriberPhotos = [];
+
+      for (let i = 0; i < parts; i++) {
+        setMasterProgress({ done: i, total: parts, label: `جلب الصور عالية الجودة (${i + 1}/${parts})...` });
+        const res = await fetch(`/api/backup?format=master&part=photos&index=${i}`);
+        if (!res.ok) throw new Error(`فشل جلب دفعة الصور رقم ${i + 1}`);
+        const chunk = await res.json();
+        if (Array.isArray(chunk?.photos)) backup.data.subscriberPhotos.push(...chunk.photos);
+      }
+      setMasterProgress({ done: parts, total: parts, label: "تجميع الملف النهائي وتنزيله..." });
+
+      const blob = new Blob([JSON.stringify(backup)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `aquacore-full-database-${new Date().toISOString().split("T")[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`تم تصدير النسخة الشاملة 100% (JSON) — ${backup.counts?.subscribers ?? 0} منخرطاً و${photoCount} صورة`);
+      return true;
+    } catch (e: any) {
+      toast.error(e?.message || "فشل تصدير النسخة الشاملة");
+      return false;
+    } finally {
+      setMasterProgress(null);
+      setExportingDb(false);
+    }
+  };
+
+  // ★ موجه الزر الرئيسي: .db محلياً، JSON مجزأ سحابياً (مع fallback تلقائي)
+  const handleMasterExport = async () => {
+    if (dbEngine === "postgresql") {
+      await handleExportMaster();
+      return;
+    }
+    const ok = await handleExportSqlite();
+    if (!ok && dbEngine !== "sqlite") {
+      // المحرك غير معروف بعد ورفض الخادم صيغة .db → السحابة PostgreSQL
+      toast.info("الخادم السحابي (PostgreSQL) — يتم التصدير بصيغة JSON الشاملة المكافئة 100%...");
+      await handleExportMaster();
+    }
+  };
+
+  // 2. تصدير ملف JSON مهيكل — سحابياً يُحوَّل تلقائياً للنسخة المجزأة (الملف الكامل يتجاوز حدود الاستجابة)
   const handleExportJson = async () => {
+    if (dbEngine === "postgresql") {
+      toast.info("حجم البيانات الكاملة يتجاوز حدود الاستجابة المفردة — سيتم التصدير المجزأ المكافئ 100%...");
+      await handleExportMaster();
+      return;
+    }
     setExportingJson(true);
     try {
       const res = await fetch("/api/backup");
@@ -459,7 +536,9 @@ export function AdvancedBackupManager() {
                       </Badge>
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      الصيغة الأصلية الشاملة لقاعدة البيانات (.db) — لقطة طبق الأصل متوافقة تماماً مع أي جهاز أو سيرفر.
+                      {dbEngine === "postgresql"
+                        ? "الخادم السحابي (PostgreSQL) — تُصدَّر النسخة الشاملة بصيغة JSON مكافئة 100% مع كامل الصور Base64 عبر نقل مجزأ آمن."
+                        : "الصيغة الأصلية الشاملة لقاعدة البيانات (.db) — لقطة طبق الأصل متوافقة تماماً مع أي جهاز أو سيرفر."}
                     </p>
                   </div>
                 </div>
@@ -492,24 +571,34 @@ export function AdvancedBackupManager() {
 
               <div className="pt-2">
                 <Button
-                  onClick={handleExportSqlite}
+                  onClick={handleMasterExport}
                   disabled={exportingDb}
                   className="w-full h-12 text-sm font-bold gap-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-2xl shadow-lg shadow-emerald-600/20 cursor-pointer"
                 >
                   {exportingDb ? (
                     <>
                       <Loader2 className="h-5 w-5 animate-spin" />
-                      <span>جاري إعداد وتحميل النسخة الشاملة...</span>
+                      <span>{masterProgress ? masterProgress.label : "جاري إعداد وتحميل النسخة الشاملة..."}</span>
                     </>
                   ) : (
                     <>
                       <Download className="h-5 w-5" />
-                      <span>تنزيل النسخة الاحتياطية الشاملة الآن (.db)</span>
+                      <span>{dbEngine === "postgresql" ? "تنزيل النسخة الاحتياطية الشاملة الآن (JSON شامل)" : "تنزيل النسخة الاحتياطية الشاملة الآن (.db)"}</span>
                     </>
                   )}
                 </Button>
+                {exportingDb && masterProgress && masterProgress.total > 0 && (
+                  <div className="mt-2 h-2 w-full rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-300"
+                      style={{ width: `${Math.round((masterProgress.done / Math.max(1, masterProgress.total)) * 100)}%` }}
+                    />
+                  </div>
+                )}
                 <p className="text-[11px] text-muted-foreground text-center mt-2">
-                  يتم حفظ الملف مباشرة على حاسوبك، ويمكنك نقله إلى فلاش ديسك خارجي لحمايته.
+                  {dbEngine === "postgresql" && masterProgress
+                    ? "نقل مجزأ آمن للصور — لا تغلق الصفحة حتى انتهاء التنزيل."
+                    : "يتم حفظ الملف مباشرة على حاسوبك، ويمكنك نقله إلى فلاش ديسك خارجي لحمايته."}
                 </p>
               </div>
             </div>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
-import { resolveSqliteDbPath } from "@/lib/db-path";
+import { resolveSqliteDbPath, isSqliteEngine } from "@/lib/db-path";
 import fs from "fs";
 import path from "path";
 
@@ -37,9 +37,12 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const downloadFilename = searchParams.get("download");
 
-    const setting = await db.setting.findUnique({
-      where: { clubId_key: { clubId: user.clubId!, key: AUTO_BACKUP_SETTING_KEY } },
-    });
+    // ★ حسابات بلا نادي (superadmin) — clubId null لا يصلح لاستعلام compound id
+    const setting = user.clubId
+      ? await db.setting.findUnique({
+          where: { clubId_key: { clubId: user.clubId, key: AUTO_BACKUP_SETTING_KEY } },
+        }).catch(() => null)
+      : null;
 
     let config: AutoBackupConfig = DEFAULT_CONFIG;
     if (setting?.value) {
@@ -90,7 +93,7 @@ export async function GET(req: NextRequest) {
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }
 
-    return NextResponse.json({ config, history, defaultDir: DEFAULT_BACKUP_DIR });
+    return NextResponse.json({ config, history, defaultDir: DEFAULT_BACKUP_DIR, engine: isSqliteEngine() ? "sqlite" : "postgresql" });
   } catch (e) {
     return NextResponse.json({ error: "Internal" }, { status: 500 });
   }

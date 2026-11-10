@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { restoreSqliteBuffer, restoreJsonData } from "@/lib/backup-restore";
-import { resolveSqliteDbPath } from "@/lib/db-path";
+import { resolveSqliteDbPath, isSqliteEngine } from "@/lib/db-path";
 import fs from "fs";
 
 export const dynamic = "force-dynamic";
+
+// حجم دفعة الصور في النسخة الشاملة المجزأة (master) — 5 صور ≈ 8.5MB مع استجابة متدفقة
+const MASTER_PHOTO_TAKE = 5;
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 1. GET: تصدير نسخة احتياطية شاملة 100% لكافة بيانات ومعلومات حساب النادي
@@ -26,7 +29,7 @@ export async function GET(req: NextRequest) {
       const dbPath = resolveSqliteDbPath();
       if (!dbPath) {
         return NextResponse.json(
-          { error: "تصدير ملف .db متاح فقط على الخادم المحلي (SQLite). على الخادم السحابي (PostgreSQL) استخدم تصدير JSON الشامل بدلاً منه." },
+          { error: "تصدير ملف .db متاح فقط على الخادم المحلي (SQLite). على الخادم السحابي (PostgreSQL) تُصدَّر النسخة الشاملة تلقائياً بصيغة JSON المكافئة 100%.", hint: "master" },
           { status: 501 }
         );
       }
@@ -54,11 +57,111 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // ب) تصدير JSON شامل 100% لكافة جداول وسجلات النادي بدون أي استثناء
-    const clubId = user.clubId!;
-    const clubFilter = user.role === "superadmin" ? {} : { clubId };
+    // ★ أ-2) النسخة الشاملة المجزأة (master) — تعمل على PostgreSQL السحابي حيث لا يوجد
+    //    ملف .db، وتتجنب حدود حجم استجابة serverless (الصور Base64 تتجاوز 70MB):
+    //    part=data  → كل الجداول + الصور خفيفة (بدون Base64) + masterMeta (عدد الأجزاء)
+    //    part=photos&index=N → دفعة صور كاملة (original/cropped/thumbnail) متدفقة
+    if (format === "master") {
+      const clubId = user.clubId!;
+      const clubFilter = user.role === "superadmin" ? {} : { clubId };
 
-    const [
+      if (searchParams.get("part") === "photos") {
+        const index = Math.max(0, parseInt(searchParams.get("index") || "0", 10) || 0);
+        const photos = await db.subscriberPhoto.findMany({
+          where: { subscriber: clubFilter },
+          orderBy: { id: "asc" },
+          skip: index * MASTER_PHOTO_TAKE,
+          take: MASTER_PHOTO_TAKE,
+        }).catch(() => []);
+
+        const total = await db.subscriberPhoto.count({ where: { subscriber: clubFilter } }).catch(() => 0);
+        const payload = JSON.stringify({
+          ok: true,
+          index,
+          total,
+          take: MASTER_PHOTO_TAKE,
+          photos,
+        });
+
+        // استجابة متدفقة لتجاوز حد التخزين المؤقت للاستجابة (~6MB) في serverless
+        const encoder = new TextEncoder();
+        const CHUNK = 512 * 1024;
+        const stream = new ReadableStream({
+          start(controller) {
+            for (let i = 0; i < payload.length; i += CHUNK) {
+              controller.enqueue(encoder.encode(payload.slice(i, i + CHUNK)));
+            }
+            controller.close();
+          },
+        });
+        return new NextResponse(stream, {
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": "no-store",
+            "X-Photo-Index": String(index),
+            "X-Photo-Total": String(total),
+          },
+        });
+      }
+
+      // part=data (الافتراضي): كل الجداول — الصور خفيفة بدون Base64 الثقيل
+      const [backup, photoCount] = await Promise.all([
+        buildJsonBackup(user, { lightPhotos: true }),
+        db.subscriberPhoto.count({ where: { subscriber: clubFilter } }).catch(() => 0),
+      ]);
+      const masterBackup = {
+        ...backup,
+        masterMeta: {
+          engine: isSqliteEngine() ? ("sqlite" as const) : ("postgresql" as const),
+          photoCount,
+          photoTake: MASTER_PHOTO_TAKE,
+          photoParts: Math.ceil(photoCount / MASTER_PHOTO_TAKE),
+        },
+      };
+
+      const json = JSON.stringify(masterBackup);
+      const filename = `aquacore-master-part-data-${new Date().toISOString().split("T")[0]}.json`;
+      return new NextResponse(json, {
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store",
+          "Content-Disposition": `attachment; filename="${filename}"`,
+          "X-Master-Photo-Count": String(photoCount),
+          "X-Master-Photo-Parts": String(Math.ceil(photoCount / MASTER_PHOTO_TAKE)),
+        },
+      });
+    }
+
+    // ب) تصدير JSON شامل 100% لكافة جداول وسجلات النادي بدون أي استثناء
+    const backup = await buildJsonBackup(user);
+
+    const json = JSON.stringify(backup, null, 2);
+    const filename = `aquacore-full-backup-${new Date().toISOString().split("T")[0]}.json`;
+
+    return new NextResponse(json, {
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+      },
+    });
+  } catch (e) {
+    console.error("Backup export:", e);
+    return NextResponse.json({ error: "تعذر تصدير النسخة الاحتياطية" }, { status: 500 });
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// بناء كائن النسخة الاحتياطية الشامل — مشترك بين تصدير JSON والمسار المجزأ (master)
+// lightPhotos: استبعاد حقول Base64 الثقيلة من الصور (original/cropped/thumbnail)
+// ═════════════════════════════════════════════════════════════════════════════
+async function buildJsonBackup(
+  user: NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>,
+  opts: { lightPhotos?: boolean } = {}
+) {
+  const clubId = user.clubId!;
+  const clubFilter = user.role === "superadmin" ? {} : { clubId };
+
+  const [
       club,
       subscribers,
       subscriberPhotos,
@@ -171,6 +274,20 @@ export async function GET(req: NextRequest) {
       db.syncMeta.findMany().catch(() => []),
     ]);
 
+    // ★ الصور الخفيفة (lightPhotos): استبعاد حقول Base64 الثقيلة (original/cropped/thumbnail)
+    //   عند بناء جزء البيانات في المسار المجزأ — تُجلب لاحقاً على دفعات part=photos
+    const photos = opts.lightPhotos
+      ? subscriberPhotos.map((p) => ({
+          id: p.id,
+          subscriberId: p.subscriberId,
+          faceDetected: p.faceDetected,
+          cloudinaryPublicId: p.cloudinaryPublicId,
+          cloudinaryUrl: p.cloudinaryUrl,
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt,
+        }))
+      : subscriberPhotos;
+
     const backup = {
       version: "2.1",
       system: "AquaCore Club Manager",
@@ -180,7 +297,7 @@ export async function GET(req: NextRequest) {
       clubName: club?.name || "AquaCore Club",
       counts: {
         subscribers: subscribers.length,
-        subscriberPhotos: subscriberPhotos.length,
+        subscriberPhotos: photos.length,
         subscriberContracts: subscriberContracts.length,
         renewals: renewals.length,
         attendances: attendances.length,
@@ -227,7 +344,7 @@ export async function GET(req: NextRequest) {
       data: {
         club,
         subscribers,
-        subscriberPhotos,
+        subscriberPhotos: photos,
         subscriberContracts,
         renewals,
         attendances,
@@ -275,19 +392,7 @@ export async function GET(req: NextRequest) {
       },
     };
 
-    const json = JSON.stringify(backup, null, 2);
-    const filename = `aquacore-full-backup-${new Date().toISOString().split("T")[0]}.json`;
-
-    return new NextResponse(json, {
-      headers: {
-        "Content-Type": "application/json",
-        "Content-Disposition": `attachment; filename="${filename}"`,
-      },
-    });
-  } catch (e) {
-    console.error("Backup export:", e);
-    return NextResponse.json({ error: "تعذر تصدير النسخة الاحتياطية" }, { status: 500 });
-  }
+  return backup;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
