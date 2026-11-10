@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
+import { usePathname } from "next/navigation";
 
 export interface PoolData {
   id: string;
@@ -48,14 +49,32 @@ const PoolContext = createContext<PoolContextValue>({
 });
 
 export function PoolProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const isPublicRoute =
+    pathname === "/login" ||
+    pathname === "/pin" ||
+    pathname === "/register-club" ||
+    pathname?.startsWith("/member/");
+
   const [pools, setPools] = useState<PoolData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentPoolId, setCurrentPoolIdState] = useState<string>("all");
 
   const refreshPools = useCallback(async () => {
+    if (isPublicRoute) {
+      setPools([]);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     try {
       const res = await fetch("/api/pools", { cache: "no-store" });
+      if (res.status === 401 || res.status === 403) {
+        setPools([]);
+        setError(null);
+        return;
+      }
       if (!res.ok) throw new Error("تعذر جلب بيانات المسابح");
       const data = await res.json();
       const list: PoolData[] = data.pools || [];
@@ -78,7 +97,7 @@ export function PoolProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isPublicRoute]);
 
   useEffect(() => {
     refreshPools();

@@ -77,8 +77,9 @@ async function runE2EAcceptanceSuite() {
   // ══════════════════════════════════════════════════════════════════
   // Test 3: Create Secondary Pool with Prefix
   // ══════════════════════════════════════════════════════════════════
-  const secCode = `E2E_POOL_${Date.now().toString().slice(-4)}`;
-  const secPrefix = `E2${Date.now().toString().slice(-2)}`;
+  const randSuffix = Math.random().toString(36).substring(2, 6).toUpperCase().replace(/[^A-Z0-9]/g, "X").padEnd(3, "X").slice(0, 3);
+  const secCode = `E2E_POOL_${Date.now().toString().slice(-6)}_${randSuffix}`;
+  const secPrefix = `E${randSuffix}`;
   const secondaryPool = await db.pool.create({
     data: {
       clubId,
@@ -371,6 +372,16 @@ async function runE2EAcceptanceSuite() {
   assert(unauthorizedBlocked, "15. Multi-tenant security guard strictly blocks cross-club resource access");
 
   // ══════════════════════════════════════════════════════════════════
+  // Cleanup synthetic E2E test records
+  // ══════════════════════════════════════════════════════════════════
+  await db.subscriber.deleteMany({
+    where: { id: { in: [testSub.id, subX.id, subY.id] } },
+  }).catch(() => null);
+  await db.pool.deleteMany({
+    where: { id: secondaryPool.id },
+  }).catch(() => null);
+
+  // ══════════════════════════════════════════════════════════════════
   // Summary
   // ══════════════════════════════════════════════════════════════════
   console.log("=================================================================");
@@ -384,5 +395,4 @@ runE2EAcceptanceSuite()
   .catch((err) => {
     console.error("E2E Test execution failed:", err);
     process.exit(1);
-  })
-  .finally(() => process.exit(0));
+  });

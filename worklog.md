@@ -1611,3 +1611,17 @@ Stage Summary:
 
 ### ملاحظة معروفة
 - جداول multi-pool (Pool/PoolEnrollment/MembershipCard/...) ليست ضمن ملف التصدير بعد — الاستعادة تعيد بناءها تلقائياً عبر backfill وقت التشغيل؛ إضافتها للتصدير تحسين لاحق.
+
+## 2026-11-10 — مزامنة ورفع آخر التحديثات المحلية (PoolProvider auth guard + dedup backfill + ZIP packager)
+
+### التعديلات المضافة
+1. **`src/hooks/use-pools.tsx` (`PoolProvider`)**:
+   - تفادي إرسال طلبات `/api/pools` على مسارات المصادقة والعرض العامة (`/login`, `/pin`, `/register-club`, `/member/*`) ومعالجة حالات `401/403` بصمت، مما يزيل أخطاء `PoolProvider refresh error` وتنبيهات Next.js Dev Overlay قبل تسجيل الدخول مع إعادة الجلب تلقائياً عند الانتقال للوحة التحكم.
+2. **`scripts/migrate-subscribers-to-pools.ts`**:
+   - توحيد مطابقة `renewedAt` مع `ren.renewalDate || ren.createdAt` و`newExpiryDate` أثناء فحص التكرار لضمان Idempotency 100% عند ترحيل سجلات التجديد.
+3. **`scripts/create-project-zip.ps1` و`scripts/verify-zip.ps1`**:
+   - جعل السكربتين محمولين نسبياً عبر `$PSScriptRoot` واستبعاد ملفات `.zip` و`.db*` و`.bak` أثناء التجميع مع تحديث النسخ في الجذر و`download/` و`public/`.
+
+### التحقق والدمج
+- دمج تسلسلي نظيف (`fast-forward`) مع `origin/main` (`e9ddbd9`) مع الحفاظ التام على إصلاحات النسخ الاحتياطي السحابي (`9c8f7dc`) وبيانات الإنتاج.
+- `prisma validate` و`prisma generate` (PostgreSQL) + `npx tsc --noEmit` (0 أخطاء) + `npx next build` (108 مسار) ✓.

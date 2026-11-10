@@ -134,12 +134,14 @@ export async function runMultiPoolBackfill(): Promise<MigrationStats> {
 
       // Backfill historical renewals into PoolEnrollmentRenewal
       for (const ren of sub.renewals) {
+        const targetRenewedAt = ren.renewalDate || ren.createdAt;
         const existingBackfill = await db.poolEnrollmentRenewal.findFirst({
           where: {
             clubId: club.id,
             subscriberId: sub.id,
             enrollmentId: defaultEnrollment.id,
-            renewedAt: ren.createdAt,
+            renewedAt: targetRenewedAt,
+            newExpiryDate: ren.expiryDate,
           },
         });
 
@@ -152,7 +154,7 @@ export async function runMultiPoolBackfill(): Promise<MigrationStats> {
               enrollmentId: defaultEnrollment.id,
               previousExpiryDate: null,
               newExpiryDate: ren.expiryDate,
-              renewedAt: ren.renewalDate || ren.createdAt,
+              renewedAt: targetRenewedAt,
               renewedById: null,
               subscriptionType: sub.subscriptionType || "monthly",
               months: ren.months || 1,
