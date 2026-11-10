@@ -1565,3 +1565,29 @@ Stage Summary:
 - **جذر فشل النشرين السابقين:** `charges-panel.tsx` (من موجة الدمج) يستخدم `p.userId`/`p.subscriberId` بينما الواجهة المحلية تعرّف `user`/`subscriber` فقط ← "Failed to type check" ← ERROR.
 - الإصلاح: `p.user?.id` و `p.subscriber?.id` (3 مواضع) + فحص tsc كامل (0 أخطاء قبل الدفع — لتفادي كشف أخطاء Vercel واحداً تلو الآخر).
 - النشر `dpl_93Nq81Ra...` → **READY** + alias على aladine-pool-manager.vercel.app + دخان إنتاج: / 200، /login 200، /api/backup 403 (الحارس يعمل).
+
+## 2026-11-10 — استعادة بيانات المنخرطين من إنتاج Vercel + تحديث GitHub/Vercel (7ec6669)
+
+### السياق
+- المستخدم رفع `AquaCore-Club-Manager-latest.zip` (يطابق تماماً ee569f1 على GitHub — معمارية multi-pool) وطلب: تحديث GitHub+Vercel واستعادة بيانات المنخرطين «من النسخة المرفوعة على vercel».
+- GitHub token جديد: `ghp_N5QU...XH5XT` (بدّل القديم في remote URL) — يعمل ✓.
+
+### التشخيص — لماذا «اختفيت» البيانات؟
+- قاعدة الإنتاج Neon PostgreSQL (`ep-silent-credit-...neon.tech/neondb`) فيها **382 منخرطاً نشطاً** (آخر تحديث 2026-11-04) — البيانات لم تُفقد أصلاً.
+- نشر ee569f1 (multi-pool، 2026-11-10 08:14) بدأ يقرأ من جداول `Pool/PoolEnrollment` **غير الموجودة** في الإنتاج ← الواجهة تعرض قائمة فارغة رغم سلامة البيانات.
+- سبب غياب الجداول: لا يوجد `_prisma_migrations` في الإنتاج (migrate deploy لا يعمل فعلياً)؛ runtime-schema يُنشئ `PoolEnrollmentRenewal` فقط.
+
+### التنفيذ
+1. **نسخة احتياطية كاملة** لكل جداول الإنتاج (94MB JSON) → `backups-restored/production-full-backup-20261110-113401.json`.
+2. **دمج origin/main (ee569f1)** محلياً — أزيل skip-worktree عن `prisma/schema.prisma` (أصبح postgres رسمياً؛ المحلي يستخدم `schema.sqlite.prisma` عبر postinstall) ← دمج نظيف بلا تعارضات.
+3. **ترحيل آمن للإنتاج**: `prisma migrate diff` (from-url الإنتاج ← to-schema الجديد) = 8 جداول جديدة + 41 ALTER، صفر DROP COLUMN. عولج تعارض فهرس جزئي (`WagePayment_idempotencyKey_key` partial) بحذف استباقي للفهارس المُعاد إنشاؤها. طُبّق في معاملة واحدة ← ✅.
+4. **Backfill**: `scripts/migrate-subscribers-to-pools.ts` (idempotent) — مسبح افتراضي «المسبح الرئيسي» (MAIN) + 382 PoolEnrollment لـ382 منخرطاً + 383 MembershipCard + PoolNumberCounter(RCS, 324).
+   - خلط سكريبت الترحيل: dedup يطابق `renewedAt=createdAt` بينما يُدرج `renewalDate||createdAt` ← تكرارات. نُظفت بـ DELETE على ctid ونسخ تاريخي متقن SQL (NOT EXISTS) ← 106 تجديداً فعلياً (الجدول القديم 901 صف فيه تكرارات تاريخية أصيلة حتى 13x).
+5. **الدفع**: tsc نظيف (0 أخطاء) ← push ← remote HEAD == local HEAD == `7ec6669` ✓ ← نشر تلقائي Vercel انطلق.
+
+### الحالة النهائية للإنتاج
+- Subscriber: 382 (نشط) | PoolEnrollment: 382 (active, distinct=382) | MembershipCard: 383 | Pool: 1 (MAIN) | PoolEnrollmentRenewal: 106 | Payment: 904 | Renewal(قديم): 901 — لا فقدان بيانات.
+
+### ملاحظات
+- تسجيل دخول الإنتاج: لا يوجد ADMIN_EMAIL/ADMIN_PASSWORD في env الإنتاج؛ الحسابات الحقيقية: flashnet20dz@gmail.com (superadmin)، rcssaida@gmail.com (admin) — كلمات المرور لدى المستخدم فقط.
+- ملاحظة جودة: `scripts/migrate-subscribers-to-pools.ts` يتوقف بصمت أحياناً بعد «Found N subscribers» (تعلّق اتصال pgbouncer محتمل) — الحالة النهائية تحققت SQL مباشرة.
