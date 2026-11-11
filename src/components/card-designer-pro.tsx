@@ -34,7 +34,7 @@ import {
   SendToBack, PanelRightClose, PanelLeftClose, PanelLeftOpen, PanelRightOpen,
   Moon, Sun, ZoomIn, ZoomOut, Maximize, Users,
   Droplets, Wand2, CalendarRange, Frame, RotateCcw,
-  ListChecks, Plus,
+  ListChecks, Plus, Cloud, CloudOff, HardDrive, RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -334,6 +334,16 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
     } catch { return []; }
   });
   const [showPrintQueue, setShowPrintQueue] = useState(false);
+  // ★ مكان حفظ قائمة الانتظار — يفعّله المستخدم: محلي (هذا الجهاز) أو سحابي (مرتبط بالحساب)
+  const [queueMode, setQueueMode] = useState<"local" | "cloud">(() => {
+    try {
+      return localStorage.getItem("aquacore-print-queue-mode") === "cloud" ? "cloud" : "local";
+    } catch { return "local"; }
+  });
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [cloudUpdatedAt, setCloudUpdatedAt] = useState<string | null>(null);
+  const [mergeChoice, setMergeChoice] = useState<{ cloudIds: string[] } | null>(null);
+  const cloudSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [previewSubId, setPreviewSubId] = useState<string | null>(null);
 
   // ── Members filter state ──
@@ -1118,12 +1128,141 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
   };
 
   // ═══════════════════════════════════════════════════════════════
-  // ★ قائمة انتظار الطباعة (Print Queue)
+  // ★ قائمة انتظار الطباعة (Print Queue) — محلي أو سحابي
   // ═══════════════════════════════════════════════════════════════
+
+  // حفظ سحابي مُتأخر (debounce 600ms) — يمنع طلب PUT مع كل نقرة
+  const queueCloudSave = useCallback((ids: string[]) => {
+    setCloudSyncStatus("saving");
+    if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current);
+    cloudSaveTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/print-queue", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ queue: ids }),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => null);
+          throw new Error(j?.error || "فشل الحفظ السحابي");
+        }
+        setCloudSyncStatus("saved");
+        setCloudUpdatedAt(new Date().toISOString());
+      } catch {
+        setCloudSyncStatus("error");
+        toast.error("فشل الحفظ السحابي لقائمة الانتظار — تحقق من الاتصال");
+      }
+    }, 600);
+  }, []);
+
+  // ★ الحفظ حسب مكان التخزين المفعَّل: محلي (هذا الجهاز) أو سحابي (حساب النادي)
   const saveQueue = useCallback((ids: string[]) => {
     setPrintQueue(ids);
-    try { localStorage.setItem("aquacore-print-queue", JSON.stringify(ids)); } catch {}
+    if (queueMode === "local") {
+      try { localStorage.setItem("aquacore-print-queue", JSON.stringify(ids)); } catch {}
+    } else {
+      queueCloudSave(ids);
+    }
+  }, [queueMode, queueCloudSave]);
+
+  // جلب القائمة السحابية ودمجها في الواجهة
+  const fetchCloudQueue = useCallback(async (opts?: { silent?: boolean }): Promise<string[] | null> => {
+    if (!opts?.silent) setCloudSyncStatus("saving");
+    try {
+      const res = await fetch("/api/print-queue", { cache: "no-store" });
+      if (!res.ok) throw new Error("فشل جلب القائمة السحابية");
+      const data = await res.json();
+      const ids: string[] = Array.isArray(data.queue) ? data.queue.filter((x: unknown) => typeof x === "string") : [];
+      setCloudUpdatedAt(data.updatedAt ?? null);
+      setCloudSyncStatus("saved");
+      return ids;
+    } catch {
+      setCloudSyncStatus("error");
+      return null;
+    }
   }, []);
+
+  // عند الإقلاع: إذا كان النمط السحابي مفعّلاً، حمّل القائمة من الخادم (تتبع الحساب)
+  useEffect(() => {
+    if (queueMode !== "cloud") return;
+    (async () => {
+      const ids = await fetchCloudQueue({ silent: false });
+      if (ids) {
+        setPrintQueue(ids);
+      }
+    })();
+  }, [queueMode, fetchCloudQueue]);
+
+  // ★ تبديل مكان الحفظ — يفعّله المستخدم يدوياً
+  const switchQueueMode = async (mode: "local" | "cloud") => {
+    if (mode === queueMode) return;
+    if (mode === "local") {
+      // التحويل إلى المحلي: احتفظ بالقائمة الحالية على هذا الجهاز (نسخة السحابة تبقى كما هي)
+      setQueueMode("local");
+      try { localStorage.setItem("aquacore-print-queue-mode", "local"); } catch {}
+      try { localStorage.setItem("aquacore-print-queue", JSON.stringify(printQueue)); } catch {}
+      setCloudSyncStatus("idle");
+      toast.info("قائمة الانتظار تُحفظ الآن محلياً على هذا الجهاز فقط");
+      return;
+    }
+    // التحويل إلى السحابة: جلب قائمة الحساب أولاً ثم قرار الدمج
+    const cloudIds = await fetchCloudQueue();
+    if (cloudIds === null) {
+      toast.error("تعذر جلب القائمة السحابية — لم يتم التبديل، تحقق من الاتصال وحاول مجدداً");
+      return;
+    }
+    setQueueMode("cloud");
+    try { localStorage.setItem("aquacore-print-queue-mode", "cloud"); } catch {}
+    if (cloudIds.length === 0 && printQueue.length === 0) {
+      // كلتاهما فارغة — لا قرار مطلوب
+      return;
+    }
+    if (cloudIds.length === 0) {
+      // السحابة فارغة → ارفع قائمة هذا الجهاز تلقائياً
+      queueCloudSave(printQueue);
+      toast.success(`تم رفع ${printQueue.length} بطاقة إلى الحساب السحابي`);
+      return;
+    }
+    if (printQueue.length === 0) {
+      // هذا الجهاز فارغ → استخدم قائمة السحابة مباشرة
+      setPrintQueue(cloudIds);
+      toast.success(`تم تحميل ${cloudIds.length} بطاقة من قائمة الحساب السحابي`);
+      return;
+    }
+    // كلتاهما غير فارغة → اطلب من المستخدم اختيار استراتيجية الدمج
+    setMergeChoice({ cloudIds });
+  };
+
+  // حل قرار الدمج عند التبديل للسحابة ووجود قائمتين مختلفتين
+  const resolveMerge = (strategy: "cloud" | "device" | "merge") => {
+    if (!mergeChoice) return;
+    const cloudIds = mergeChoice.cloudIds;
+    const deviceIds = printQueue;
+    let final: string[] = [];
+    if (strategy === "cloud") final = cloudIds;
+    else if (strategy === "device") final = deviceIds;
+    else final = [...new Set([...deviceIds, ...cloudIds])];
+    setMergeChoice(null);
+    saveQueue(final);
+    toast.success(
+      strategy === "merge"
+        ? `تم دمج القائمتين — الإجمالي: ${final.length} بطاقة (محفوظة سحابياً)`
+        : strategy === "cloud"
+          ? `تم اعتماد قائمة الحساب السحابي (${final.length} بطاقة)`
+          : `تم رفع قائمة هذا الجهاز إلى السحابة (${final.length} بطاقة)`,
+    );
+  };
+
+  // تحديث يدوي من السحابة (زر داخل النافذة)
+  const refreshFromCloud = async () => {
+    const ids = await fetchCloudQueue();
+    if (ids) {
+      setPrintQueue(ids);
+      toast.success(`تم التحديث من السحابة — ${ids.length} بطاقة`);
+    } else {
+      toast.error("تعذر التحديث من السحابة");
+    }
+  };
 
   // إضافة المحددين الحاليين إلى قائمة الانتظار
   const addToPrintQueue = () => {
@@ -1646,6 +1785,14 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
                     className="h-8 px-2 gap-1.5 relative border border-slate-200/60 dark:border-slate-700/60 bg-white/60 dark:bg-slate-800/60"
                   >
                     <ListChecks className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
+                    {queueMode === "cloud" && (
+                      <Cloud className={cn(
+                        "h-2.5 w-2.5 absolute -top-1 -left-1",
+                        cloudSyncStatus === "error" ? "text-rose-500"
+                          : cloudSyncStatus === "saving" ? "text-amber-500 animate-pulse"
+                          : "text-emerald-500",
+                      )} />
+                    )}
                     <span className="text-xs hidden lg:inline font-medium">الانتظار</span>
                     {printQueue.length > 0 && (
                       <span className="flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-violet-600 text-white text-[9px] font-bold">
@@ -1654,7 +1801,9 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
                     )}
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom">قائمة انتظار الطباعة ({printQueue.length} بطاقة)</TooltipContent>
+                <TooltipContent side="bottom">
+                  قائمة انتظار الطباعة ({printQueue.length} بطاقة) — الحفظ: {queueMode === "cloud" ? "سحابياً بالحساب" : "محلياً بالجهاز"}
+                </TooltipContent>
               </Tooltip>
 
               {/* Add to Queue */}
@@ -2333,11 +2482,122 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
                 <Badge variant="secondary">{printQueue.length} بطاقة</Badge>
               </DialogTitle>
               <DialogDescription>
-                البطاقات المحفوظة للطباعة لاحقاً. يمكنك الإضافة، الحذف، أو الطباعة المباشرة.
+                البطاقات المحفوظة للطباعة لاحقاً. يمكنك الإضافة، الحذف، أو الطباعة المباشرة — وتحديد مكان الحفظ.
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-3">
+              {/* ★ مكان حفظ القائمة — محلي أو سحابي (يفعّله المستخدم) */}
+              <div className="rounded-xl border border-violet-300/60 bg-violet-50/40 dark:bg-violet-950/20 p-3 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-sm font-semibold flex items-center gap-1.5">
+                    <Save className="h-4 w-4 text-violet-600" /> مكان حفظ القائمة
+                  </div>
+                  {queueMode === "cloud" && (
+                    <div className="flex items-center gap-2">
+                      {cloudSyncStatus === "saving" && (
+                        <span className="text-[11px] text-amber-600 flex items-center gap-1">
+                          <Loader2 className="h-3 w-3 animate-spin" /> جاري الحفظ...
+                        </span>
+                      )}
+                      {cloudSyncStatus === "saved" && (
+                        <span className="text-[11px] text-emerald-600 flex items-center gap-1">
+                          <Check className="h-3 w-3" /> محفوظ في الحساب
+                        </span>
+                      )}
+                      {cloudSyncStatus === "error" && (
+                        <span className="text-[11px] text-rose-600 flex items-center gap-1">
+                          <CloudOff className="h-3 w-3" /> فشل المزامنة
+                        </span>
+                      )}
+                      <Button
+                        size="sm" variant="ghost"
+                        className="h-7 px-2 text-[11px] text-violet-700 hover:bg-violet-100"
+                        onClick={refreshFromCloud}
+                        title="إعادة الجلب من الخادم"
+                      >
+                        <RefreshCw className="h-3 w-3" /> تحديث
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {/* الخيار المحلي */}
+                  <button
+                    type="button"
+                    onClick={() => switchQueueMode("local")}
+                    className={cn(
+                      "text-right rounded-lg border p-2.5 transition-all flex items-start gap-2.5",
+                      queueMode === "local"
+                        ? "border-violet-500 bg-violet-500/10 ring-1 ring-violet-500"
+                        : "border-border/80 bg-card hover:border-violet-400/50 hover:bg-violet-50/50",
+                    )}
+                    aria-pressed={queueMode === "local"}
+                  >
+                    <HardDrive className={cn("h-4 w-4 mt-0.5 shrink-0", queueMode === "local" ? "text-violet-600" : "text-muted-foreground")} />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-bold">محلياً على هذا الجهاز</span>
+                      <span className="block text-[11px] text-muted-foreground mt-0.5">
+                        تُحفظ في متصفح هذا الجهاز فقط — تعمل بدون إنترنت
+                      </span>
+                    </span>
+                    {queueMode === "local" && <Check className="h-4 w-4 text-violet-600 ms-auto shrink-0" />}
+                  </button>
+
+                  {/* الخيار السحابي */}
+                  <button
+                    type="button"
+                    onClick={() => switchQueueMode("cloud")}
+                    className={cn(
+                      "text-right rounded-lg border p-2.5 transition-all flex items-start gap-2.5",
+                      queueMode === "cloud"
+                        ? "border-violet-500 bg-violet-500/10 ring-1 ring-violet-500"
+                        : "border-border/80 bg-card hover:border-violet-400/50 hover:bg-violet-50/50",
+                    )}
+                    aria-pressed={queueMode === "cloud"}
+                  >
+                    <Cloud className={cn("h-4 w-4 mt-0.5 shrink-0", queueMode === "cloud" ? "text-violet-600" : "text-muted-foreground")} />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-bold">سحابياً بالحساب</span>
+                      <span className="block text-[11px] text-muted-foreground mt-0.5">
+                        تُحفظ على الخادم مرتبطة بحساب النادي — متاحة من أي جهاز تسجل الدخول إليه
+                      </span>
+                    </span>
+                    {queueMode === "cloud" && <Check className="h-4 w-4 text-violet-600 ms-auto shrink-0" />}
+                  </button>
+                </div>
+
+                {queueMode === "cloud" && cloudUpdatedAt && (
+                  <p className="text-[10px] text-muted-foreground">
+                    آخر مزامنة مع السحابة: {new Date(cloudUpdatedAt).toLocaleString("ar-DZ")}
+                  </p>
+                )}
+              </div>
+
+              {/* ★ قرار الدمج عند التبديل إلى السحابة ووجود قائمتين مختلفتين */}
+              {mergeChoice && (
+                <div className="rounded-xl border border-amber-400/70 bg-amber-50 dark:bg-amber-950/30 p-3 space-y-2">
+                  <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
+                    توجد قائمة على هذا الجهاز ({printQueue.length} بطاقة) وقائمة أخرى في الحساب السحابي ({mergeChoice.cloudIds.length} بطاقة) — ماذا تريد؟
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" onClick={() => resolveMerge("merge")}
+                      className="bg-teal-700 hover:bg-teal-800 text-white">
+                      <Plus className="h-4 w-4 ml-1" /> دمج القائمتين
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => resolveMerge("cloud")}
+                      className="border-violet-400 text-violet-700 hover:bg-violet-50">
+                      <Cloud className="h-4 w-4 ml-1" /> اعتماد قائمة السحابة
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => resolveMerge("device")}
+                      className="border-amber-400 text-amber-700 hover:bg-amber-100">
+                      <HardDrive className="h-4 w-4 ml-1" /> رفع قائمة هذا الجهاز
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {/* أزرار الإجراءات */}
               <div className="flex items-center gap-2 flex-wrap">
                 <Button
@@ -2418,7 +2678,9 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
 
               <div className="rounded-lg bg-violet-50 dark:bg-violet-950/30 border border-violet-300/50 p-2.5">
                 <p className="text-[11px] text-violet-700 dark:text-violet-300">
-                  💡 قائمة الانتظار تُحفظ محلياً في المتصفح. يمكنك إغلاق الصفحة والعودة لاحقاً — البطاقات ستبقى محفوظة.
+                  {queueMode === "local"
+                    ? "💡 القائمة محفوظة محلياً في متصفح هذا الجهاز. يمكنك إغلاق الصفحة والعودة لاحقاً — البطاقات ستبقى محفوظة. غيّر المكان إلى «سحابياً بالحساب» لمتابعتها من أي جهاز."
+                    : "💡 القائمة محفوظة سحابياً في حساب النادي — ستجدها على أي جهاز تسجّل الدخول إليه. التغييرات تُرفع تلقائياً إلى الخادم."}
                 </p>
               </div>
             </div>
