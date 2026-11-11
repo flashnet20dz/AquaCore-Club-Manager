@@ -18,13 +18,47 @@ export function PoolSelector() {
   const { pools, currentPoolId, currentPool, isMultiPool, setCurrentPoolId } = usePools();
   const [showModal, setShowModal] = useState(false);
 
-  // إذا كان للنادي مسبح واحد فقط (أو لا يوجد مسابح بعد)، لا تعرض أي قائمة منسدلة
-  // للحفاظ على بساطة الواجهة والتوافق الشفاف التام مع النوادي الفردية
-  if (!isMultiPool) {
+  const activePools = pools.filter((p) => p.active);
+
+  // لا تعرض المحدد إذا لم تتوفر مسابح بعد (قبل تسجيل الدخول أو أثناء التحميل الأولي)
+  if (activePools.length === 0) {
     return null;
   }
 
-  const activePools = pools.filter((p) => p.active);
+  // عند وجود مسبح واحد فقط: عرض زر مدمج للمسبح النشط يتيح فتح إدارة المسابح مباشرة من الشريط العلوي
+  if (!isMultiPool) {
+    const singlePool = activePools[0];
+    const singleColor = singlePool.color || "#0284c7";
+    return (
+      <>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setShowModal(true)}
+          title="إدارة المسابح وإضافة مسبح جديد"
+          className="h-9 px-2.5 sm:px-3 gap-2 bg-slate-900/80 hover:bg-slate-800 border-slate-700/80 text-white rounded-xl shadow-sm text-xs font-semibold transition-all hover:border-sky-500/50"
+        >
+          <span
+            className="h-2.5 w-2.5 rounded-full shrink-0"
+            style={{ backgroundColor: singleColor }}
+          />
+          <Waves className="h-3.5 w-3.5 text-sky-400 shrink-0" />
+          <span className="truncate max-w-[110px] sm:max-w-[150px]">
+            {singlePool.name}
+          </span>
+          <span className="hidden sm:inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md bg-sky-500/15 text-sky-300 border border-sky-500/30">
+            <Plus className="h-2.5 w-2.5" />
+            <span>إدارة</span>
+          </span>
+          <Settings2 className="sm:hidden h-3.5 w-3.5 text-sky-300 shrink-0" />
+        </Button>
+
+        <PoolsManagementModal open={showModal} onClose={() => setShowModal(false)} />
+      </>
+    );
+  }
+
   const activeColor = currentPool?.color || "#0284c7";
 
   return (

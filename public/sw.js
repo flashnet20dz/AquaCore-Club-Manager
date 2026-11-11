@@ -10,7 +10,7 @@
 //   - Images/static: stale-while-revalidate
 //   - Added: API endpoints for new features (employees, contracts, templates)
 
-const CACHE_VERSION = "rcs-club-v8";
+const CACHE_VERSION = "aquacore-v9-multipool";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const API_CACHE = `${CACHE_VERSION}-api`;
 
@@ -110,6 +110,7 @@ function makeEmptyResponse(pathname) {
   else if (pathname.includes("/api/subscription-types")) empty.types = [];
   else if (pathname.includes("/api/swimming-days")) empty.days = [];
   else if (pathname.includes("/api/swimming-slots")) empty.slots = [];
+  else if (pathname.includes("/api/pools")) empty.pools = [];
   empty.offline = true;
   return new Response(JSON.stringify(empty), {
     status: 200,

@@ -23,7 +23,7 @@ export function PWAInstaller() {
   useEffect(() => {
     // Register service worker for offline support
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch((err) => {
+      navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch((err) => {
         console.warn("SW registration failed:", err);
       });
     }

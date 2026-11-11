@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { computeSubscriberFields, computeSubscriberFieldsDynamic, isExemptStatus, type SubscriptionTypeConfig } from "@/lib/rcs";
 import { getCurrentUser } from "@/lib/session";
@@ -15,77 +15,193 @@ import { dayKeyFromDate, sessionsForDay, todayYMD, isOperatingDay } from "@/lib/
  * FinancialTransaction عبر /api/financial/dashboard (المصدر الوحيد للحقيقة).
  * مستحقات الاشتراكات غير المدفوعة تُحسب هي أيضاً في المسار المالي (receivables).
  */
-export async function GET() {
+function tallyBy<T>(items: T[], selector: (item: T) => string | null | undefined): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const item of items) {
+    const key = selector(item);
+    if (key) counts[key] = (counts[key] || 0) + 1;
+  }
+  return counts;
+}
+
+function mapGroupCounts<T extends { _count: { _all: number } }>(
+  rows: T[],
+  selector: (row: T) => string | null | undefined
+): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const row of rows) {
+    const key = selector(row);
+    if (key) counts[key] = (counts[key] || 0) + row._count._all;
+  }
+  return counts;
+}
+
+export async function GET(req: NextRequest) {
   try {
     const currentUser = await getCurrentUser();
     if (!currentUser) {
       return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
     }
 
+    const poolIdParam = req.nextUrl.searchParams.get("poolId");
+    const activePoolFilter = poolIdParam && poolIdParam !== "all" ? poolIdParam : null;
+
     const isSuperadmin = currentUser.role === "superadmin";
     const clubFilter = isSuperadmin ? {} : { clubId: currentUser.clubId! };
 
-    // ════ 1) التوزيعات حسب الحقول المخزنة (groupBy في DB — سريع جداً) ════
-    const [
-      total,
-      byPaymentStatusRaw,
-      bySubscriptionTypeRaw,
-      byGenderRaw,
-      byBloodTypeRaw,
-      bySwimmingDaysRaw,
-      byTimeSlotRaw,
-    ] = await Promise.all([
-      db.subscriber.count({ where: clubFilter }),
+    let total = 0;
+    let paymentCounts: Record<string, number> = {};
+    let subTypeCounts: Record<string, number> = {};
+    let genderCounts: Record<string, number> = {};
+    let bloodCounts: Record<string, number> = {};
+    let daysCounts: Record<string, number> = {};
+    let slotCounts: Record<string, number> = {};
+    let subsForComputation: Array<{
+      id: string;
+      birthDate: Date;
+      gender: string;
+      subscriptionType: string;
+      paymentStatus: string;
+      lastPaymentDate: Date | null;
+    }> = [];
 
-      db.subscriber.groupBy({
-        by: ["paymentStatus"],
-        where: clubFilter,
-        _count: { _all: true },
-      }),
+    if (activePoolFilter) {
+      // ★ Multi-Pool: إحصائيات المسبح المحدد من الانخراطات النشطة الفعلية لهذا المسبح
+      const enrollments = await db.poolEnrollment.findMany({
+        where: {
+          ...clubFilter,
+          poolId: activePoolFilter,
+          status: "active",
+        },
+        select: {
+          subscriptionType: true,
+          paymentStatus: true,
+          lastPaymentDate: true,
+          swimmingDays: true,
+          timeSlot: true,
+          subscriber: {
+            select: {
+              id: true,
+              birthDate: true,
+              gender: true,
+              bloodType: true,
+              subscriptionType: true,
+              paymentStatus: true,
+              lastPaymentDate: true,
+              swimmingDays: true,
+              timeSlot: true,
+            },
+          },
+        },
+      });
 
-      db.subscriber.groupBy({
-        by: ["subscriptionType"],
-        where: clubFilter,
-        _count: { _all: true },
-      }),
+      const merged = enrollments.map((e) => ({
+        id: e.subscriber.id,
+        birthDate: e.subscriber.birthDate,
+        gender: e.subscriber.gender,
+        bloodType: e.subscriber.bloodType,
+        subscriptionType: e.subscriptionType || e.subscriber.subscriptionType,
+        paymentStatus: e.paymentStatus || e.subscriber.paymentStatus,
+        lastPaymentDate: e.lastPaymentDate ?? e.subscriber.lastPaymentDate,
+        swimmingDays: e.swimmingDays ?? e.subscriber.swimmingDays,
+        timeSlot: e.timeSlot ?? e.subscriber.timeSlot,
+      }));
 
-      db.subscriber.groupBy({
-        by: ["gender"],
-        where: clubFilter,
-        _count: { _all: true },
-      }),
+      total = merged.length;
+      paymentCounts = tallyBy(merged, (s) => s.paymentStatus);
+      subTypeCounts = tallyBy(merged, (s) => s.subscriptionType);
+      genderCounts = tallyBy(merged, (s) => s.gender);
+      bloodCounts = tallyBy(merged, (s) => s.bloodType);
+      daysCounts = tallyBy(merged, (s) => s.swimmingDays);
+      slotCounts = tallyBy(merged, (s) => s.timeSlot);
+      subsForComputation = merged.map((s) => ({
+        id: s.id,
+        birthDate: s.birthDate,
+        gender: s.gender,
+        subscriptionType: s.subscriptionType,
+        paymentStatus: s.paymentStatus,
+        lastPaymentDate: s.lastPaymentDate,
+      }));
+    } else {
+      // ════ 1) التوزيعات حسب الحقول المخزنة (groupBy في DB — سريع جداً) ════
+      const [
+        totalCount,
+        byPaymentStatusRaw,
+        bySubscriptionTypeRaw,
+        byGenderRaw,
+        byBloodTypeRaw,
+        bySwimmingDaysRaw,
+        byTimeSlotRaw,
+        rawSubsForComputation,
+      ] = await Promise.all([
+        db.subscriber.count({ where: clubFilter }),
 
-      db.subscriber.groupBy({
-        by: ["bloodType"],
-        where: clubFilter,
-        _count: { _all: true },
-      }),
+        db.subscriber.groupBy({
+          by: ["paymentStatus"],
+          where: clubFilter,
+          _count: { _all: true },
+        }),
 
-      db.subscriber.groupBy({
-        by: ["swimmingDays"],
-        where: clubFilter,
-        _count: { _all: true },
-      }),
+        db.subscriber.groupBy({
+          by: ["subscriptionType"],
+          where: clubFilter,
+          _count: { _all: true },
+        }),
 
-      db.subscriber.groupBy({
-        by: ["timeSlot"],
-        where: clubFilter,
-        _count: { _all: true },
-      }),
-    ]);
+        db.subscriber.groupBy({
+          by: ["gender"],
+          where: clubFilter,
+          _count: { _all: true },
+        }),
+
+        db.subscriber.groupBy({
+          by: ["bloodType"],
+          where: clubFilter,
+          _count: { _all: true },
+        }),
+
+        db.subscriber.groupBy({
+          by: ["swimmingDays"],
+          where: clubFilter,
+          _count: { _all: true },
+        }),
+
+        db.subscriber.groupBy({
+          by: ["timeSlot"],
+          where: clubFilter,
+          _count: { _all: true },
+        }),
+
+        db.subscriber.findMany({
+          where: clubFilter,
+          select: {
+            id: true,
+            birthDate: true,
+            gender: true,
+            subscriptionType: true,
+            paymentStatus: true,
+            lastPaymentDate: true,
+          },
+        }),
+      ]);
+
+      total = totalCount;
+      paymentCounts = mapGroupCounts(byPaymentStatusRaw, (r) => r.paymentStatus);
+      subTypeCounts = mapGroupCounts(bySubscriptionTypeRaw, (r) => r.subscriptionType);
+      genderCounts = mapGroupCounts(byGenderRaw, (r) => r.gender);
+      bloodCounts = mapGroupCounts(byBloodTypeRaw, (r) => r.bloodType);
+      daysCounts = mapGroupCounts(bySwimmingDaysRaw, (r) => r.swimmingDays);
+      slotCounts = mapGroupCounts(byTimeSlotRaw, (r) => r.timeSlot);
+      subsForComputation = rawSubsForComputation;
+    }
 
     // تنسيق التوزيعات
     // ★ "معفى" added as a separate payment status bucket
     const paymentStatusLabels = ["مدفوع", "لم يدفع", "تأمين فقط", "اشتراك 300", "معفى"];
     const byPaymentStatus = paymentStatusLabels.map((status) => ({
       status,
-      count: byPaymentStatusRaw.find((r) => r.paymentStatus === status)?._count._all || 0,
+      count: paymentCounts[status] || 0,
     }));
-
-    // ★ Explicit EXEMPT count (the key new metric)
-    const exemptCount = byPaymentStatusRaw
-      .filter((r) => isExemptStatus(r.paymentStatus))
-      .reduce((sum, r) => sum + r._count._all, 0);
 
     // أنواع الاشتراك من DB
     const subTypeWhere = isSuperadmin ? { active: true } : { clubId: currentUser.clubId!, active: true };
@@ -95,43 +211,31 @@ export async function GET() {
     });
     const bySubscriptionType = dbSubTypes.map((t) => ({
       type: t.name === t.code ? t.name : `${t.name} (${t.code})`,
-      count: bySubscriptionTypeRaw.find((r) => r.subscriptionType === t.code)?._count._all || 0,
+      count: subTypeCounts[t.code] || 0,
     }));
 
-    const totalMales = byGenderRaw.find((r) => r.gender === "ذكر")?._count._all || 0;
-    const totalFemales = byGenderRaw.find((r) => r.gender === "أنثى")?._count._all || 0;
+    const totalMales = genderCounts["ذكر"] || 0;
+    const totalFemales = genderCounts["أنثى"] || 0;
 
     const bloodTypes = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"] as const;
     const byBloodType = bloodTypes.map((type) => ({
       type,
-      count: byBloodTypeRaw.find((r) => r.bloodType === type)?._count._all || 0,
+      count: bloodCounts[type] || 0,
     }));
 
     const swimmingDaysOptions = ["الأحد والأربعاء", "الاثنين والخميس", "الثلاثاء والجمعة", "كل الأيام"] as const;
     const bySwimmingDays = swimmingDaysOptions.map((days) => ({
       days,
-      count: bySwimmingDaysRaw.find((r) => r.swimmingDays === days)?._count._all || 0,
+      count: daysCounts[days] || 0,
     }));
 
     const timeSlots = ["09:00-10:00", "10:00-11:00", "19:00-20:00", "20:00-21:00"] as const;
     const byTimeSlot = timeSlots.map((slot) => ({
       slot,
-      count: byTimeSlotRaw.find((r) => r.timeSlot === slot)?._count._all || 0,
+      count: slotCounts[slot] || 0,
     }));
 
     // ════ 2) الحسابات المالية والعمرية (تحتاج حقول محسوبة في JS) ════
-    // 🔒 تحسين: select فقط الحقول اللازمة (~200 bytes/صف بدلاً من ~2KB)
-    const subsForComputation = await db.subscriber.findMany({
-      where: clubFilter,
-      select: {
-        id: true,
-        birthDate: true,
-        gender: true,
-        subscriptionType: true,
-        paymentStatus: true,
-        lastPaymentDate: true,
-      },
-    });
 
     // ★ جلب أنواع الاشتراك من قاعدة البيانات لحساب الرسوم الصحيحة حسب العمر
     const dbTypesMap: Record<string, SubscriptionTypeConfig> = {};
@@ -202,7 +306,11 @@ export async function GET() {
           } catch { /* إعداد تالف */ }
         }
         const operatingToday = isOperatingDay(opDays, todayKey);
-        const slots = await db.swimmingTimeSlot.findMany({ where: { clubId } });
+        const slots = await db.swimmingTimeSlot.findMany({
+          where: activePoolFilter
+            ? { clubId, OR: [{ poolId: activePoolFilter }, { poolId: null }] }
+            : { clubId },
+        });
         const todaySessionsList = operatingToday ? sessionsForDay(slots as never, todayKey) : [];
         const todaySessionIds = todaySessionsList.map((s) => s.id);
         // العمال المعيّنون على جلسات اليوم (عبر slotId) — عدد فريد

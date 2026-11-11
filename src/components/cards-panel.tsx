@@ -85,6 +85,10 @@ export function CardsPanel({ subscribers }: CardsPanelProps) {
 
   const filteredSubscribers = subscribers.filter((s) => {
     if (filterPoolId === "all") return true;
+    const enrollments = (s as any).enrollments as Array<{ poolId?: string }> | undefined;
+    if (Array.isArray(enrollments) && enrollments.length > 0) {
+      return enrollments.some((e) => e.poolId === filterPoolId);
+    }
     return (s as any).poolId === filterPoolId;
   });
 
