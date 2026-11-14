@@ -205,3 +205,49 @@ export function generatePhotoId(): string {
   }
   return "ph-" + Date.now() + "-" + Math.random().toString(36).substring(2, 10);
 }
+
+/**
+ * إنشاء نسخة مصغّرة من الصورة الأصلية لحفظها في قاعدة البيانات بدون تضخيم
+ * الضلع الأكبر بحد أقصى maxDim (افتراضياً 800px) مع الحفاظ على النسبة
+ * تعبئة بخلفية بيضاء لمعالجة شفافية PNG بشكل سليم
+ * إخراج JPEG بجودة quality (افتراضياً 0.8)
+ */
+export async function makeDownscaledOriginal(
+  input: File | string,
+  maxDim: number = 800,
+  quality: number = 0.8
+): Promise<string> {
+  const dataURL = typeof input === "string" ? input : await fileToDataURL(input);
+  const img = await loadImage(dataURL);
+
+  const naturalWidth = img.naturalWidth || img.width;
+  const naturalHeight = img.naturalHeight || img.height;
+
+  if (naturalWidth <= 0 || naturalHeight <= 0) {
+    return dataURL;
+  }
+
+  const scale = Math.min(1, maxDim / Math.max(naturalWidth, naturalHeight));
+  const targetWidth = Math.max(1, Math.round(naturalWidth * scale));
+  const targetHeight = Math.max(1, Math.round(naturalHeight * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return dataURL;
+  }
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+
+  // خلفية بيضاء للشفافية
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, targetWidth, targetHeight);
+
+  ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+
+  return canvas.toDataURL("image/jpeg", quality);
+}
+

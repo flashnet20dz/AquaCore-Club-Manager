@@ -21,6 +21,8 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useSubscriptionTypes } from "@/hooks/use-subscription-types";
 import { formatDate } from "@/lib/date-utils";
+import { BulkPhotoUpload } from "@/components/bulk-photo-upload";
+import type { CandidateSubscriber } from "@/lib/photo-filename-match";
 
 // ──────────────── Types ────────────────
 interface ErrorDetail {
@@ -126,7 +128,12 @@ type TabKey = "all" | "valid" | "warnings" | "errors";
 type SortKey = "row" | "lastName" | "birthDate" | "subscriptionFee" | "totalAmount";
 
 // ──────────────── Main Component ────────────────
-export function ImportPanel() {
+export interface ImportPanelProps {
+  subscribers?: CandidateSubscriber[];
+  onDone?: () => void;
+}
+
+export function ImportPanel({ subscribers = [], onDone }: ImportPanelProps = {}) {
   const { activeTypes: subTypes } = useSubscriptionTypes();
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -687,6 +694,11 @@ export function ImportPanel() {
             </div>
           )}
         </div>
+      )}
+
+      {/* ─── Bulk Photo Upload Card (رفع صور المنخرطين الجماعي) ─── */}
+      {!preview && (
+        <BulkPhotoUpload subscribers={subscribers} onDone={onDone} />
       )}
 
       {/* ════════════ Review Interface (after preview) ════════════ */}

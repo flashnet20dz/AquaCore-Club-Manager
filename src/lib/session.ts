@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { db } from "@/lib/db";
 import { cookies } from "next/headers";
+import type { NextRequest } from "next/server";
 import type { Role, SessionUser } from "@/lib/roles";
 
 // Re-export for backward compatibility
@@ -230,9 +231,33 @@ export function getSessionFromToken(token: string | undefined): SessionUser | nu
   return null; // DB lookup is async — use getCurrentUser() instead
 }
 
-export async function getCurrentUser(): Promise<SessionUser | null> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE)?.value;
+export async function getCurrentUser(req?: NextRequest | Request): Promise<SessionUser | null> {
+  let token: string | undefined;
+
+  // 1. استخراج التوكن من الطلب مباشرة إن وُجد (يدعم البيئات المباشرة واختبارات المسارات)
+  if (req) {
+    if ("cookies" in req && typeof (req as any).cookies?.get === "function") {
+      token = (req as NextRequest).cookies.get(SESSION_COOKIE)?.value;
+    }
+    if (!token && typeof req.headers?.get === "function") {
+      const cookieHeader = req.headers.get("cookie") || "";
+      const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`));
+      if (match) {
+        token = decodeURIComponent(match[1]);
+      }
+    }
+  }
+
+  // 2. استخدام cookies() من Next.js كاحتياط
+  if (!token) {
+    try {
+      const cookieStore = await cookies();
+      token = cookieStore.get(SESSION_COOKIE)?.value;
+    } catch {
+      // استدعاء خارج نطاق طلب Next.js التلقائي
+    }
+  }
+
   if (!token) return null;
 
   // Check fallback

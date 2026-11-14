@@ -1236,7 +1236,7 @@ export default function Home() {
           {/* IMPORT TAB */}
           {hasPermission(sessionUser.role, "import") && visitedTabs.has("import") && (
             <TabsContent value="import" forceMount className="mt-0 data-[state=inactive]:hidden">
-              <ImportPanel />
+              <ImportPanel subscribers={subscribers} onDone={fetchData} />
             </TabsContent>
           )}
 
