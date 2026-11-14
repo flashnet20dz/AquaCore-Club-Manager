@@ -250,11 +250,16 @@ export default function RootLayout({
                   var opts = Object.assign({}, o, { numberingSystem: 'latn' });
                   return toLatin(origN.call(this, fixLoc(l), opts));
                 };
-                if (typeof Intl !== 'undefined' && Intl.DateTimeFormat) {
-                  var origFmt = Intl.DateTimeFormat.prototype.format;
-                  Intl.DateTimeFormat.prototype.format = function(d) {
-                    return toLatin(origFmt.call(this, d));
-                  };
+                if (typeof Intl !== 'undefined' && Intl.DateTimeFormat && Intl.DateTimeFormat.prototype) {
+                  try {
+                    var desc = Object.getOwnPropertyDescriptor(Intl.DateTimeFormat.prototype, 'format');
+                    if (desc && typeof desc.value === 'function') {
+                      var origFmt = desc.value;
+                      Intl.DateTimeFormat.prototype.format = function(d) {
+                        return toLatin(origFmt.call(this, d));
+                      };
+                    }
+                  } catch (e) {}
                 }
 
                 // ═══ Date Input DD/MM/YYYY Enforcer ═══
