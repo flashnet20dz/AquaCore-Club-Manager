@@ -1058,4 +1058,24 @@ input:-webkit-autofill:active {
   animation: water-pulse 9s ease-in-out infinite;
 }
 
+/* ═══════════════════════════════════════════════════════════
+   ★ ملاءمة الهاتف (Capacitor / PWA)
+   ═══════════════════════════════════════════════════════════ */
+/* لمس سريع بلا تأخير النقر المزدوج، وبلا تكبير عرضي */
+a, button, [role="button"], input, select, textarea, label, summary {
+  touch-action: manipulation;
+}
+/* منع الارتداد/التحديث بالسحب العرضي داخل WebView (التمرير الداخلي يعمل كالمعتاد) */
+html, body {
+  overscroll-behavior-y: none;
+}
+/* iOS/Android: خط الحقول أقل من 16px يُكبِّر الصفحة تلقائياً عند التركيز */
+@media (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
 

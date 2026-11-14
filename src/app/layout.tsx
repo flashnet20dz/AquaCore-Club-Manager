@@ -93,6 +93,8 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 5,
   userScalable: true,
+  // ★ الهاتف: يفعّل env(safe-area-inset-*) لمناطق الشق (notch) وشريط الإيماءات
+  viewportFit: "cover",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#faf7fb" },
     { media: "(prefers-color-scheme: dark)", color: "#0d0b10" },
@@ -297,7 +299,7 @@ export default function RootLayout({
         />
       </head>
       <body
-        className={`${cairo.variable} ${tajawal.variable} ${inter.variable} ${jetbrainsMono.variable} ${unbounded.variable} ${manrope.variable} ${azeretMono.variable} ${cairoPlay.variable} font-cairo antialiased bg-background text-foreground min-h-screen`}
+        className={`${cairo.variable} ${tajawal.variable} ${inter.variable} ${jetbrainsMono.variable} ${unbounded.variable} ${manrope.variable} ${azeretMono.variable} ${cairoPlay.variable} font-cairo antialiased bg-background text-foreground min-h-dvh`}
       >
         <LatinDigitsGuard />
         <ThemeProvider>

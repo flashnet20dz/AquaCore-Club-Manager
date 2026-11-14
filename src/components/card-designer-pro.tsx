@@ -2909,7 +2909,8 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
                     </p>
                   </div>
                 ) : (
-                  <table className="w-full text-sm">
+                  <div className="overflow-x-auto">
+                  <table className="w-full min-w-[420px] text-sm">
                     <thead className="sticky top-0 bg-muted/60 z-10">
                       <tr className="text-right border-b">
                         <th className="p-2 w-10">#</th>
@@ -2949,6 +2950,7 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
                       })}
                     </tbody>
                   </table>
+                  </div>
                 )}
               </div>
 

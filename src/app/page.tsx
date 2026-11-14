@@ -588,7 +588,7 @@ export default function Home() {
 
   if (authLoading || !sessionUser) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-teal-600 via-sky-700 to-indigo-800">
+      <div className="min-h-dvh flex items-center justify-center bg-gradient-to-br from-teal-600 via-sky-700 to-indigo-800">
         <div className="text-white text-center">
           <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-white/15 backdrop-blur-md mb-3">
             <RefreshCw className="h-8 w-8 animate-spin" />
@@ -608,12 +608,12 @@ export default function Home() {
   return (
     <SubscriptionGate>
     <div
-      className="min-h-screen ambient-canvas flex flex-col transition-colors duration-300"
+      className="min-h-dvh ambient-canvas flex flex-col transition-colors duration-300"
       style={{ "--theme-primary": themePrimary, "--theme-secondary": themeSecondary } as React.CSSProperties}
     >
       {/* Header */}
       {activeTab !== "cards-pro" && (
-        <header className="sticky top-0 z-40 glass border-b border-border/80 shadow-xs transition-colors duration-300">
+        <header className="sticky top-0 z-40 glass border-b border-border/80 shadow-xs transition-colors duration-300 pt-[env(safe-area-inset-top)]">
           <div className="w-full mx-auto px-2 sm:px-4 lg:px-6 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-3">
           <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 flex-1">
             {/* Mobile Sidebar Hamburger Toggle */}
@@ -812,7 +812,7 @@ export default function Home() {
           "flex-1 min-w-0",
           activeTab === "cards-pro"
             ? "p-0 space-y-0 overflow-hidden h-screen"
-            : "overflow-y-auto pb-24 md:pb-8 px-2 sm:px-4 lg:px-8 py-4 sm:py-8 space-y-4 sm:space-y-6"
+            : "overflow-y-auto pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-8 px-2 sm:px-4 lg:px-8 py-4 sm:py-8 space-y-4 sm:space-y-6"
         )}>
           <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
             {/* DASHBOARD TAB */}

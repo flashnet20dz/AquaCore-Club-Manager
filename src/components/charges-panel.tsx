@@ -895,8 +895,8 @@ function CompoundRightsSection({ subscribers }: { subscribers: SubscriberWithCom
         </div>
 
         {/* Table */}
-        <div className="rounded-xl border border-border/60 overflow-hidden max-h-[400px] overflow-y-auto scrollbar-thin">
-          <table className="w-full text-xs">
+        <div className="rounded-xl border border-border/60 max-h-[400px] overflow-auto scrollbar-thin">
+          <table className="w-full min-w-[520px] text-xs">
             <thead className="sticky top-0 bg-card border-b">
               <tr className="text-right">
                 <th className="p-2 font-semibold w-10">#</th>
