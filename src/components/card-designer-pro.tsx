@@ -35,6 +35,7 @@ import {
   Moon, Sun, ZoomIn, ZoomOut, Maximize, Users,
   Droplets, Wand2, CalendarRange, Frame, RotateCcw,
   ListChecks, Plus, Cloud, CloudOff, HardDrive, RefreshCw,
+  ChevronRight, MoreVertical,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -374,6 +375,7 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
   const [membersSheetOpen, setMembersSheetOpen] = useState(false);
   const [elementsSheetOpen, setElementsSheetOpen] = useState(false);
   const [propsSheetOpen, setPropsSheetOpen] = useState(false);
+  const [printSheetOpen, setPrintSheetOpen] = useState(false);
 
   // ── Dialogs ──
   const [showSaveTemplate, setShowSaveTemplate] = useState(false);
@@ -446,25 +448,26 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
   const naturalH = cmToPx(design.config.height);
 
   const computeFitScale = useCallback(() => {
-    const availW = Math.max(260, containerSize.width - (containerSize.width < 640 ? 40 : 96));
-    const availH = Math.max(240, containerSize.height - 130);
+    const isPhone = containerSize.width < 640;
+    const availW = Math.max(240, containerSize.width - (isPhone ? 16 : 96));
+    const availH = Math.max(200, containerSize.height - (isPhone ? 60 : 130));
 
     if (viewMode === "both") {
       if (containerSize.width >= 960) {
         const targetW = naturalW * 2 + 40;
         const scaleW = availW / targetW;
         const scaleH = availH / naturalH;
-        return Math.min(1.15, Math.max(0.35, Math.round(Math.min(scaleW, scaleH) * 100) / 100));
+        return Math.min(1.15, Math.max(0.3, Math.round(Math.min(scaleW, scaleH) * 100) / 100));
       } else {
-        const targetH = naturalH * 2 + 60;
+        const targetH = naturalH * 2 + 30;
         const scaleW = availW / naturalW;
         const scaleH = availH / targetH;
-        return Math.min(1.0, Math.max(0.35, Math.round(Math.min(scaleW, scaleH) * 100) / 100));
+        return Math.min(1.0, Math.max(0.28, Math.round(Math.min(scaleW, scaleH) * 100) / 100));
       }
     } else {
       const scaleW = availW / naturalW;
       const scaleH = availH / naturalH;
-      return Math.min(1.2, Math.max(0.4, Math.round(Math.min(scaleW, scaleH) * 100) / 100));
+      return Math.min(1.2, Math.max(0.35, Math.round(Math.min(scaleW, scaleH) * 100) / 100));
     }
   }, [containerSize, viewMode, naturalW, naturalH]);
 
@@ -1498,7 +1501,7 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
                   setSelectedId(el.id);
                 }}
                 className={cn(
-                  "absolute flex items-center select-none transition-shadow",
+                  "absolute flex items-center select-none transition-shadow touch-none",
                   el.locked ? "cursor-default" : "cursor-move",
                   isSelected && "ring-2 ring-sky-500 ring-offset-1",
                   el.shadow && "shadow-lg",
@@ -1609,13 +1612,129 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
           darkMode && "dark bg-gradient-to-br dark:from-slate-950 dark:via-slate-900 dark:to-blue-950",
         )}
       >
-        {/* ════════════ 1. TOP TOOLBAR (executive glassmorphism) ════════════ */}
-        <motion.div
-          initial={{ y: -15, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.3 }}
-          className="m-2.5 mb-1.5 rounded-2xl bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800 shadow-sm"
-        >
+        {/* ════════════ 1. TOP TOOLBAR ════════════ */}
+        {isMobile ? (
+          /* Mobile Compact App Bar (Single row, 48px, zero clutter) */
+          <div className="flex items-center justify-between gap-1 px-2.5 py-1.5 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-slate-200/80 dark:border-slate-800 shrink-0 select-none">
+            {/* Right: Back button & brand */}
+            <div className="flex items-center gap-1.5">
+              {onBack && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onBack}
+                  className="h-8 px-2 text-xs font-bold gap-1 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                  <span>رجوع</span>
+                </Button>
+              )}
+              <div className="flex items-center gap-1.5">
+                <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-teal-500 to-sky-600 flex items-center justify-center text-white shadow-xs">
+                  <CreditCard className="h-3.5 w-3.5" />
+                </div>
+                <span className="text-xs font-black bg-gradient-to-l from-teal-700 to-sky-700 dark:from-teal-400 dark:to-sky-400 bg-clip-text text-transparent">
+                  AquaCore
+                </span>
+              </div>
+            </div>
+
+            {/* Center: Flip toggle (Front / Back / Both) */}
+            <div className="flex items-center bg-slate-100/90 dark:bg-slate-800/90 rounded-lg p-0.5 border border-slate-200/70 dark:border-slate-700/70">
+              {(["front", "back", "both"] as const).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => { setViewMode(v); if (v !== "both") setActiveSide(v); }}
+                  className={cn(
+                    "px-2 py-0.5 rounded-md text-[10px] font-bold transition-all cursor-pointer",
+                    viewMode === v
+                      ? "bg-white dark:bg-slate-700 text-teal-700 dark:text-teal-300 shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {v === "front" ? "أمامي" : v === "back" ? "خلفي" : "معاً"}
+                </button>
+              ))}
+            </div>
+
+            {/* Left: Quick Actions (Undo, Direct Print, More Dropdown) */}
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={undo}
+                disabled={historyIndex <= 0}
+                className="h-7 w-7 p-0 text-slate-600 dark:text-slate-300"
+                title="تراجع"
+              >
+                <Undo2 className="h-3.5 w-3.5" />
+              </Button>
+
+              <Button
+                size="sm"
+                onClick={handlePrintDirect}
+                disabled={generating}
+                className="h-7 px-2.5 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white font-bold text-[11px] gap-1 shadow-xs"
+              >
+                {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Printer className="h-3 w-3" />}
+                <span>طباعة</span>
+              </Button>
+
+              {/* More actions dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                    <MoreVertical className="h-4 w-4 text-slate-600 dark:text-slate-300" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56 text-xs">
+                  <DropdownMenuLabel className="text-[11px] text-muted-foreground font-semibold">خيارات التصدير والطباعة</DropdownMenuLabel>
+                  <DropdownMenuItem onClick={handlePrintPDF} disabled={generating} className="gap-2 cursor-pointer">
+                    <FileText className="h-4 w-4 text-rose-500" /> حفظ PDF
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleExportWord} disabled={generating} className="gap-2 cursor-pointer">
+                    <FileText className="h-4 w-4 text-blue-500" /> تصدير Word
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleExportPNG} disabled={generating} className="gap-2 cursor-pointer">
+                    <ImageIcon className="h-4 w-4 text-emerald-500" /> تصدير صورة PNG
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleExportA4} disabled={generating} className="gap-2 cursor-pointer">
+                    <Grid3x3 className="h-4 w-4 text-purple-500" /> 8 بطاقات / صفحة A4
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel className="text-[11px] text-muted-foreground font-semibold">الوسائط والقوالب</DropdownMenuLabel>
+                  <DropdownMenuItem onClick={() => fileImageRef.current?.click()} className="gap-2 cursor-pointer">
+                    <Upload className="h-4 w-4 text-teal-600" /> رفع صورة أو شعار
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => fileBgRef.current?.click()} className="gap-2 cursor-pointer">
+                    <Palette className="h-4 w-4 text-sky-600" /> تغيير خلفية البطاقة
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setShowSaveTemplate(true)} className="gap-2 cursor-pointer">
+                    <Save className="h-4 w-4 text-amber-600" /> حفظ كقالب
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { fetchTemplates(); setShowLoadTemplate(true); }} className="gap-2 cursor-pointer">
+                    <FolderOpen className="h-4 w-4 text-amber-500" /> فتح قالب محفوظ
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setDarkMode((d) => !d)} className="gap-2 cursor-pointer">
+                    {darkMode ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4 text-slate-500" />}
+                    {darkMode ? "الوضع النهاري" : "الوضع الليلي"}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setShowSettings(true)} className="gap-2 cursor-pointer">
+                    <Settings2 className="h-4 w-4 text-slate-500" /> إعدادات أبعاد البطاقة
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        ) : (
+          /* Desktop Executive Glassmorphism Toolbar */
+          <motion.div
+            initial={{ y: -15, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ duration: 0.3 }}
+            className="m-2.5 mb-1.5 rounded-2xl bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800 shadow-sm"
+          >
           <div className="flex items-center justify-between gap-2 px-3 py-1.5 flex-wrap">
             {/* Left / Start Group: Brand, Back, History, View Switcher */}
             <div className="flex items-center gap-1.5">
@@ -1945,6 +2064,7 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
             </div>
           </div>
         </motion.div>
+        )}
 
         {/* ════════════ MAIN AREA: 3 columns ════════════ */}
         <div className="flex flex-1 overflow-hidden gap-2 px-2 pb-2">
@@ -2124,7 +2244,7 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
             >
               <ScrollArea className="flex-1 w-full h-full">
                 <div
-                  className="min-h-full flex flex-col items-center justify-start p-8 sm:p-12 gap-8 relative"
+                  className="min-h-full flex flex-col items-center justify-start p-2 sm:p-6 md:p-12 gap-3 sm:gap-8 relative"
                   style={{
                     backgroundImage: darkMode
                       ? "radial-gradient(rgba(255, 255, 255, 0.08) 1.5px, transparent 1.5px)"
@@ -2133,7 +2253,7 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
                   }}
                 >
                   {viewMode === "both" ? (
-                    <div className="flex flex-col xl:flex-row gap-10 items-center justify-center">
+                    <div className="flex flex-col xl:flex-row gap-4 sm:gap-10 items-center justify-center">
                       {renderCanvas("front")}
                       {renderCanvas("back")}
                     </div>
@@ -2142,7 +2262,7 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
                   )}
 
                   {/* Studio Keyboard Shortcut Guide Footer */}
-                  <div className="flex items-center gap-3 px-3 py-1 rounded-full bg-white/70 dark:bg-slate-900/70 border border-slate-200/60 dark:border-slate-800 text-[10px] text-muted-foreground shadow-xs mt-2 backdrop-blur-sm">
+                  <div className="hidden sm:flex items-center gap-3 px-3 py-1 rounded-full bg-white/70 dark:bg-slate-900/70 border border-slate-200/60 dark:border-slate-800 text-[10px] text-muted-foreground shadow-xs mt-2 backdrop-blur-sm">
                     <span>اسحب لتحريك العناصر</span>
                     <span>•</span>
                     <span>نقر مزدوج للتسمية</span>
@@ -2223,12 +2343,31 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
           )}
         </div>
 
+        {/* Floating Element Selection Bar (Mobile) */}
+        {isMobile && selected && (
+          <div className="flex items-center justify-between px-3 py-1.5 bg-sky-50 dark:bg-slate-800 border-t border-sky-200 dark:border-slate-700 text-xs shrink-0 select-none">
+            <div className="flex items-center gap-1.5 truncate">
+              <span className="h-2 w-2 rounded-full bg-sky-500 animate-pulse shrink-0" />
+              <span className="font-bold text-sky-800 dark:text-sky-300 truncate">محدد: {selected.name}</span>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Button size="sm" variant="ghost" onClick={() => setPropsSheetOpen(true)} className="h-6 px-2 text-[11px] text-sky-700 dark:text-sky-300 font-bold hover:bg-sky-100 dark:hover:bg-slate-700">
+                تعديل الخصائص
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => deleteElement(selected.id)} className="h-6 w-6 p-0 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40">
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* ════════════ MOBILE: bottom navigation bar ════════════ */}
         {isMobile && (
-          <div className="flex border-t border-white/30 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl shrink-0">
-            <MobileTabButton icon={Users} label="الأعضاء" onClick={() => setMembersSheetOpen(true)} />
+          <div className="flex border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl shrink-0 safe-bottom">
+            <MobileTabButton icon={Users} label="الأعضاء" badge={selectedSubIds.length > 0 ? selectedSubIds.length : undefined} onClick={() => setMembersSheetOpen(true)} />
             <MobileTabButton icon={Layers} label="العناصر" badge={elements.length} onClick={() => setElementsSheetOpen(true)} />
             <MobileTabButton icon={Palette} label="خصائص" disabled={!selected} onClick={() => selected ? setPropsSheetOpen(true) : toast.info("اختر عنصراً أولاً")} />
+            <MobileTabButton icon={Printer} label="طباعة وتصدير" onClick={() => setPrintSheetOpen(true)} />
             <MobileTabButton icon={Settings2} label="إعدادات" onClick={() => setShowSettings(true)} />
           </div>
         )}
@@ -2311,6 +2450,143 @@ export function CardDesignerPro({ subscribers, onBack }: CardDesignerProProps) {
                       <p>اختر عنصراً لعرض خصائصه</p>
                     </div>
                   )}
+                </ScrollArea>
+              </SheetContent>
+            </Sheet>
+
+            {/* Sheet 4: Print & Export */}
+            <Sheet open={printSheetOpen} onOpenChange={setPrintSheetOpen}>
+              <SheetContent side="bottom" className="h-[80vh] p-0 rounded-t-2xl">
+                <SheetHeader className="px-4 py-3 border-b bg-gradient-to-l from-teal-600 to-sky-700 text-white rounded-t-2xl">
+                  <SheetTitle className="flex items-center justify-between text-white text-base">
+                    <span className="flex items-center gap-2">
+                      <Printer className="h-5 w-5" /> طباعة وتصدير البطاقات
+                    </span>
+                    <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full font-normal">
+                      {selectedSubIds.length > 0 ? `${selectedSubIds.length} منخرط محدد` : "البطاقة المعروضة"}
+                    </span>
+                  </SheetTitle>
+                </SheetHeader>
+                <ScrollArea className="h-[calc(100%-56px)] p-4">
+                  <div className="space-y-3">
+                    {/* Primary Direct Print Button */}
+                    <button
+                      onClick={() => { setPrintSheetOpen(false); handlePrintDirect(); }}
+                      disabled={generating}
+                      className="w-full flex items-center justify-between p-3.5 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 text-white font-bold shadow-md hover:from-teal-500 hover:to-emerald-500 transition-all text-right cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
+                          <Printer className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <div className="text-sm font-extrabold">طباعة مباشرة للمحددين</div>
+                          <div className="text-[11px] text-teal-100 font-normal">طباعة فورية وجه أمامي وخلفي (8 بطاقات / A4)</div>
+                        </div>
+                      </div>
+                      <ChevronRight className="h-5 w-5 text-white/80" />
+                    </button>
+
+                    {/* Export Grid Options */}
+                    <div className="grid grid-cols-2 gap-2.5">
+                      {/* PDF */}
+                      <button
+                        onClick={() => { setPrintSheetOpen(false); handlePrintPDF(); }}
+                        disabled={generating}
+                        className="flex flex-col items-start p-3 rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50/60 dark:bg-rose-950/20 hover:bg-rose-100/60 text-right transition cursor-pointer"
+                      >
+                        <div className="h-8 w-8 rounded-lg bg-rose-100 dark:bg-rose-900/40 text-rose-600 flex items-center justify-center mb-1.5">
+                          <FileText className="h-4 w-4" />
+                        </div>
+                        <span className="text-xs font-bold text-rose-900 dark:text-rose-200">حفظ PDF</span>
+                        <span className="text-[10px] text-muted-foreground">ملف PDF عالي الجودة جاهز للطباعة</span>
+                      </button>
+
+                      {/* Word */}
+                      <button
+                        onClick={() => { setPrintSheetOpen(false); handleExportWord(); }}
+                        disabled={generating}
+                        className="flex flex-col items-start p-3 rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50/60 dark:bg-blue-950/20 hover:bg-blue-100/60 text-right transition cursor-pointer"
+                      >
+                        <div className="h-8 w-8 rounded-lg bg-blue-100 dark:bg-blue-900/40 text-blue-600 flex items-center justify-center mb-1.5">
+                          <FileText className="h-4 w-4" />
+                        </div>
+                        <span className="text-xs font-bold text-blue-900 dark:text-blue-200">تصدير Word</span>
+                        <span className="text-[10px] text-muted-foreground">مستند Word قابل للتعديل والطباعة</span>
+                      </button>
+
+                      {/* PNG */}
+                      <button
+                        onClick={() => { setPrintSheetOpen(false); handleExportPNG(); }}
+                        disabled={generating}
+                        className="flex flex-col items-start p-3 rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/60 dark:bg-emerald-950/20 hover:bg-emerald-100/60 text-right transition cursor-pointer"
+                      >
+                        <div className="h-8 w-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 flex items-center justify-center mb-1.5">
+                          <ImageIcon className="h-4 w-4" />
+                        </div>
+                        <span className="text-xs font-bold text-emerald-900 dark:text-emerald-200">صورة PNG</span>
+                        <span className="text-[10px] text-muted-foreground">صورة عالية الدقة للبطاقة</span>
+                      </button>
+
+                      {/* 8 per A4 */}
+                      <button
+                        onClick={() => { setPrintSheetOpen(false); handleExportA4(); }}
+                        disabled={generating}
+                        className="flex flex-col items-start p-3 rounded-xl border border-purple-200 dark:border-purple-900/50 bg-purple-50/60 dark:bg-purple-950/20 hover:bg-purple-100/60 text-right transition cursor-pointer"
+                      >
+                        <div className="h-8 w-8 rounded-lg bg-purple-100 dark:bg-purple-900/40 text-purple-600 flex items-center justify-center mb-1.5">
+                          <Grid3x3 className="h-4 w-4" />
+                        </div>
+                        <span className="text-xs font-bold text-purple-900 dark:text-purple-200">8 بطاقات / A4</span>
+                        <span className="text-[10px] text-muted-foreground">تجهيز صفحة A4 مقسمة للطباعة</span>
+                      </button>
+                    </div>
+
+                    {/* Print Queue Section */}
+                    <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/50 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold flex items-center gap-1.5">
+                          <ListChecks className="h-4 w-4 text-violet-600" />
+                          <span>قائمة انتظار الطباعة ({printQueue.length})</span>
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => { setPrintSheetOpen(false); setShowPrintQueue(true); }}
+                          className="h-7 text-[11px] px-2 text-violet-600 border-violet-200"
+                        >
+                          عرض القائمة
+                        </Button>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={addToPrintQueue}
+                        disabled={selectedSubIds.length === 0}
+                        className="w-full h-8 text-xs justify-center gap-1 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600"
+                      >
+                        <Plus className="h-3.5 w-3.5 text-violet-600" />
+                        <span>إضافة المحددين ({selectedSubIds.length}) إلى الانتظار</span>
+                      </Button>
+                    </div>
+
+                    {/* Print Settings Button */}
+                    <button
+                      onClick={() => { setPrintSheetOpen(false); setShowPrintSettings(true); }}
+                      className="w-full flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 text-right hover:bg-slate-50 transition cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className="h-8 w-8 rounded-lg bg-teal-50 dark:bg-teal-950/40 text-teal-600 flex items-center justify-center">
+                          <Settings2 className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-slate-800 dark:text-slate-100">إعدادات الطباعة المتقدمة</div>
+                          <div className="text-[10px] text-muted-foreground">الهوامش، جودة الورق، إرشادات القص، والتوسيط</div>
+                        </div>
+                      </div>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    </button>
+                  </div>
                 </ScrollArea>
               </SheetContent>
             </Sheet>

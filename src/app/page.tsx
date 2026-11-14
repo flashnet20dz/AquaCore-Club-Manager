@@ -612,8 +612,9 @@ export default function Home() {
       style={{ "--theme-primary": themePrimary, "--theme-secondary": themeSecondary } as React.CSSProperties}
     >
       {/* Header */}
-      <header className="sticky top-0 z-40 glass border-b border-border/80 shadow-xs transition-colors duration-300">
-        <div className="w-full mx-auto px-2 sm:px-4 lg:px-6 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-3">
+      {activeTab !== "cards-pro" && (
+        <header className="sticky top-0 z-40 glass border-b border-border/80 shadow-xs transition-colors duration-300">
+          <div className="w-full mx-auto px-2 sm:px-4 lg:px-6 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-3">
           <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 flex-1">
             {/* Mobile Sidebar Hamburger Toggle */}
             <Button
@@ -762,23 +763,26 @@ export default function Home() {
           </div>
         </div>
       </header>
+      )}
 
-      <div className="flex-1 flex flex-row min-w-0 w-full relative">
+      <div className={cn("flex-1 flex flex-row min-w-0 w-full relative", activeTab === "cards-pro" && "h-screen")}>
         {/* Desktop Sidebar (Collapsible & Reorderable via Settings) */}
-        <div className="hidden md:flex shrink-0 sticky top-14 sm:top-16 h-[calc(100vh-3.5rem)] sm:h-[calc(100vh-4rem)] z-30">
-          <AppSidebar
-            activeTab={activeTab}
-            onTabChange={handleTabChange}
-            isCollapsed={sidebarCollapsed}
-            onToggleCollapse={toggleSidebar}
-            userRole={sessionUser.role}
-            subscribersCount={stats?.total}
-            expiredRenewalsCount={stats?.byRenewalStatus?.find(r => r.status === "منتهية")?.count}
-            expiringContractsCount={stats?.workers?.contractsExpiringSoon}
-            clubName={headerTitle}
-            clubLogo={headerLogo}
-          />
-        </div>
+        {activeTab !== "cards-pro" && (
+          <div className="hidden md:flex shrink-0 sticky top-14 sm:top-16 h-[calc(100vh-3.5rem)] sm:h-[calc(100vh-4rem)] z-30">
+            <AppSidebar
+              activeTab={activeTab}
+              onTabChange={handleTabChange}
+              isCollapsed={sidebarCollapsed}
+              onToggleCollapse={toggleSidebar}
+              userRole={sessionUser.role}
+              subscribersCount={stats?.total}
+              expiredRenewalsCount={stats?.byRenewalStatus?.find(r => r.status === "منتهية")?.count}
+              expiringContractsCount={stats?.workers?.contractsExpiringSoon}
+              clubName={headerTitle}
+              clubLogo={headerLogo}
+            />
+          </div>
+        )}
 
         {/* Mobile Navigation Drawer */}
         <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
@@ -805,8 +809,10 @@ export default function Home() {
 
         {/* Main Workspace Area */}
         <main className={cn(
-          "flex-1 min-w-0 overflow-y-auto pb-24 md:pb-8",
-          activeTab === "cards-pro" ? "p-0 space-y-0 overflow-hidden" : "px-2 sm:px-4 lg:px-8 py-4 sm:py-8 space-y-4 sm:space-y-6"
+          "flex-1 min-w-0",
+          activeTab === "cards-pro"
+            ? "p-0 space-y-0 overflow-hidden h-screen"
+            : "overflow-y-auto pb-24 md:pb-8 px-2 sm:px-4 lg:px-8 py-4 sm:py-8 space-y-4 sm:space-y-6"
         )}>
           <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
             {/* DASHBOARD TAB */}
@@ -1432,13 +1438,15 @@ export default function Home() {
       <NetworkConnectionDialog open={wifiModalOpen} onClose={() => setWifiModalOpen(false)} />
 
       {/* شريط التنقل السفلي الاحترافي للأجهزة المحمولة */}
-      <MobileBottomNav
-        activeTab={activeTab}
-        onTabChange={handleTabChange}
-        onOpenMenu={() => setMobileNavOpen(true)}
-        subscribersCount={stats?.total}
-        unresolvedAlertsCount={stats?.workers?.contractsExpiringSoon}
-      />
+      {activeTab !== "cards-pro" && (
+        <MobileBottomNav
+          activeTab={activeTab}
+          onTabChange={handleTabChange}
+          onOpenMenu={() => setMobileNavOpen(true)}
+          subscribersCount={stats?.total}
+          unresolvedAlertsCount={stats?.workers?.contractsExpiringSoon}
+        />
+      )}
     </div>
     </SubscriptionGate>
   );
